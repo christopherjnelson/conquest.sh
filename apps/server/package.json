@@ -1,0 +1,16 @@
+{
+  "name": "@conquest/server",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "conquest-server": "./src/index.ts"
+  },
+  "dependencies": {
+    "@conquest/game-core": "workspace:*",
+    "@conquest/map-engine": "workspace:*",
+    "@conquest/protocol": "workspace:*",
+    "@conquest/shared": "workspace:*",
+    "zod": "^3.23.8"
+  }
+}
