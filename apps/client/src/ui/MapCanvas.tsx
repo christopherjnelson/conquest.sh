@@ -2,6 +2,9 @@ import React from "react";
 import type { GamePhase, Player, TerritoryState } from "@conquest/protocol";
 import {
   MAP_GRID_IRONREACH,
+  MAP_GRID_IRONREACH_COMPACT,
+  MAP_GRID_IRONREACH_WIDE,
+  type GridMapDefinition,
   getBorderInfo,
   getTerritoryAt,
 } from "@conquest/map-engine";
@@ -14,6 +17,8 @@ export interface MapCanvasProps {
   selectedTerritoryId: string | null;
   targetTerritoryId: string | null;
   hoveredTerritoryId?: string | null;
+  viewport?: "compact" | "wide";
+  terminalDimensions?: { columns: number; rows: number };
   onHoverTerritory?: (territoryId: string | null) => void;
   onSelectTerritory: (territoryId: string) => void;
   onSelectTarget: (territoryId: string) => void;
@@ -65,8 +70,7 @@ function getHoverTint(color: string): string {
   return "#1e293b";
 }
 
-// Module-level precomputed sea route grid
-const STATIC_SEA_ROUTES: Record<number, Record<number, { char: string; fg: string; bold?: boolean }>> = (() => {
+function buildSeaRoutesGrid(mapDef: GridMapDefinition) {
   const grid: Record<number, Record<number, { char: string; fg: string; bold?: boolean }>> = {};
 
   const setPoint = (x: number, y: number, char: string, fg: string, bold = false) => {
@@ -74,11 +78,11 @@ const STATIC_SEA_ROUTES: Record<number, Record<number, { char: string; fg: strin
     grid[y][x] = { char, fg, bold };
   };
 
-  for (const route of MAP_GRID_IRONREACH.seaRoutes) {
+  for (const route of mapDef.seaRoutes) {
     const path = route.path;
     for (let i = 0; i < path.length; i++) {
       const curr = path[i];
-      if (getTerritoryAt(curr.x, curr.y, MAP_GRID_IRONREACH)) {
+      if (getTerritoryAt(curr.x, curr.y, mapDef)) {
         if (i === 0 || i === path.length - 1) {
           setPoint(curr.x, curr.y, "○", "#38bdf8", true);
         }
@@ -110,10 +114,9 @@ const STATIC_SEA_ROUTES: Record<number, Record<number, { char: string; fg: strin
   }
 
   return grid;
-})();
+}
 
-// Module-level precomputed decoration grid
-const STATIC_DECORATIONS: Record<number, Record<number, { char: string; fg: string; bold?: boolean }>> = (() => {
+function buildDecorationsGrid(mapDef: GridMapDefinition) {
   const grid: Record<number, Record<number, { char: string; fg: string; bold?: boolean }>> = {};
 
   const setStr = (x: number, y: number, str: string, fg: string, bold = false) => {
@@ -124,34 +127,40 @@ const STATIC_DECORATIONS: Record<number, Record<number, { char: string; fg: stri
   };
 
   // Waves
-  for (const wave of MAP_GRID_IRONREACH.decorations.waves) {
+  for (const wave of mapDef.decorations.waves) {
     setStr(wave.x, wave.y, wave.text, "#1e293b");
   }
 
   // Mountains
-  for (const mtn of MAP_GRID_IRONREACH.decorations.mountains) {
+  for (const mtn of mapDef.decorations.mountains) {
     setStr(mtn.x, mtn.y, mtn.text, "#475569", true);
   }
 
   // Trees (use single-cell width ↟ for strict terminal alignment)
-  for (const tree of MAP_GRID_IRONREACH.decorations.trees) {
+  for (const tree of mapDef.decorations.trees) {
     const cleanText = tree.text.replace(/🌲/g, "↟");
     setStr(tree.x, tree.y, cleanText, "#16a34a");
   }
 
-  // Compass rose at bottom-left
-  const { compass, scaleBar } = MAP_GRID_IRONREACH.decorations;
+  // Compass rose
+  const { compass, scaleBar } = mapDef.decorations;
   setStr(compass.x + 2, compass.y, "N", "#94a3b8", true);
   setStr(compass.x, compass.y + 1, "W ┼ E", "#64748b");
   setStr(compass.x + 2, compass.y + 1, "┼", "#38bdf8", true);
   setStr(compass.x + 2, compass.y + 2, "S", "#94a3b8", true);
 
-  // Scale bar at bottom-right
+  // Scale bar
   setStr(scaleBar.x, scaleBar.y, "0   250  500  750  1000 km", "#64748b");
   setStr(scaleBar.x, scaleBar.y + 1, "├───┼────┼────┼────┤", "#475569");
 
   return grid;
-})();
+}
+
+// Module-level precomputed sea routes and decorations for compact and wide
+const COMPACT_SEA_ROUTES = buildSeaRoutesGrid(MAP_GRID_IRONREACH_COMPACT);
+const WIDE_SEA_ROUTES = buildSeaRoutesGrid(MAP_GRID_IRONREACH_WIDE);
+const COMPACT_DECORATIONS = buildDecorationsGrid(MAP_GRID_IRONREACH_COMPACT);
+const WIDE_DECORATIONS = buildDecorationsGrid(MAP_GRID_IRONREACH_WIDE);
 
 export function mouseEventToMapCell(event: any): { x: number; y: number } | null {
   const target = event?.currentTarget;
@@ -172,11 +181,27 @@ export function MapCanvas({
   selectedTerritoryId,
   targetTerritoryId,
   hoveredTerritoryId,
+  viewport,
+  terminalDimensions,
   onHoverTerritory,
   onSelectTerritory,
   onSelectTarget,
   onDeselect,
 }: MapCanvasProps) {
+  const activeMap: GridMapDefinition =
+    viewport === "compact"
+      ? MAP_GRID_IRONREACH_COMPACT
+      : viewport === "wide"
+      ? MAP_GRID_IRONREACH_WIDE
+      : terminalDimensions && terminalDimensions.columns >= 140
+      ? MAP_GRID_IRONREACH_WIDE
+      : MAP_GRID_IRONREACH_COMPACT;
+
+  const staticSeaRoutes =
+    activeMap.width === MAP_GRID_IRONREACH_WIDE.width ? WIDE_SEA_ROUTES : COMPACT_SEA_ROUTES;
+  const staticDecorations =
+    activeMap.width === MAP_GRID_IRONREACH_WIDE.width ? WIDE_DECORATIONS : COMPACT_DECORATIONS;
+
   const selectedTerritory = selectedTerritoryId ? territories[selectedTerritoryId] : null;
 
   const handleTerritoryClick = (territoryId: string) => {
@@ -193,7 +218,7 @@ export function MapCanvas({
     // A territory is already selected
     const isNeighbor = Boolean(
       selectedTerritory?.neighbors.includes(territoryId) ||
-        MAP_GRID_IRONREACH.territories.find((t) => t.id === selectedTerritoryId)?.neighbors.includes(territoryId)
+        activeMap.territories.find((t) => t.id === selectedTerritoryId)?.neighbors.includes(territoryId)
     );
 
     if (isNeighbor) {
@@ -215,31 +240,35 @@ export function MapCanvas({
     labelMap[y][x] = { char, fg, bold };
   };
 
-  for (const t of MAP_GRID_IRONREACH.territories) {
+  for (const t of activeMap.territories) {
     const tState =
       territories[t.id] ??
       Object.values(territories).find(
         (s) => s.name.toLowerCase() === t.name.toLowerCase()
       );
     const units = tState?.units ?? 0;
-    const ownerId = tState?.ownerId;
-    const owner = players.find((p) => p.id === ownerId);
-    const ownerColor = owner?.colorHex ?? t.regionColor;
+    const isLobby = phase === "lobby";
+    const rawOwnerId = tState?.ownerId;
+    const hasOwner = !isLobby && Boolean(rawOwnerId);
+    const owner = hasOwner ? players.find((p) => p.id === rawOwnerId) : undefined;
+    const ownerColor = isLobby || !hasOwner
+      ? (t.regionColor ?? "#64748b")
+      : (owner?.colorHex ?? t.regionColor ?? "#64748b");
 
     // Check available non-border width of territory t.id on row t.labelPos.y
     let minX = t.labelPos.x;
     while (
       minX > 0 &&
-      getTerritoryAt(minX - 1, t.labelPos.y, MAP_GRID_IRONREACH) === t.id &&
-      !getBorderInfo(minX - 1, t.labelPos.y, MAP_GRID_IRONREACH).isBorder
+      getTerritoryAt(minX - 1, t.labelPos.y, activeMap) === t.id &&
+      !getBorderInfo(minX - 1, t.labelPos.y, activeMap).isBorder
     ) {
       minX--;
     }
     let maxX = t.labelPos.x;
     while (
-      maxX < MAP_GRID_IRONREACH.width - 1 &&
-      getTerritoryAt(maxX + 1, t.labelPos.y, MAP_GRID_IRONREACH) === t.id &&
-      !getBorderInfo(maxX + 1, t.labelPos.y, MAP_GRID_IRONREACH).isBorder
+      maxX < activeMap.width - 1 &&
+      getTerritoryAt(maxX + 1, t.labelPos.y, activeMap) === t.id &&
+      !getBorderInfo(maxX + 1, t.labelPos.y, activeMap).isBorder
     ) {
       maxX++;
     }
@@ -288,40 +317,58 @@ export function MapCanvas({
     }
   }
 
-  // Generate the 30 lines of cellular characters
+  // Generate lines of cellular characters
   const rows: SpanRun[][] = [];
 
-  for (let y = 0; y < MAP_GRID_IRONREACH.height; y++) {
+  for (let y = 0; y < activeMap.height; y++) {
     const runs: SpanRun[] = [];
 
-    for (let x = 0; x < MAP_GRID_IRONREACH.width; x++) {
-      const territoryId = getTerritoryAt(x, y, MAP_GRID_IRONREACH);
+    for (let x = 0; x < activeMap.width; x++) {
+      const territoryId = getTerritoryAt(x, y, activeMap);
 
       let cell: CellStyle;
 
       if (territoryId) {
-        const territory = MAP_GRID_IRONREACH.territories.find((t) => t.id === territoryId);
+        const territory = activeMap.territories.find((t) => t.id === territoryId);
         const tState =
           territories[territoryId] ??
           Object.values(territories).find(
             (s) => s.name.toLowerCase() === territory?.name.toLowerCase()
           );
 
-        const ownerId = tState?.ownerId;
-        const owner = players.find((p) => p.id === ownerId);
-        const ownerColor = owner?.colorHex ?? territory?.regionColor ?? "#00d2ff";
+        const isLobby = phase === "lobby";
+        const rawOwnerId = tState?.ownerId;
+        const hasOwner = !isLobby && Boolean(rawOwnerId);
+        const owner = hasOwner ? players.find((p) => p.id === rawOwnerId) : undefined;
 
         const isSelected = selectedTerritoryId === territoryId;
         const isTarget = targetTerritoryId === territoryId;
         const isHovered = hoveredTerritoryId === territoryId;
-        const isEnemy = Boolean(ownerId && myPlayerId && ownerId !== myPlayerId);
+        const isEnemy = Boolean(hasOwner && rawOwnerId && myPlayerId && rawOwnerId !== myPlayerId);
 
-        const border = getBorderInfo(x, y, MAP_GRID_IRONREACH);
+        let ownerColor: string;
+        let interiorFg: string;
+        let interiorBg: string;
+
+        if (isLobby || !hasOwner) {
+          // Muted unclaimed terrain styling
+          ownerColor = territory?.regionColor ?? "#64748b";
+          interiorFg = "#475569";
+          interiorBg = "#0f172a";
+        } else {
+          // Vibrant player ownership colors
+          ownerColor = owner?.colorHex ?? territory?.regionColor ?? "#00d2ff";
+          interiorFg = ownerColor;
+          interiorBg = getDarkTint(ownerColor);
+        }
+
+        const border = getBorderInfo(x, y, activeMap);
 
         // Check if this coordinate has a label or unit count
         const labelCell = labelMap[y]?.[x];
 
         if (labelCell) {
+          const hoverBg = isLobby || !hasOwner ? "#1e293b" : getHoverTint(ownerColor);
           const bg = isSelected
             ? "#0c2b3d"
             : isTarget
@@ -329,8 +376,8 @@ export function MapCanvas({
               ? "#280a0e"
               : "#082115"
             : isHovered
-            ? getHoverTint(ownerColor)
-            : getDarkTint(ownerColor);
+            ? hoverBg
+            : interiorBg;
 
           cell = {
             char: labelCell.char,
@@ -341,7 +388,7 @@ export function MapCanvas({
         } else if (border.isBorder) {
           let borderChar = "─";
           let borderFg = ownerColor;
-          let borderBg = getDarkTint(ownerColor);
+          let borderBg = interiorBg;
           let bold = false;
 
           if (isSelected) {
@@ -368,35 +415,32 @@ export function MapCanvas({
             else if (border.west || border.east) borderChar = "│";
           } else {
             // Distinguish Coastlines from Internal political borders
-            const northT = getTerritoryAt(x, y - 1, MAP_GRID_IRONREACH);
-            const southT = getTerritoryAt(x, y + 1, MAP_GRID_IRONREACH);
-            const westT = getTerritoryAt(x - 1, y, MAP_GRID_IRONREACH);
-            const eastT = getTerritoryAt(x + 1, y, MAP_GRID_IRONREACH);
+            const northT = getTerritoryAt(x, y - 1, activeMap);
+            const southT = getTerritoryAt(x, y + 1, activeMap);
+            const westT = getTerritoryAt(x - 1, y, activeMap);
+            const eastT = getTerritoryAt(x + 1, y, activeMap);
 
-            const waterN = northT === null;
-            const waterS = southT === null;
-            const waterW = westT === null;
-            const waterE = eastT === null;
-            const touchesWater = waterN || waterS || waterW || waterE;
+            const touchesWater = northT === null || southT === null || westT === null || eastT === null;
+            const hoverBg = isLobby || !hasOwner ? "#1e293b" : getHoverTint(ownerColor);
 
             if (touchesWater) {
               // Coastline: organic coastal boundary with smooth edge contour characters
               borderFg = isHovered ? "#ffffff" : ownerColor;
-              borderBg = isHovered ? getHoverTint(ownerColor) : getDarkTint(ownerColor);
+              borderBg = isHovered ? hoverBg : interiorBg;
               bold = true;
 
-              if (waterN && waterW) borderChar = "╭";
-              else if (waterN && waterE) borderChar = "╮";
-              else if (waterS && waterW) borderChar = "╰";
-              else if (waterS && waterE) borderChar = "╯";
-              else if (waterN || waterS) borderChar = "─";
-              else if (waterW || waterE) borderChar = "│";
+              if (northT === null && westT === null) borderChar = "╭";
+              else if (northT === null && eastT === null) borderChar = "╮";
+              else if (southT === null && westT === null) borderChar = "╰";
+              else if (southT === null && eastT === null) borderChar = "╯";
+              else if (northT === null || southT === null) borderChar = "─";
+              else if (westT === null || eastT === null) borderChar = "│";
               else borderChar = "─";
             } else {
               // Internal political border between two different territories that touch
               // Subtle separator with dimmed color so territories flow together as a continent
               borderFg = isHovered ? "#94a3b8" : "#475569";
-              borderBg = isHovered ? getHoverTint(ownerColor) : getDarkTint(ownerColor);
+              borderBg = isHovered ? hoverBg : interiorBg;
               bold = false;
 
               if ((border.west || border.east) && (border.north || border.south)) {
@@ -417,37 +461,35 @@ export function MapCanvas({
           };
         } else {
           // Interior land cell visibly occupies cells with textured character ░
-          const interiorFg = isSelected
-            ? "#00ffff"
-            : isTarget
-            ? isEnemy
-              ? "#ff4444"
-              : "#00ff66"
-            : isHovered
-            ? "#ffffff"
-            : ownerColor;
+          let cellFg = interiorFg;
+          let cellBg = interiorBg;
+          let bold = false;
 
-          const interiorBg = isSelected
-            ? "#0c2b3d"
-            : isTarget
-            ? isEnemy
-              ? "#280a0e"
-              : "#082115"
-            : isHovered
-            ? getHoverTint(ownerColor)
-            : getDarkTint(ownerColor);
+          if (isSelected) {
+            cellFg = "#00ffff";
+            cellBg = "#0c2b3d";
+            bold = true;
+          } else if (isTarget) {
+            cellFg = isEnemy ? "#ff4444" : "#00ff66";
+            cellBg = isEnemy ? "#280a0e" : "#082115";
+            bold = true;
+          } else if (isHovered) {
+            cellFg = "#ffffff";
+            cellBg = isLobby || !hasOwner ? "#1e293b" : getHoverTint(ownerColor);
+            bold = true;
+          }
 
           cell = {
             char: "░",
-            fg: interiorFg,
-            bg: interiorBg,
-            bold: isHovered || isSelected,
+            fg: cellFg,
+            bg: cellBg,
+            bold,
           };
         }
       } else {
         // Water / empty cell
-        const route = STATIC_SEA_ROUTES[y]?.[x];
-        const deco = STATIC_DECORATIONS[y]?.[x];
+        const route = staticSeaRoutes[y]?.[x];
+        const deco = staticDecorations[y]?.[x];
 
         if (route) {
           cell = {
@@ -495,23 +537,32 @@ export function MapCanvas({
     rows.push(runs);
   }
 
+  const canCenterH = !terminalDimensions || (terminalDimensions.columns * 0.75) >= activeMap.width + 2;
+  const canCenterV = !terminalDimensions || (terminalDimensions.rows - 15) >= activeMap.height + 2;
+  const title =
+    terminalDimensions && terminalDimensions.columns < 130
+      ? "! WORLD MAP                  Territories • Connections • Empires"
+      : "! WORLD MAP                                   Territories • Connections • Empires";
+
   return (
     <box
-      title="! WORLD MAP                                   Territories • Connections • Empires"
+      title={title}
       titleColor="#00d2ff"
       border
       borderStyle="single"
       borderColor="#00d2ff"
       backgroundColor="#080f1a"
-      style={{ width: MAP_GRID_IRONREACH.width + 2, height: MAP_GRID_IRONREACH.height + 2 }}
+      alignItems={canCenterH ? "center" : undefined}
+      justifyContent={canCenterV ? "center" : undefined}
+      style={{ width: "100%", height: "100%" }}
     >
       <box
         flexDirection="column"
-        style={{ width: MAP_GRID_IRONREACH.width, height: MAP_GRID_IRONREACH.height }}
+        style={{ width: activeMap.width, height: activeMap.height }}
         onMouseDown={(event: any) => {
           const cell = mouseEventToMapCell(event);
           if (!cell) return;
-          const clickedId = getTerritoryAt(cell.x, cell.y, MAP_GRID_IRONREACH);
+          const clickedId = getTerritoryAt(cell.x, cell.y, activeMap);
           if (clickedId) {
             handleTerritoryClick(clickedId);
           }
@@ -522,7 +573,7 @@ export function MapCanvas({
             onHoverTerritory?.(null);
             return;
           }
-          const hoveredId = getTerritoryAt(cell.x, cell.y, MAP_GRID_IRONREACH);
+          const hoveredId = getTerritoryAt(cell.x, cell.y, activeMap);
           onHoverTerritory?.(hoveredId);
         }}
         onMouseOut={() => {

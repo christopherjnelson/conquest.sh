@@ -14,6 +14,8 @@ export interface SidebarProps {
   onEndTurn: () => void;
   onReady?: () => void;
   onSelectTarget?: (territoryId: string) => void;
+  roomCode?: string | null;
+  connectionStatus?: string;
 }
 
 export function Sidebar({
@@ -28,6 +30,8 @@ export function Sidebar({
   onEndTurn,
   onReady,
   onSelectTarget,
+  roomCode,
+  connectionStatus,
 }: SidebarProps) {
   const territories = state?.territories ?? {};
   const activePlayer = state ? state.players[state.activePlayerIndex] : undefined;
@@ -416,6 +420,60 @@ export function Sidebar({
             </box>
           </>
         )}
+      </box>
+
+      {/* CARD 4: ! REALM & SESSION INTEL */}
+      <box
+        title="! REALM & SESSION INTEL"
+        titleColor="#00d2ff"
+        border
+        borderStyle="single"
+        borderColor="#00d2ff"
+        backgroundColor="#080f1a"
+        flexDirection="column"
+        paddingLeft={1}
+        paddingRight={1}
+        flexGrow={1}
+      >
+        <box flexDirection="column" gap={0} marginTop={0}>
+          <box flexDirection="row" justifyContent="space-between">
+            <text fg="#64748b">Room</text>
+            <text fg="#00d2ff">
+              <b>[ {roomCode ?? "Public"} ]</b>
+            </text>
+          </box>
+          <box flexDirection="row" justifyContent="space-between">
+            <text fg="#64748b">Map</text>
+            <text fg="#e2e8f0">
+              <b>The Ironreach (20 Realms)</b>
+            </text>
+          </box>
+          <box flexDirection="row" justifyContent="space-between">
+            <text fg="#64748b">Phase</text>
+            <text fg="#00ff66">
+              <b>{phase.charAt(0).toUpperCase() + phase.slice(1)}</b>
+            </text>
+          </box>
+          <box flexDirection="row" justifyContent="space-between">
+            <text fg="#64748b">Turn</text>
+            <text fg="#e2e8f0">
+              <b>Turn {state?.turnNumber ?? 0}/∞</b>
+            </text>
+          </box>
+          <box flexDirection="row" justifyContent="space-between">
+            <text fg="#64748b">Connection</text>
+            <text>
+              <span fg={connectionStatus === "connected" || !connectionStatus ? "#00ff66" : "#ff4444"}>● </span>
+              <span fg="#e2e8f0"><b>{connectionStatus === "connected" || !connectionStatus ? "Connected" : "Disconnected"}</b></span>
+            </text>
+          </box>
+          <box flexDirection="row" justifyContent="space-between">
+            <text fg="#64748b">Total Armies</text>
+            <text fg="#ffaa00">
+              <b>{Object.values(territories).reduce((sum, t) => sum + (t.units ?? 0), 0)}</b>
+            </text>
+          </box>
+        </box>
       </box>
     </box>
   );

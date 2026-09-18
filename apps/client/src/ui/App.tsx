@@ -460,8 +460,10 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
         gap={1}
       >
         {/* Left: MapCanvas (~75% width) */}
-        <box flexGrow={3} flexDirection="column" alignItems="center">
+        <box flexGrow={3} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
           <MapCanvas
+            viewport={dimensions.columns >= 180 ? "wide" : "compact"}
+            terminalDimensions={dimensions}
             territories={state?.territories ?? {}}
             players={state?.players ?? []}
             myPlayerId={myPlayerId}
@@ -483,10 +485,12 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
         </box>
 
         {/* Right: Sidebar (~25% width) */}
-        <box flexGrow={1} flexDirection="column">
+        <box flexGrow={1} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
           <Sidebar
             state={state}
             myPlayerId={myPlayerId}
+            roomCode={client.roomCode}
+            connectionStatus={status}
             selectedTerritoryId={selectedTerritoryId}
             targetTerritoryId={targetTerritoryId}
             onDeploy={handleDeploy}

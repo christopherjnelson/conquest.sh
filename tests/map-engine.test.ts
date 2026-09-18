@@ -21,8 +21,8 @@ describe("map-engine: ironreach unified map schema & integrity", () => {
     expect(MAP_IRONREACH.name).toBe("The Ironreach");
     expect(MAP_IRONREACH.recommendedPlayers.min).toBe(2);
     expect(MAP_IRONREACH.recommendedPlayers.max).toBe(6);
-    expect(MAP_IRONREACH.width).toBe(104);
-    expect(MAP_IRONREACH.height).toBe(30);
+    expect(MAP_IRONREACH.width).toBe(136);
+    expect(MAP_IRONREACH.height).toBe(36);
   });
 
   it("exports MAP_SECTOR_07 for backward compatibility", () => {
