@@ -1,10 +1,12 @@
 import React from "react";
+import type { LayoutMode } from "@conquest/map-engine";
 
 export interface FooterProps {
   toastMessage?: string | null;
   toastType?: "info" | "success" | "error";
   activeTab?: number;
   onSelectTab?: (tab: number) => void;
+  layoutMode?: LayoutMode;
 }
 
 export function Footer({
@@ -12,10 +14,12 @@ export function Footer({
   toastType = "info",
   activeTab = 1,
   onSelectTab,
+  layoutMode,
 }: FooterProps) {
   let toastColor = "#38bdf8";
   if (toastType === "error") toastColor = "#ff4444";
   if (toastType === "success") toastColor = "#00ff66";
+  const isCompact = layoutMode === "compact";
 
   const pills = [
     { id: 1, label: "Map" },
@@ -30,7 +34,7 @@ export function Footer({
       flexDirection="row"
       justifyContent="space-between"
       alignItems="center"
-      style={{ width: "100%", height: 3 }}
+      style={{ width: "100%", height: isCompact ? 1 : 3 }}
       paddingLeft={1}
       paddingRight={1}
       marginTop={0}
@@ -39,6 +43,18 @@ export function Footer({
       <box flexDirection="row" gap={1} alignItems="center">
         {pills.map((pill) => {
           const isActive = pill.id === activeTab;
+          if (isCompact) {
+            return (
+              <text
+                key={pill.id}
+                onMouseDown={() => onSelectTab?.(pill.id)}
+                fg={isActive ? "#00ff66" : "#64748b"}
+              >
+                <b>[{pill.id} {pill.label}]</b>
+              </text>
+            );
+          }
+
           if (isActive) {
             return (
               <box
@@ -85,7 +101,7 @@ export function Footer({
           </text>
         ) : (
           <text>
-            <span fg="#64748b">Play fair. Play bold.  │  </span>
+            <span fg="#64748b">{isCompact ? "" : "Play fair. Play bold.  │  "}</span>
             <span fg="#00d2ff"><b>CONQUEST.SH</b></span>
           </text>
         )}

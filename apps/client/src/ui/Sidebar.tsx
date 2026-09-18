@@ -1,11 +1,13 @@
 import React from "react";
 import type { GameState } from "@conquest/protocol";
+import type { LayoutMode } from "@conquest/map-engine";
 import { MAP_GRID_IRONREACH } from "@conquest/map-engine";
 
 export interface SidebarProps {
   state: GameState | null;
   myPlayerId: string | null;
   selectedTerritoryId: string | null;
+  hoveredTerritoryId?: string | null;
   targetTerritoryId: string | null;
   onDeploy: () => void;
   onAttack: () => void;
@@ -16,12 +18,14 @@ export interface SidebarProps {
   onSelectTarget?: (territoryId: string) => void;
   roomCode?: string | null;
   connectionStatus?: string;
+  layoutMode?: LayoutMode;
 }
 
 export function Sidebar({
   state,
   myPlayerId,
   selectedTerritoryId = null,
+  hoveredTerritoryId = null,
   targetTerritoryId,
   onDeploy,
   onAttack,
@@ -32,6 +36,7 @@ export function Sidebar({
   onSelectTarget,
   roomCode,
   connectionStatus,
+  layoutMode,
 }: SidebarProps) {
   const territories = state?.territories ?? {};
   const activePlayer = state ? state.players[state.activePlayerIndex] : undefined;
@@ -40,8 +45,15 @@ export function Sidebar({
   const pendingReinforcements = state?.pendingReinforcements ?? 0;
   const isLobby = phase === "lobby";
 
-  // Active territory ID (real selection, no default to C2)
-  const activeTid = selectedTerritoryId;
+  // Hover populates inspector immediately; if mouse moves away, reverts to selected
+  const isHoveredDifferent = Boolean(hoveredTerritoryId && hoveredTerritoryId !== selectedTerritoryId);
+  const activeTid = hoveredTerritoryId ?? selectedTerritoryId;
+  const inspectionMode: "hovered" | "selected" | "none" =
+    isHoveredDifferent
+      ? "hovered"
+      : selectedTerritoryId
+      ? "selected"
+      : "none";
   const selectedTerritory = activeTid ? territories[activeTid] : undefined;
   const gridDef = activeTid ? MAP_GRID_IRONREACH.territories.find((t) => t.id === activeTid) : undefined;
 
@@ -106,7 +118,7 @@ export function Sidebar({
             #   Player
           </text>
           <text fg="#64748b">
-            {isLobby ? "Status" : "Realms  Armies  Cards  Turn"}
+            {isLobby ? "Status" : "Terrs   Armies  Cards  Turn"}
           </text>
         </box>
 
@@ -168,9 +180,13 @@ export function Sidebar({
         )}
       </box>
 
-      {/* CARD 2: ! SELECTED TERRITORY */}
+      {/* CARD 2: ! SELECTED TERRITORY or ! HOVERED TERRITORY */}
       <box
-        title="! SELECTED TERRITORY"
+        title={
+          inspectionMode === "hovered"
+            ? "! HOVERED TERRITORY"
+            : "! SELECTED TERRITORY"
+        }
         titleColor="#00d2ff"
         border
         borderStyle="single"
@@ -194,7 +210,7 @@ export function Sidebar({
           </box>
         ) : (
           <>
-            {/* Header: Badge [ activeTid ]   territoryName + Crest Box */}
+            {/* Header: Badge [ activeTid ] [STATUS]   territoryName + Crest Box */}
             <box flexDirection="row" justifyContent="space-between" alignItems="flex-start" marginBottom={0}>
               <box flexDirection="row" alignItems="center" gap={1}>
                 <box
@@ -209,6 +225,20 @@ export function Sidebar({
                     <b>{activeTid}</b>
                   </text>
                 </box>
+                {inspectionMode !== "none" && (
+                  <box
+                    border
+                    borderStyle="single"
+                    borderColor={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}
+                    backgroundColor={inspectionMode === "selected" ? "#0c2b3d" : "#291c06"}
+                    paddingLeft={1}
+                    paddingRight={1}
+                  >
+                    <text fg={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}>
+                      <b>{inspectionMode.toUpperCase()}</b>
+                    </text>
+                  </box>
+                )}
                 <text fg="#00d2ff">
                   <b>{territoryName}</b>
                 </text>
@@ -423,58 +453,66 @@ export function Sidebar({
       </box>
 
       {/* CARD 4: ! REALM & SESSION INTEL */}
-      <box
-        title="! REALM & SESSION INTEL"
-        titleColor="#00d2ff"
-        border
-        borderStyle="single"
-        borderColor="#00d2ff"
-        backgroundColor="#080f1a"
-        flexDirection="column"
-        paddingLeft={1}
-        paddingRight={1}
-        flexGrow={1}
-      >
-        <box flexDirection="column" gap={0} marginTop={0}>
-          <box flexDirection="row" justifyContent="space-between">
-            <text fg="#64748b">Room</text>
-            <text fg="#00d2ff">
-              <b>[ {roomCode ?? "Public"} ]</b>
-            </text>
-          </box>
-          <box flexDirection="row" justifyContent="space-between">
-            <text fg="#64748b">Map</text>
-            <text fg="#e2e8f0">
-              <b>The Ironreach (20 Realms)</b>
-            </text>
-          </box>
-          <box flexDirection="row" justifyContent="space-between">
-            <text fg="#64748b">Phase</text>
-            <text fg="#00ff66">
-              <b>{phase.charAt(0).toUpperCase() + phase.slice(1)}</b>
-            </text>
-          </box>
-          <box flexDirection="row" justifyContent="space-between">
-            <text fg="#64748b">Turn</text>
-            <text fg="#e2e8f0">
-              <b>Turn {state?.turnNumber ?? 0}/∞</b>
-            </text>
-          </box>
-          <box flexDirection="row" justifyContent="space-between">
-            <text fg="#64748b">Connection</text>
-            <text>
-              <span fg={connectionStatus === "connected" || !connectionStatus ? "#00ff66" : "#ff4444"}>● </span>
-              <span fg="#e2e8f0"><b>{connectionStatus === "connected" || !connectionStatus ? "Connected" : "Disconnected"}</b></span>
-            </text>
-          </box>
-          <box flexDirection="row" justifyContent="space-between">
-            <text fg="#64748b">Total Armies</text>
-            <text fg="#ffaa00">
-              <b>{Object.values(territories).reduce((sum, t) => sum + (t.units ?? 0), 0)}</b>
-            </text>
+      {layoutMode !== "standard" && (
+        <box
+          title="! REALM & SESSION INTEL"
+          titleColor="#00d2ff"
+          border
+          borderStyle="single"
+          borderColor="#00d2ff"
+          backgroundColor="#080f1a"
+          flexDirection="column"
+          paddingLeft={1}
+          paddingRight={1}
+          flexGrow={1}
+        >
+          <box flexDirection="column" gap={0} marginTop={0}>
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg="#64748b">Room</text>
+              <text fg="#00d2ff">
+                <b>[ {roomCode ?? "Public"} ]</b>
+              </text>
+            </box>
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg="#64748b">Map</text>
+              <text fg="#e2e8f0">
+                <b>The Ironreach</b>
+              </text>
+            </box>
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg="#64748b">Territories</text>
+              <text fg="#e2e8f0">
+                <b>20 Contested</b>
+              </text>
+            </box>
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg="#64748b">Phase</text>
+              <text fg="#00ff66">
+                <b>{phase.charAt(0).toUpperCase() + phase.slice(1)}</b>
+              </text>
+            </box>
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg="#64748b">Turn</text>
+              <text fg="#e2e8f0">
+                <b>Turn {state?.turnNumber ?? 0}/∞</b>
+              </text>
+            </box>
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg="#64748b">Connection</text>
+              <text>
+                <span fg={connectionStatus === "connected" || !connectionStatus ? "#00ff66" : "#ff4444"}>● </span>
+                <span fg="#e2e8f0"><b>{connectionStatus === "connected" || !connectionStatus ? "Connected" : "Disconnected"}</b></span>
+              </text>
+            </box>
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg="#64748b">Total Armies</text>
+              <text fg="#ffaa00">
+                <b>{Object.values(territories).reduce((sum, t) => sum + (t.units ?? 0), 0)}</b>
+              </text>
+            </box>
           </box>
         </box>
-      </box>
+      )}
     </box>
   );
 }

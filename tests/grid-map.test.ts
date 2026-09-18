@@ -31,6 +31,11 @@ import defaultMap, {
   getTerritoryCentroid,
   getTerritoryFillRatio,
   isBorderCell,
+  getLayoutMode,
+  buildMicrocellTemplate,
+  getMapMicroTemplate,
+  getMicroTerritoryAt,
+  getTerritoryAtCell,
 } from "../packages/map-engine/src/index.js";
 
 describe("grid-map: 2D Ironreach territory grid engine", () => {
@@ -516,5 +521,77 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
     expect(getMapForTerminalDimensions(185, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
     // 200x30: wide cols but short rows -> paneHeight = 13 -> contentHeight = 11 < 36 -> compact
     expect(getMapForTerminalDimensions(200, 30)).toBe(MAP_GRID_IRONREACH_COMPACT);
+  });
+
+  it("evaluates getLayoutMode with canonical thresholds for compact, standard, and wide", () => {
+    // Compact: cols < 130 or rows < 38
+    expect(getLayoutMode(105, 34)).toBe("compact");
+    expect(getLayoutMode(120, 40)).toBe("compact");
+    expect(getLayoutMode(129, 50)).toBe("compact");
+    expect(getLayoutMode(200, 30)).toBe("compact");
+    expect(getLayoutMode(200, 37)).toBe("compact");
+
+    // Standard: cols 130..179 and rows >= 38, or cols >= 180 and rows 38..49
+    expect(getLayoutMode(130, 38)).toBe("standard");
+    expect(getLayoutMode(140, 45)).toBe("standard");
+    expect(getLayoutMode(179, 45)).toBe("standard");
+    expect(getLayoutMode(185, 45)).toBe("standard");
+
+    // Wide: cols >= 180 and rows >= 50
+    expect(getLayoutMode(180, 50)).toBe("wide");
+    expect(getLayoutMode(200, 55)).toBe("wide");
+    expect(getLayoutMode(240, 60)).toBe("wide");
+  });
+
+  it("builds 2x vertical resolution microcell templates with sub-pixel coastlines", () => {
+    const wideMicro = getMapMicroTemplate(MAP_GRID_IRONREACH_WIDE);
+    expect(wideMicro.length).toBe(72); // 36 * 2
+    for (const row of wideMicro) {
+      expect(row.length).toBe(136);
+    }
+
+    const compactMicro = getMapMicroTemplate(MAP_GRID_IRONREACH_COMPACT);
+    expect(compactMicro.length).toBe(60); // 30 * 2
+    for (const row of compactMicro) {
+      expect(row.length).toBe(104);
+    }
+
+    // Every territory label position is mapped in microcell space
+    for (const t of MAP_GRID_IRONREACH_WIDE.territories) {
+      const topT = getMicroTerritoryAt(t.labelPos.x, t.labelPos.y * 2, MAP_GRID_IRONREACH_WIDE);
+      const botT = getMicroTerritoryAt(t.labelPos.x, t.labelPos.y * 2 + 1, MAP_GRID_IRONREACH_WIDE);
+      expect(topT).toBe(t.id);
+      expect(botT).toBe(t.id);
+    }
+
+    // Water out of bounds and open sea
+    expect(getMicroTerritoryAt(0, 0, MAP_GRID_IRONREACH_WIDE)).toBeNull();
+    expect(getMicroTerritoryAt(-1, 0, MAP_GRID_IRONREACH_WIDE)).toBeNull();
+    expect(getMicroTerritoryAt(0, 999, MAP_GRID_IRONREACH_WIDE)).toBeNull();
+  });
+
+  it("verifies getTerritoryAtCell hit-testing across cells and boundaries", () => {
+    // Label centroids resolve accurately
+    for (const t of MAP_GRID_IRONREACH_WIDE.territories) {
+      const tid = getTerritoryAtCell(t.labelPos.x, t.labelPos.y, MAP_GRID_IRONREACH_WIDE);
+      expect(tid).toBe(t.id);
+    }
+
+    // Open water cell resolves to null
+    expect(getTerritoryAtCell(0, 0, MAP_GRID_IRONREACH_WIDE)).toBeNull();
+
+    // Ocean labels decoration presence
+    expect(MAP_GRID_IRONREACH_WIDE.decorations.oceanLabels).toBeDefined();
+    expect(MAP_GRID_IRONREACH_WIDE.decorations.oceanLabels!.length).toBeGreaterThanOrEqual(3);
+    const wideGreySea = MAP_GRID_IRONREACH_WIDE.decorations.oceanLabels!.find((l) =>
+      l.text.includes("THE GREY SEA")
+    );
+    expect(wideGreySea).toBeDefined();
+
+    expect(MAP_GRID_IRONREACH_COMPACT.decorations.oceanLabels).toBeDefined();
+    const compactGreySea = MAP_GRID_IRONREACH_COMPACT.decorations.oceanLabels!.find((l) =>
+      l.text.includes("THE GREY SEA")
+    );
+    expect(compactGreySea).toBeDefined();
   });
 });

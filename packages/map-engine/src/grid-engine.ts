@@ -248,6 +248,153 @@ export function getGeographyBoundingBox(
   };
 }
 
+const microcellCache = new WeakMap<GridMapDefinition, string[]>();
+
+/**
+ * Builds a high-resolution microcell template with 2 vertical microcells per terminal row.
+ * Employs sub-pixel edge smoothing on coastlines and concave bays while protecting labels.
+ */
+export function buildMicrocellTemplate(map: GridMapDefinition = MAP_GRID_IRONREACH): string[] {
+  const h = map.template.length;
+  const w = map.template[0].length;
+  const microRows: string[][] = Array.from({ length: h * 2 }, () =>
+    Array(w).fill(".")
+  );
+
+  // Helper to check if coordinate is near any territory label/unit text
+  const isProtectedCell = (x: number, y: number) => {
+    for (const t of map.territories) {
+      if (
+        (y === t.labelPos.y || y === t.labelPos.y + 1) &&
+        x >= t.labelPos.x - 1 &&
+        x <= t.labelPos.x + 15
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (let y = 0; y < h; y++) {
+    const row = map.template[y];
+    const topMy = y * 2;
+    const botMy = y * 2 + 1;
+
+    for (let x = 0; x < w; x++) {
+      const c = row[x];
+      const isLand = c !== ".";
+
+      if (isLand) {
+        let top = c;
+        let bot = c;
+
+        if (!isProtectedCell(x, y)) {
+          const north = y > 0 ? map.template[y - 1][x] : ".";
+          const south = y < h - 1 ? map.template[y + 1][x] : ".";
+          const west = x > 0 ? row[x - 1] : ".";
+          const east = x < w - 1 ? row[x + 1] : ".";
+
+          // Northwest outer corner smoothing
+          if (north === "." && west === "." && east === c && south === c) {
+            top = ".";
+          }
+          // Northeast outer corner smoothing
+          else if (north === "." && east === "." && west === c && south === c) {
+            top = ".";
+          }
+          // Southwest outer corner smoothing
+          else if (south === "." && west === "." && east === c && north === c) {
+            bot = ".";
+          }
+          // Southeast outer corner smoothing
+          else if (south === "." && east === "." && west === c && north === c) {
+            bot = ".";
+          }
+        }
+
+        microRows[topMy][x] = top;
+        microRows[botMy][x] = bot;
+      } else {
+        // Ocean cell: smooth concave bays where land surrounds on two cardinal directions
+        let top = ".";
+        let bot = ".";
+
+        const north = y > 0 ? map.template[y - 1][x] : ".";
+        const south = y < h - 1 ? map.template[y + 1][x] : ".";
+        const west = x > 0 ? row[x - 1] : ".";
+        const east = x < w - 1 ? row[x + 1] : ".";
+
+        if (north !== "." && west !== "." && north === west) {
+          top = north;
+        } else if (north !== "." && east !== "." && north === east) {
+          top = north;
+        } else if (south !== "." && west !== "." && south === west) {
+          bot = south;
+        } else if (south !== "." && east !== "." && south === east) {
+          bot = south;
+        }
+
+        microRows[topMy][x] = top;
+        microRows[botMy][x] = bot;
+      }
+    }
+  }
+
+  return microRows.map((r) => r.join(""));
+}
+
+/**
+ * Returns cached or generated microcell template for a map definition.
+ */
+export function getMapMicroTemplate(map: GridMapDefinition = MAP_GRID_IRONREACH): string[] {
+  if (map.microTemplate) return map.microTemplate;
+  let cached = microcellCache.get(map);
+  if (!cached) {
+    cached = buildMicrocellTemplate(map);
+    microcellCache.set(map, cached);
+  }
+  return cached;
+}
+
+/**
+ * Returns territory ID at microcell coordinates (mx, my) or null if water or out of bounds.
+ */
+export function getMicroTerritoryAt(
+  mx: number,
+  my: number,
+  map: GridMapDefinition = MAP_GRID_IRONREACH
+): string | null {
+  const microH = map.template.length * 2;
+  const microW = map.template[0].length;
+  if (my < 0 || my >= microH || mx < 0 || mx >= microW) {
+    return null;
+  }
+  const microTpl = getMapMicroTemplate(map);
+  const char = microTpl[my][mx];
+  return map.charToTerritoryId[char] ?? null;
+}
+
+/**
+ * Hit-testing helper mapping terminal character cell (x, y) to its top and bottom microcells.
+ * Evaluates top microcell (x, 2y) and bottom microcell (x, 2y + 1):
+ * - If both same -> that territory
+ * - If one land and one water -> the land territory
+ * - If two different -> majority or top territory
+ */
+export function getTerritoryAtCell(
+  x: number,
+  y: number,
+  map: GridMapDefinition = MAP_GRID_IRONREACH
+): string | null {
+  const topT = getMicroTerritoryAt(x, 2 * y, map);
+  const botT = getMicroTerritoryAt(x, 2 * y + 1, map);
+
+  if (topT === botT) return topT;
+  if (topT && !botT) return topT;
+  if (!topT && botT) return botT;
+  return topT ?? botT ?? null;
+}
+
 export {
   MAP_GRID_IRONREACH,
   type GridMapDefinition,

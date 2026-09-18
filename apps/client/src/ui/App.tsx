@@ -7,11 +7,14 @@ import {
   getNextTerritoryInDirection,
   getMapContentDimensionsForTerminal,
   getMapForTerminalDimensions,
+  getLayoutMode,
+  type LayoutMode,
 } from "@conquest/map-engine";
 import { GameClient, type ConnectionStatus } from "../network/client.js";
 import { Header } from "./Header.js";
 import { MapCanvas } from "./MapCanvas.js";
 import { Sidebar } from "./Sidebar.js";
+import { CompactInspector } from "./CompactInspector.js";
 import { EventLog } from "./EventLog.js";
 import { Footer } from "./Footer.js";
 
@@ -142,6 +145,8 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
   // In non-TTY environments (or tests without real TTY), columns/rows are undefined or 0
   const hasTtyDimensions = cols > 0 && rows > 0;
   const isTooSmall = !overrideWarning && hasTtyDimensions && (cols < 105 || rows < 34);
+  const layoutMode: LayoutMode = getLayoutMode(cols, rows);
+  const isCompact = layoutMode === "compact";
 
   // No territory selected by default
   const [selectedTerritoryId, setSelectedTerritoryId] = useState<string | null>(null);
@@ -457,49 +462,51 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
         pendingReinforcements={state?.pendingReinforcements ?? 0}
         connectionStatus={status}
         isMyTurn={isMyTurn}
+        layoutMode={layoutMode}
       />
 
-      {/* Main Tactical Area (flexDirection="row", flexGrow 1, width "100%", gap 1) */}
-      <box
-        flexDirection="row"
-        flexGrow={1}
-        style={{ width: "100%", marginTop: 0, marginBottom: 0 }}
-        gap={1}
-      >
-        {/* Left: MapCanvas (~75% width) */}
-        <box flexGrow={3} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
-          <MapCanvas
-            contentDimensions={getMapContentDimensionsForTerminal(dimensions.columns, dimensions.rows)}
-            terminalDimensions={dimensions}
-            territories={state?.territories ?? {}}
-            players={state?.players ?? []}
-            myPlayerId={myPlayerId}
-            phase={phase}
-            selectedTerritoryId={selectedTerritoryId}
-            targetTerritoryId={targetTerritoryId}
-            hoveredTerritoryId={hoveredTerritoryId}
-            onHoverTerritory={setHoveredTerritoryId}
-            onSelectTerritory={(id) => {
-              setSelectedTerritoryId(id);
-              setTargetTerritoryId(null);
-            }}
-            onSelectTarget={(id) => setTargetTerritoryId(id)}
-            onDeselect={() => {
-              setSelectedTerritoryId(null);
-              setTargetTerritoryId(null);
-            }}
-          />
-        </box>
+      {/* Main Tactical Area */}
+      {isCompact ? (
+        <box
+          flexDirection="column"
+          flexGrow={1}
+          style={{ width: "100%", marginTop: 0, marginBottom: 0 }}
+          gap={1}
+        >
+          {/* Top: Full-width MapCanvas */}
+          <box flexGrow={1} flexDirection="column" style={{ width: "100%", height: "100%" }}>
+            <MapCanvas
+              viewport="compact"
+              terminalDimensions={dimensions}
+              territories={state?.territories ?? {}}
+              players={state?.players ?? []}
+              myPlayerId={myPlayerId}
+              phase={phase}
+              selectedTerritoryId={selectedTerritoryId}
+              targetTerritoryId={targetTerritoryId}
+              hoveredTerritoryId={hoveredTerritoryId}
+              onHoverTerritory={setHoveredTerritoryId}
+              onSelectTerritory={(id) => {
+                setSelectedTerritoryId(id);
+                setTargetTerritoryId(null);
+              }}
+              onSelectTarget={(id) => setTargetTerritoryId(id)}
+              onDeselect={() => {
+                setSelectedTerritoryId(null);
+                setTargetTerritoryId(null);
+              }}
+            />
+          </box>
 
-        {/* Right: Sidebar (~25% width) */}
-        <box flexGrow={1} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
-          <Sidebar
+          {/* Compact Inspector Strip beneath Map */}
+          <CompactInspector
             state={state}
             myPlayerId={myPlayerId}
-            roomCode={client.roomCode}
-            connectionStatus={status}
             selectedTerritoryId={selectedTerritoryId}
+            hoveredTerritoryId={hoveredTerritoryId}
             targetTerritoryId={targetTerritoryId}
+            roomCode={client.roomCode}
+            phase={phase}
             onDeploy={handleDeploy}
             onAttack={handleAttack}
             onFortify={handleFortify}
@@ -507,17 +514,75 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
             onEndTurn={handleEndTurn}
             onReady={handleReady}
             onSelectTarget={(id) => setTargetTerritoryId(id)}
+            onSelectTerritory={(id) => {
+              setSelectedTerritoryId(id);
+              setTargetTerritoryId(null);
+            }}
           />
         </box>
-      </box>
+      ) : (
+        <box
+          flexDirection="row"
+          flexGrow={1}
+          style={{ width: "100%", marginTop: 0, marginBottom: 0 }}
+          gap={1}
+        >
+          {/* Left: MapCanvas (~75% width) */}
+          <box flexGrow={3} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
+            <MapCanvas
+              contentDimensions={getMapContentDimensionsForTerminal(dimensions.columns, dimensions.rows)}
+              terminalDimensions={dimensions}
+              territories={state?.territories ?? {}}
+              players={state?.players ?? []}
+              myPlayerId={myPlayerId}
+              phase={phase}
+              selectedTerritoryId={selectedTerritoryId}
+              targetTerritoryId={targetTerritoryId}
+              hoveredTerritoryId={hoveredTerritoryId}
+              onHoverTerritory={setHoveredTerritoryId}
+              onSelectTerritory={(id) => {
+                setSelectedTerritoryId(id);
+                setTargetTerritoryId(null);
+              }}
+              onSelectTarget={(id) => setTargetTerritoryId(id)}
+              onDeselect={() => {
+                setSelectedTerritoryId(null);
+                setTargetTerritoryId(null);
+              }}
+            />
+          </box>
 
-      {/* EventLog beneath Map + Sidebar (width 100%, height 8) */}
+          {/* Right: Sidebar (~25% width) */}
+          <box flexGrow={1} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
+            <Sidebar
+              state={state}
+              myPlayerId={myPlayerId}
+              roomCode={client.roomCode}
+              connectionStatus={status}
+              selectedTerritoryId={selectedTerritoryId}
+              hoveredTerritoryId={hoveredTerritoryId}
+              targetTerritoryId={targetTerritoryId}
+              onDeploy={handleDeploy}
+              onAttack={handleAttack}
+              onFortify={handleFortify}
+              onSkipPhase={handleSkipPhase}
+              onEndTurn={handleEndTurn}
+              onReady={handleReady}
+              onSelectTarget={(id) => setTargetTerritoryId(id)}
+              layoutMode={layoutMode}
+            />
+          </box>
+        </box>
+      )}
+
+      {/* EventLog beneath Map + Sidebar (width 100%) */}
       <EventLog
         events={events}
         chatOpen={chatOpen}
         players={state?.players ?? []}
         onToggleChat={() => setChatOpen(!chatOpen)}
         onSendChat={(text) => client.sendChat(text)}
+        layoutMode={layoutMode}
       />
 
       {/* Bottom Footer with Pills & Keybindings */}
@@ -526,6 +591,7 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
         toastType={toastType}
         activeTab={activeTab}
         onSelectTab={(tab) => setActiveTab(tab)}
+        layoutMode={layoutMode}
       />
     </box>
   );

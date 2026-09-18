@@ -40,6 +40,7 @@ export interface GridMapDecorations {
   trees: GridMapDecoration[];
   compass: { x: number; y: number };
   scaleBar: { x: number; y: number };
+  oceanLabels?: GridMapDecoration[];
 }
 
 export interface GridMapDefinition extends MapDefinition {
@@ -50,6 +51,7 @@ export interface GridMapDefinition extends MapDefinition {
   height: number;
   recommendedPlayers: { min: number; max: number };
   template: string[];
+  microTemplate?: string[];
   charToTerritoryId: Record<string, string>;
   territoryIdToChar: Record<string, string>;
   territories: GridTerritoryMetadata[];
@@ -758,6 +760,11 @@ export const GRID_DECORATIONS_COMPACT: GridMapDecorations = {
   ],
   compass: { x: 2, y: 22 },
   scaleBar: { x: 50, y: 28 },
+  oceanLabels: [
+    { x: 38, y: 3, text: "~ ~   THE GREY SEA   ~ ~" },
+    { x: 36, y: 14, text: "~ ~   IRON STRAIT   ~ ~" },
+    { x: 68, y: 27, text: "~ ~   EMERALD SEA   ~ ~" },
+  ],
 };
 
 export const GRID_DECORATIONS_WIDE: GridMapDecorations = {
@@ -794,6 +801,13 @@ export const GRID_DECORATIONS_WIDE: GridMapDecorations = {
   ],
   compass: { x: 1, y: 26 },
   scaleBar: { x: 82, y: 34 },
+  oceanLabels: [
+    { x: 52, y: 4, text: "~ ~ ~   THE GREY SEA   ~ ~ ~" },
+    { x: 50, y: 17, text: "~ ~ ~   THE IRON STRAIT   ~ ~ ~" },
+    { x: 12, y: 3, text: "~ ~   VERDANT SOUND   ~ ~" },
+    { x: 92, y: 32, text: "~ ~ ~   EMERALD SEA   ~ ~ ~" },
+    { x: 8, y: 32, text: "~ ~   CALDERA GULF   ~ ~" },
+  ],
 };
 
 export const GRID_DECORATIONS: GridMapDecorations = GRID_DECORATIONS_WIDE;

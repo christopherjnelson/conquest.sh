@@ -1281,4 +1281,259 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
   });
 });
 
+describe("ui: Compact layout mode, CompactInspector, half-block rendering & hover behavior", () => {
+  const testPlayers: any[] = [
+    { id: "p1", name: "Alice", colorHex: "#00d2ff", isAlive: true, ready: false, connected: true },
+    { id: "p2", name: "Bob", colorHex: "#ff4444", isAlive: true, ready: true, connected: true },
+  ];
+
+  it("CompactInspector distinguishes [HOVERED] vs [SELECTED] and reverts when unhovered", async () => {
+    const { CompactInspector } = await import("../apps/client/src/ui/CompactInspector.js");
+
+    let readyFired = false;
+
+    // 1. Uninspected: Displays player summary and lobby ready button
+    const uninspected: any = CompactInspector({
+      state: {
+        phase: "lobby",
+        turnNumber: 0,
+        activePlayerIndex: 0,
+        players: testPlayers,
+        territories: {},
+        pendingReinforcements: 0,
+      } as any,
+      myPlayerId: "p1",
+      selectedTerritoryId: null,
+      hoveredTerritoryId: null,
+      targetTerritoryId: null,
+      phase: "lobby",
+      onDeploy: () => {},
+      onAttack: () => {},
+      onFortify: () => {},
+      onSkipPhase: () => {},
+      onEndTurn: () => {},
+      onReady: () => {
+        readyFired = true;
+      },
+    });
+
+    const uninspectedStr = JSON.stringify(uninspected);
+    expect(uninspectedStr).toContain("! PLAYERS & INSPECTOR");
+    expect(uninspectedStr).toContain("Alice");
+    expect(uninspectedStr).toContain("Bob");
+    expect(uninspectedStr).toContain("[ Ready ]");
+
+    // 2. Hovered territory A1 without selection: displays [HOVERED]
+    const hoveredEl: any = CompactInspector({
+      state: null,
+      myPlayerId: "p1",
+      selectedTerritoryId: null,
+      hoveredTerritoryId: "A1",
+      targetTerritoryId: null,
+      phase: "lobby",
+      onDeploy: () => {},
+      onAttack: () => {},
+      onFortify: () => {},
+      onSkipPhase: () => {},
+      onEndTurn: () => {},
+    });
+    const hoveredStr = JSON.stringify(hoveredEl);
+    expect(hoveredStr).toContain("! INSPECTOR [HOVERED]");
+    expect(hoveredStr).toContain("HOVERED");
+    expect(hoveredStr).toContain("Highwatch");
+    expect(hoveredStr).toContain("Verdant Fringe");
+
+    // 3. Selected territory A1: displays [SELECTED]
+    const selectedEl: any = CompactInspector({
+      state: null,
+      myPlayerId: "p1",
+      selectedTerritoryId: "A1",
+      hoveredTerritoryId: null,
+      targetTerritoryId: null,
+      phase: "lobby",
+      onDeploy: () => {},
+      onAttack: () => {},
+      onFortify: () => {},
+      onSkipPhase: () => {},
+      onEndTurn: () => {},
+    });
+    const selectedStr = JSON.stringify(selectedEl);
+    expect(selectedStr).toContain("! INSPECTOR [SELECTED]");
+    expect(selectedStr).toContain("SELECTED");
+    expect(selectedStr).toContain("Highwatch");
+
+    // 4. Hovering B1 while A1 is selected: displays B1 with [HOVERED]
+    const hoverWhileSelectedEl: any = CompactInspector({
+      state: null,
+      myPlayerId: "p1",
+      selectedTerritoryId: "A1",
+      hoveredTerritoryId: "B1",
+      targetTerritoryId: null,
+      phase: "lobby",
+      onDeploy: () => {},
+      onAttack: () => {},
+      onFortify: () => {},
+      onSkipPhase: () => {},
+      onEndTurn: () => {},
+    });
+    const hoverWhileSelectedStr = JSON.stringify(hoverWhileSelectedEl);
+    expect(hoverWhileSelectedStr).toContain("! INSPECTOR [HOVERED]");
+    expect(hoverWhileSelectedStr).toContain("B1");
+    expect(hoverWhileSelectedStr).toContain("HOVERED");
+
+    // 5. Reverting to A1 when hover cleared
+    const revertedEl: any = CompactInspector({
+      state: null,
+      myPlayerId: "p1",
+      selectedTerritoryId: "A1",
+      hoveredTerritoryId: null,
+      targetTerritoryId: null,
+      phase: "lobby",
+      onDeploy: () => {},
+      onAttack: () => {},
+      onFortify: () => {},
+      onSkipPhase: () => {},
+      onEndTurn: () => {},
+    });
+    const revertedStr = JSON.stringify(revertedEl);
+    expect(revertedStr).toContain("! INSPECTOR [SELECTED]");
+    expect(revertedStr).toContain("A1");
+  });
+
+  it("Sidebar omits Card 4 in standard mode and uses updated territory terminology", async () => {
+    const { Sidebar } = await import("../apps/client/src/ui/Sidebar.js");
+
+    // Standard mode: Cards 1-3 rendered, Card 4 omitted
+    const standardEl: any = Sidebar({
+      state: null,
+      myPlayerId: "p1",
+      selectedTerritoryId: "A1",
+      hoveredTerritoryId: null,
+      targetTerritoryId: null,
+      onDeploy: () => {},
+      onAttack: () => {},
+      onFortify: () => {},
+      onSkipPhase: () => {},
+      onEndTurn: () => {},
+      layoutMode: "standard",
+    });
+
+    const standardCards = standardEl.props.children.filter(Boolean);
+    expect(standardCards.length).toBe(3);
+    expect(standardCards[0].props.title).toBe("! PLAYERS");
+    expect(standardCards[1].props.title).toBe("! SELECTED TERRITORY");
+    expect(standardCards[2].props.title).toBe("! ACTIONS");
+
+    // Wide mode: All 4 cards rendered with updated terminology
+    const wideEl: any = Sidebar({
+      state: null,
+      myPlayerId: "p1",
+      selectedTerritoryId: "A1",
+      hoveredTerritoryId: null,
+      targetTerritoryId: null,
+      onDeploy: () => {},
+      onAttack: () => {},
+      onFortify: () => {},
+      onSkipPhase: () => {},
+      onEndTurn: () => {},
+      layoutMode: "wide",
+    });
+
+    const wideCards = wideEl.props.children.filter(Boolean);
+    expect(wideCards.length).toBe(4);
+    expect(wideCards[3].props.title).toBe("! REALM & SESSION INTEL");
+
+    const wideStr = JSON.stringify(wideEl);
+    expect(wideStr).toContain("The Ironreach");
+    expect(wideStr).toContain("20 Contested");
+    expect(wideStr).not.toContain("20 Realms");
+  });
+
+  it("Header and Footer adapt to compact layout mode with space-saving heights", async () => {
+    const { Header } = await import("../apps/client/src/ui/Header.js");
+    const { Footer } = await import("../apps/client/src/ui/Footer.js");
+
+    // Compact Header: height 3 tactical bar
+    const compactHeader: any = Header({
+      roomCode: "H5CM",
+      turnNumber: 1,
+      activePlayer: testPlayers[0],
+      phase: "deployment",
+      pendingReinforcements: 3,
+      connectionStatus: "connected",
+      isMyTurn: true,
+      layoutMode: "compact",
+    });
+    const mainHeaderBox = compactHeader.props.children[1];
+    expect(mainHeaderBox.props.style.height).toBe(3);
+
+    // Standard/Wide Header: height 5 with ASCII art logo
+    const wideHeader: any = Header({
+      roomCode: "H5CM",
+      turnNumber: 1,
+      activePlayer: testPlayers[0],
+      phase: "deployment",
+      pendingReinforcements: 3,
+      connectionStatus: "connected",
+      isMyTurn: true,
+      layoutMode: "wide",
+    });
+    const wideMainHeaderBox = wideHeader.props.children[1];
+    expect(wideMainHeaderBox.props.style.height).toBe(5);
+
+    // Compact Footer: height 1
+    const compactFooter: any = Footer({
+      activeTab: 1,
+      layoutMode: "compact",
+    });
+    expect(compactFooter.props.style.height).toBe(1);
+
+    // Standard Footer: height 3
+    const standardFooter: any = Footer({
+      activeTab: 1,
+      layoutMode: "standard",
+    });
+    expect(standardFooter.props.style.height).toBe(3);
+  });
+
+  it("MapCanvas renders half-block microcell boundaries and neon highlight for selection", async () => {
+    // @ts-ignore
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
+
+    const setup = await testRender(
+      React.createElement(MapCanvas, {
+        territories: {},
+        players: testPlayers,
+        myPlayerId: "p1",
+        phase: "deployment",
+        selectedTerritoryId: "A1",
+        targetTerritoryId: null,
+        onSelectTerritory: () => {},
+        onSelectTarget: () => {},
+        onDeselect: () => {},
+      }),
+      { width: 140, height: 40 }
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    // Verify half-block characters exist in the output for microcell coastlines
+    expect(frame).toContain("▀");
+    // Verify territory name overlays cleanly on land
+    expect(frame).toContain("A1 HIGHWATCH");
+
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  });
+});
+
 
