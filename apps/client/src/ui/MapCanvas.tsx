@@ -7,6 +7,9 @@ import {
   type GridMapDefinition,
   getBorderInfo,
   getTerritoryAt,
+  getMapForDimensions,
+  getMapContentDimensionsForTerminal,
+  getMapForTerminalDimensions,
 } from "@conquest/map-engine";
 
 export interface MapCanvasProps {
@@ -19,6 +22,7 @@ export interface MapCanvasProps {
   hoveredTerritoryId?: string | null;
   viewport?: "compact" | "wide";
   terminalDimensions?: { columns: number; rows: number };
+  contentDimensions?: { width: number; height: number };
   onHoverTerritory?: (territoryId: string | null) => void;
   onSelectTerritory: (territoryId: string) => void;
   onSelectTarget: (territoryId: string) => void;
@@ -183,6 +187,7 @@ export function MapCanvas({
   hoveredTerritoryId,
   viewport,
   terminalDimensions,
+  contentDimensions,
   onHoverTerritory,
   onSelectTerritory,
   onSelectTarget,
@@ -193,8 +198,10 @@ export function MapCanvas({
       ? MAP_GRID_IRONREACH_COMPACT
       : viewport === "wide"
       ? MAP_GRID_IRONREACH_WIDE
-      : terminalDimensions && terminalDimensions.columns >= 140
-      ? MAP_GRID_IRONREACH_WIDE
+      : contentDimensions
+      ? getMapForDimensions(contentDimensions.width, contentDimensions.height)
+      : terminalDimensions
+      ? getMapForTerminalDimensions(terminalDimensions.columns, terminalDimensions.rows)
       : MAP_GRID_IRONREACH_COMPACT;
 
   const staticSeaRoutes =
@@ -537,8 +544,18 @@ export function MapCanvas({
     rows.push(runs);
   }
 
-  const canCenterH = !terminalDimensions || (terminalDimensions.columns * 0.75) >= activeMap.width + 2;
-  const canCenterV = !terminalDimensions || (terminalDimensions.rows - 15) >= activeMap.height + 2;
+  const availableContentW = contentDimensions
+    ? contentDimensions.width
+    : terminalDimensions
+    ? Math.max(0, Math.floor(Math.max(0, terminalDimensions.columns - 1) * 0.75) - 2)
+    : Infinity;
+  const availableContentH = contentDimensions
+    ? contentDimensions.height
+    : terminalDimensions
+    ? Math.max(0, terminalDimensions.rows - 19)
+    : Infinity;
+  const canCenterH = availableContentW >= activeMap.width;
+  const canCenterV = availableContentH >= activeMap.height;
   const title =
     terminalDimensions && terminalDimensions.columns < 130
       ? "! WORLD MAP                  Territories • Connections • Empires"

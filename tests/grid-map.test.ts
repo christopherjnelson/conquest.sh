@@ -23,6 +23,8 @@ import defaultMap, {
   getBorderInfo,
   getGeographyBoundingBox,
   getMapForDimensions,
+  getMapContentDimensionsForTerminal,
+  getMapForTerminalDimensions,
   getNextTerritoryInDirection,
   getTerritoryAt,
   getTerritoryCells,
@@ -499,9 +501,20 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
     expect(compactMap.width).toBe(104);
     expect(compactMap.height).toBe(30);
 
-    // Threshold edge checks
-    expect(getMapForDimensions(135, 34)).toBe(MAP_GRID_IRONREACH_WIDE);
-    expect(getMapForDimensions(134, 34)).toBe(MAP_GRID_IRONREACH_COMPACT);
-    expect(getMapForDimensions(135, 33)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    // Threshold edge checks based on exact wide canvas dimensions (136x36)
+    expect(getMapForDimensions(136, 36)).toBe(MAP_GRID_IRONREACH_WIDE);
+    expect(getMapForDimensions(135, 36)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    expect(getMapForDimensions(136, 35)).toBe(MAP_GRID_IRONREACH_COMPACT);
+
+    // Wide-but-short returns compact to prevent vertical overflow
+    expect(getMapForDimensions(200, 30)).toBe(MAP_GRID_IRONREACH_COMPACT);
+
+    // Breakpoint tests via getMapForTerminalDimensions
+    // 184x55: paneWidth = floor(183 * 0.75) = 137 -> contentWidth = 135 < 136 -> compact
+    expect(getMapForTerminalDimensions(184, 55)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    // 185x55: paneWidth = floor(184 * 0.75) = 138 -> contentWidth = 136 >= 136 -> wide
+    expect(getMapForTerminalDimensions(185, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
+    // 200x30: wide cols but short rows -> paneHeight = 13 -> contentHeight = 11 < 36 -> compact
+    expect(getMapForTerminalDimensions(200, 30)).toBe(MAP_GRID_IRONREACH_COMPACT);
   });
 });

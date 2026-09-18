@@ -1104,6 +1104,181 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       setupWide.renderer.destroy();
     });
   });
+
+  it("regression: wide-but-short terminal (200x30) selects compact map and raster never exceeds pane bounds", async () => {
+    // @ts-ignore
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+
+    const setupShort = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 200, rows: 30 },
+      }),
+      { width: 200, height: 30 }
+    );
+    await act(async () => {
+      await setupShort.renderOnce();
+    });
+
+    // Press key to override the terminal size warning for 30 rows (< 34)
+    await act(async () => {
+      setupShort.mockInput.pressKey("i");
+    });
+    await act(async () => {
+      await setupShort.renderOnce();
+    });
+
+    const rootNode = setupShort.renderer.root;
+    const appContainer = rootNode.getChildren?.()[0]?.getChildren?.().length === 4
+      ? rootNode.getChildren()[0]
+      : rootNode;
+    const tacticalRowNode = appContainer.getChildren()[1];
+    const [leftCol] = tacticalRowNode.getChildren();
+
+    function findInnerMap(node: any): any {
+      if (
+        node &&
+        (node.width === MAP_GRID_IRONREACH_COMPACT.width || node.width === MAP_GRID_IRONREACH_WIDE.width) &&
+        (node.height === MAP_GRID_IRONREACH_COMPACT.height || node.height === MAP_GRID_IRONREACH_WIDE.height)
+      ) {
+        return node;
+      }
+      for (const child of node?.getChildren?.() || []) {
+        const found = findInnerMap(child);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    const innerMap = findInnerMap(leftCol);
+    expect(innerMap).not.toBeNull();
+    // In a short terminal (30 rows), available content height is (30 - 17 - 2) = 11 < 36
+    // So canonical decision chooses COMPACT map (104x30) rather than overflowing 36-row wide map
+    expect(innerMap.width).toBe(MAP_GRID_IRONREACH_COMPACT.width);
+    expect(innerMap.height).toBe(MAP_GRID_IRONREACH_COMPACT.height);
+    // Raster width strictly fits inside leftCol width
+    expect(innerMap.width).toBeLessThanOrEqual(leftCol.width);
+
+    await act(async () => {
+      setupShort.renderer.destroy();
+    });
+
+    // Also verify 200x35 (sufficient height to bypass warning without override, but still short)
+    const setup35 = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 200, rows: 35 },
+      }),
+      { width: 200, height: 35 }
+    );
+    await act(async () => {
+      await setup35.renderOnce();
+    });
+
+    const root35 = setup35.renderer.root;
+    const app35 = root35.getChildren?.()[0]?.getChildren?.().length === 4
+      ? root35.getChildren()[0]
+      : root35;
+    const [leftCol35] = app35.getChildren()[1].getChildren();
+    const innerMap35 = findInnerMap(leftCol35);
+    expect(innerMap35).not.toBeNull();
+    // Content height at 35 rows is (35 - 17 - 2) = 16 < 36 -> Compact map
+    expect(innerMap35.width).toBe(MAP_GRID_IRONREACH_COMPACT.width);
+    expect(innerMap35.height).toBe(MAP_GRID_IRONREACH_COMPACT.height);
+    expect(innerMap35.width).toBeLessThanOrEqual(leftCol35.width);
+
+    await act(async () => {
+      setup35.renderer.destroy();
+    });
+  });
+
+  it("regression: compact vs wide breakpoint (184x55 vs 185x55) switches cleanly and raster never exceeds pane", async () => {
+    // @ts-ignore
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+
+    function findInnerMap(node: any): any {
+      if (
+        node &&
+        (node.width === MAP_GRID_IRONREACH_COMPACT.width || node.width === MAP_GRID_IRONREACH_WIDE.width) &&
+        (node.height === MAP_GRID_IRONREACH_COMPACT.height || node.height === MAP_GRID_IRONREACH_WIDE.height)
+      ) {
+        return node;
+      }
+      for (const child of node?.getChildren?.() || []) {
+        const found = findInnerMap(child);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    // 1. Below breakpoint: 184x55
+    // paneWidth = floor((184 - 1) * 0.75) = 137. contentWidth = 135 < 136 -> Compact map
+    const setup184 = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 184, rows: 55 },
+      }),
+      { width: 184, height: 55 }
+    );
+    await act(async () => {
+      await setup184.renderOnce();
+    });
+
+    const root184 = setup184.renderer.root;
+    const appContainer184 = root184.getChildren?.()[0]?.getChildren?.().length === 4
+      ? root184.getChildren()[0]
+      : root184;
+    const [leftCol184] = appContainer184.getChildren()[1].getChildren();
+    const innerMap184 = findInnerMap(leftCol184);
+
+    expect(innerMap184).not.toBeNull();
+    expect(innerMap184.width).toBe(MAP_GRID_IRONREACH_COMPACT.width);
+    expect(innerMap184.height).toBe(MAP_GRID_IRONREACH_COMPACT.height);
+    expect(innerMap184.width).toBeLessThanOrEqual(leftCol184.width);
+
+    await act(async () => {
+      setup184.renderer.destroy();
+    });
+
+    // 2. At/above breakpoint: 185x55
+    // paneWidth = floor((185 - 1) * 0.75) = 138. contentWidth = 136 >= 136 -> Wide map
+    const setup185 = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 185, rows: 55 },
+      }),
+      { width: 185, height: 55 }
+    );
+    await act(async () => {
+      await setup185.renderOnce();
+    });
+
+    const root185 = setup185.renderer.root;
+    const appContainer185 = root185.getChildren?.()[0]?.getChildren?.().length === 4
+      ? root185.getChildren()[0]
+      : root185;
+    const [leftCol185] = appContainer185.getChildren()[1].getChildren();
+    const innerMap185 = findInnerMap(leftCol185);
+
+    expect(innerMap185).not.toBeNull();
+    expect(innerMap185.width).toBe(MAP_GRID_IRONREACH_WIDE.width);
+    expect(innerMap185.height).toBe(MAP_GRID_IRONREACH_WIDE.height);
+    expect(innerMap185.width).toBeLessThanOrEqual(leftCol185.width);
+
+    await act(async () => {
+      setup185.renderer.destroy();
+    });
+  });
 });
 
 
