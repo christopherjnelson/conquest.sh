@@ -86,7 +86,7 @@ export function Footer({
         ) : (
           <text>
             <span fg="#64748b">Play fair. Play bold.  │  </span>
-            <span fg="#00d2ff"><b>IRON FRONT</b></span>
+            <span fg="#00d2ff"><b>CONQUEST.SH</b></span>
           </text>
         )}
       </box>

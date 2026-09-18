@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { GameEvent, GameState } from "@conquest/protocol";
-import { MAP_GRID_IRONREACH, getTerritoryAt } from "@conquest/map-engine";
+import { MAP_GRID_IRONREACH, getTerritoryAt, getNextTerritoryInDirection } from "@conquest/map-engine";
 import { GameClient, type ConnectionStatus } from "../network/client.js";
 import { Header } from "./Header.js";
 import { MapCanvas } from "./MapCanvas.js";
@@ -54,7 +54,7 @@ export function TerminalSizeWarning({
         </text>
 
         <text fg="#e2e8f0">
-          conquest.sh requires at least 110 columns x 38 rows for the tactical realm map.
+          conquest.sh requires at least 105 columns x 34 rows for the tactical realm map.
         </text>
 
         <text fg="#f59e0b">
@@ -75,60 +75,6 @@ export function TerminalSizeWarning({
   );
 }
 
-// Full 20-territory spatial navigation across 6 continental clusters
-const SPATIAL_NAV_GRID: Record<
-  string,
-  { up?: string; down?: string; left?: string; right?: string }
-> = {
-  // Cluster A (Northwest)
-  A1: { down: "A3", right: "B1", left: "A2" },
-  A2: { up: "A1", right: "A3", down: "D1" },
-  A3: { up: "A1", left: "A2", right: "B2", down: "D2" },
-
-  // Cluster B (North-Center)
-  B1: { left: "A1", right: "C1", down: "B2" },
-  B2: { up: "B1", left: "A3", right: "B3", down: "E1" },
-  B3: { up: "B1", left: "B2", right: "C2", down: "E1" },
-
-  // Cluster C (Northeast)
-  C1: { left: "B1", down: "C2", right: "C3" },
-  C2: { up: "C1", left: "B3", right: "C3", down: "C4" },
-  C3: { up: "C1", left: "C2", down: "C4" },
-  C4: { up: "C2", down: "F1", right: "C3" },
-
-  // Cluster D (Southwest)
-  D1: { up: "A2", right: "D2", down: "D3" },
-  D2: { up: "A3", left: "D1", down: "D4", right: "E1" },
-  D3: { up: "D1", right: "D4" },
-  D4: { up: "D2", left: "D3", right: "E2" },
-
-  // Cluster E (South-Center)
-  E1: { up: "B2", left: "D2", right: "F1", down: "E2" },
-  E2: { up: "E1", left: "D4", right: "E3" },
-  E3: { up: "E1", left: "E2", right: "F1" },
-
-  // Cluster F (Southeast)
-  F1: { up: "C4", left: "E3", right: "F2", down: "F3" },
-  F2: { left: "F1", down: "F3" },
-  F3: { up: "F2", left: "F1" },
-};
-
-// Fallback navigation for legacy 10-territory ids
-const SPATIAL_NAV_LEGACY: Record<
-  string,
-  { up?: string; down?: string; left?: string; right?: string }
-> = {
-  frostfell: { right: "highwatch", down: "iron_hollow" },
-  highwatch: { left: "frostfell", down: "stoneveil" },
-  iron_hollow: { up: "frostfell", right: "stoneveil", down: "red_basin", left: "frostfell" },
-  stoneveil: { up: "highwatch", left: "iron_hollow", down: "mossgate" },
-  red_basin: { up: "iron_hollow", right: "sunken_pass", down: "ember_coast" },
-  mossgate: { up: "stoneveil", left: "sunken_pass", down: "ashmoor" },
-  sunken_pass: { up: "iron_hollow", left: "red_basin", right: "mossgate", down: "hollowmere" },
-  ember_coast: { up: "red_basin", right: "hollowmere" },
-  ashmoor: { up: "mossgate", left: "hollowmere" },
-  hollowmere: { up: "sunken_pass", left: "ember_coast", right: "ashmoor" },
-};
 
 export function App({ client, onExit, terminalDimensions }: AppProps) {
   const [state, setState] = useState<GameState | null>(client.state);
@@ -168,7 +114,7 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
         rows: nextRows,
       });
       // If window expanded to sufficient dimensions, reset override so subsequent shrinks re-warn
-      if (nextCols >= 100 && nextRows >= 30) {
+      if (nextCols >= 105 && nextRows >= 34) {
         setOverrideWarning(false);
       }
     };
@@ -189,10 +135,10 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
   const rows = dimensions.rows;
   // In non-TTY environments (or tests without real TTY), columns/rows are undefined or 0
   const hasTtyDimensions = cols > 0 && rows > 0;
-  const isTooSmall = !overrideWarning && hasTtyDimensions && (cols < 100 || rows < 30);
+  const isTooSmall = !overrideWarning && hasTtyDimensions && (cols < 105 || rows < 34);
 
-  // Default selected territory to C2 matching ref.png
-  const [selectedTerritoryId, setSelectedTerritoryId] = useState<string | null>("C2");
+  // No territory selected by default
+  const [selectedTerritoryId, setSelectedTerritoryId] = useState<string | null>(null);
   const [targetTerritoryId, setTargetTerritoryId] = useState<string | null>(null);
   const [hoveredTerritoryId, setHoveredTerritoryId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -362,7 +308,7 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
 
     // Toggle warning back if dimensions are small and user previously overrode
     if (key.name === "i" || key.name === "I") {
-      if (hasTtyDimensions && (cols < 100 || rows < 30)) {
+      if (hasTtyDimensions && (cols < 105 || rows < 34)) {
         setOverrideWarning(false);
         return;
       }
@@ -428,7 +374,7 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
       return;
     }
 
-    // Arrow keys spatial navigation
+    // Arrow keys spatial navigation using geometry-based centroid search
     if (["up", "down", "left", "right"].includes(key.name)) {
       if (allTerritoryIds.length === 0) return;
       if (!selectedTerritoryId) {
@@ -436,53 +382,10 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
         return;
       }
       const dir = key.name as "up" | "down" | "left" | "right";
-
-      // 1. Check direct 2D grid lookup
-      const navGrid = SPATIAL_NAV_GRID[selectedTerritoryId];
-      if (navGrid && navGrid[dir]) {
-        setSelectedTerritoryId(navGrid[dir]!);
+      const nextId = getNextTerritoryInDirection(selectedTerritoryId, dir, MAP_GRID_IRONREACH);
+      if (nextId) {
+        setSelectedTerritoryId(nextId);
         setTargetTerritoryId(null);
-        return;
-      }
-
-      // 2. Check legacy map lookup
-      const navLegacy = SPATIAL_NAV_LEGACY[selectedTerritoryId];
-      if (navLegacy && navLegacy[dir]) {
-        setSelectedTerritoryId(navLegacy[dir]!);
-        setTargetTerritoryId(null);
-        return;
-      }
-
-      // 3. Fallback: geometric vector search
-      const currentDef = MAP_GRID_IRONREACH.territories.find((t) => t.id === selectedTerritoryId);
-      if (currentDef) {
-        let bestTarget: string | null = null;
-        let bestScore = Infinity;
-
-        for (const t of MAP_GRID_IRONREACH.territories) {
-          if (t.id === selectedTerritoryId) continue;
-          const dx = t.labelPos.x - currentDef.labelPos.x;
-          const dy = t.labelPos.y - currentDef.labelPos.y;
-
-          let matchesDir = false;
-          if (dir === "right" && dx > 0 && Math.abs(dx) >= Math.abs(dy) * 0.4) matchesDir = true;
-          if (dir === "left" && dx < 0 && Math.abs(dx) >= Math.abs(dy) * 0.4) matchesDir = true;
-          if (dir === "down" && dy > 0 && Math.abs(dy) >= Math.abs(dx) * 0.3) matchesDir = true;
-          if (dir === "up" && dy < 0 && Math.abs(dy) >= Math.abs(dx) * 0.3) matchesDir = true;
-
-          if (matchesDir) {
-            const dist = dx * dx + dy * dy;
-            if (dist < bestScore) {
-              bestScore = dist;
-              bestTarget = t.id;
-            }
-          }
-        }
-
-        if (bestTarget) {
-          setSelectedTerritoryId(bestTarget);
-          setTargetTerritoryId(null);
-        }
       }
       return;
     }
@@ -541,18 +444,23 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
       {/* Top Header */}
       <Header
         roomCode={client.roomCode}
-        turnNumber={state?.turnNumber ?? 3}
+        turnNumber={state?.turnNumber ?? 0}
         activePlayer={activePlayer}
         phase={phase}
-        pendingReinforcements={state?.pendingReinforcements ?? 5}
+        pendingReinforcements={state?.pendingReinforcements ?? 0}
         connectionStatus={status}
         isMyTurn={isMyTurn}
       />
 
-      {/* Main Tactical Area: World Map + Event Log on left, Sidebar on right */}
-      <box flexDirection="row" gap={1} style={{ marginTop: 0, marginBottom: 0 }}>
-        {/* Left Column: MapCanvas (78x30) + EventLog (78x9) */}
-        <box flexDirection="column" gap={0}>
+      {/* Main Tactical Area (flexDirection="row", flexGrow 1, width "100%", gap 1) */}
+      <box
+        flexDirection="row"
+        flexGrow={1}
+        style={{ width: "100%", marginTop: 0, marginBottom: 0 }}
+        gap={1}
+      >
+        {/* Left: MapCanvas (~75% width) */}
+        <box flexGrow={3} flexDirection="column" alignItems="center">
           <MapCanvas
             territories={state?.territories ?? {}}
             players={state?.players ?? []}
@@ -572,31 +480,34 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
               setTargetTerritoryId(null);
             }}
           />
-
-          <EventLog
-            events={events}
-            chatOpen={chatOpen}
-            players={state?.players ?? []}
-            onToggleChat={() => setChatOpen(!chatOpen)}
-            onSendChat={(text) => client.sendChat(text)}
-          />
         </box>
 
-        {/* Right Intel & Actions Sidebar (width 38) */}
-        <Sidebar
-          state={state}
-          myPlayerId={myPlayerId}
-          selectedTerritoryId={selectedTerritoryId}
-          targetTerritoryId={targetTerritoryId}
-          onDeploy={handleDeploy}
-          onAttack={handleAttack}
-          onFortify={handleFortify}
-          onSkipPhase={handleSkipPhase}
-          onEndTurn={handleEndTurn}
-          onReady={handleReady}
-          onSelectTarget={(id) => setTargetTerritoryId(id)}
-        />
+        {/* Right: Sidebar (~25% width) */}
+        <box flexGrow={1} flexDirection="column">
+          <Sidebar
+            state={state}
+            myPlayerId={myPlayerId}
+            selectedTerritoryId={selectedTerritoryId}
+            targetTerritoryId={targetTerritoryId}
+            onDeploy={handleDeploy}
+            onAttack={handleAttack}
+            onFortify={handleFortify}
+            onSkipPhase={handleSkipPhase}
+            onEndTurn={handleEndTurn}
+            onReady={handleReady}
+            onSelectTarget={(id) => setTargetTerritoryId(id)}
+          />
+        </box>
       </box>
+
+      {/* EventLog beneath Map + Sidebar (width 100%, height 8) */}
+      <EventLog
+        events={events}
+        chatOpen={chatOpen}
+        players={state?.players ?? []}
+        onToggleChat={() => setChatOpen(!chatOpen)}
+        onSendChat={(text) => client.sendChat(text)}
+      />
 
       {/* Bottom Footer with Pills & Keybindings */}
       <Footer

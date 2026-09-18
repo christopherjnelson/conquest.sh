@@ -21,57 +21,7 @@ export interface FormattedEventItem {
   category: "Game" | "Chat" | "System";
 }
 
-// Fallback sample events matching ref.png if no events yet
-const SAMPLE_EVENTS: FormattedEventItem[] = [
-  {
-    timestamp: "19:14",
-    senderName: "Alex",
-    senderColor: "#00ff66",
-    text: "Alex received 5 reinforcements.",
-    color: "#e2e8f0",
-    category: "Game",
-  },
-  {
-    timestamp: "19:15",
-    senderName: "Casey",
-    senderColor: "#38bdf8",
-    text: "Casey captured A3 from Blair.",
-    color: "#e2e8f0",
-    category: "Game",
-  },
-  {
-    timestamp: "19:16",
-    senderName: "Drew",
-    senderColor: "#ff4444",
-    text: "Drew: nice move!",
-    color: "#e2e8f0",
-    category: "Chat",
-  },
-  {
-    timestamp: "19:16",
-    senderName: "Blair",
-    senderColor: "#00d2ff",
-    text: "Blair: still a long way to go...",
-    color: "#e2e8f0",
-    category: "Chat",
-  },
-  {
-    timestamp: "19:17",
-    senderName: "Alex",
-    senderColor: "#00ff66",
-    text: "Alex: C2 looks vulnerable 👀",
-    color: "#e2e8f0",
-    category: "Chat",
-  },
-  {
-    timestamp: "19:17",
-    senderName: "Casey",
-    senderColor: "#38bdf8",
-    text: "Casey: winter is coming.",
-    color: "#e2e8f0",
-    category: "Chat",
-  },
-];
+
 
 /**
  * Formats a GameEvent for military chronicles (preserves exact test compatibility).
@@ -81,10 +31,17 @@ export function formatEvent(
   players: Player[]
 ): { text: string; color: string } {
   const getPlayerName = (id: string) => players.find((p) => p.id === id)?.name ?? id;
-  const getTerritoryName = (id: string) =>
-    MAP_GRID_IRONREACH.territories.find((t) => t.id === id)?.name ??
-    MAP_IRONREACH.territories.find((t) => t.id === id)?.name ??
-    id;
+  const getTerritoryName = (id: string) => {
+    const norm = id.toLowerCase().replace(/[_\s-]+/g, "");
+    const found =
+      MAP_GRID_IRONREACH.territories.find(
+        (t) =>
+          t.id === id ||
+          t.id.toLowerCase() === id.toLowerCase() ||
+          t.name.toLowerCase().replace(/[_\s-]+/g, "") === norm
+      );
+    return found?.name ?? id;
+  };
 
   switch (e.type) {
     case "player_joined":
@@ -240,14 +197,14 @@ export function EventLog({
             category,
           };
         })
-      : SAMPLE_EVENTS;
+      : [];
 
   const filteredItems =
     activeTab === "All"
       ? formattedItems
       : formattedItems.filter((item) => item.category === activeTab);
 
-  const displayedItems = filteredItems.slice(-6);
+  const displayedItems = filteredItems.slice(-5);
 
   return (
     <box
@@ -260,7 +217,7 @@ export function EventLog({
       flexDirection="column"
       paddingLeft={1}
       paddingRight={1}
-      style={{ width: 78, height: 9 }}
+      style={{ width: "100%", height: 8 }}
     >
       {/* Title bar with tabs right aligned */}
       <box flexDirection="row" justifyContent="flex-end" marginBottom={0}>
@@ -313,11 +270,15 @@ export function EventLog({
               </text>
             </box>
           ))}
-          {displayedItems.length === 0 && (
+          {events.length === 0 ? (
+            <text fg="#64748b">
+              <i>No events yet.</i>
+            </text>
+          ) : displayedItems.length === 0 ? (
             <text fg="#64748b">
               <i>No entries in {activeTab} chronicle</i>
             </text>
-          )}
+          ) : null}
         </box>
 
         {/* Scrollbar Track matching ref.png */}
