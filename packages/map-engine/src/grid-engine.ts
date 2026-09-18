@@ -4,6 +4,7 @@ import {
   type GridTerritoryMetadata,
   type GridSeaRoute,
   type GridMapDecoration,
+  type GridMapDecorations,
 } from "./maps/grid-ironreach.js";
 
 export interface BorderCellInfo {
@@ -108,10 +109,89 @@ export function getTerritoryCells(
   return cells;
 }
 
+/**
+ * Calculates the centroid (average x, y coordinate) of all cells belonging to a territory.
+ */
+export function getTerritoryCentroid(
+  territoryId: string,
+  map: GridMapDefinition = MAP_GRID_IRONREACH
+): { x: number; y: number } {
+  const cells = getTerritoryCells(territoryId, map);
+  if (cells.length === 0) {
+    const t = map.territories.find((item) => item.id === territoryId);
+    return t ? { ...t.labelPos } : { x: 0, y: 0 };
+  }
+  let sumX = 0;
+  let sumY = 0;
+  for (const cell of cells) {
+    sumX += cell.x;
+    sumY += cell.y;
+  }
+  return {
+    x: sumX / cells.length,
+    y: sumY / cells.length,
+  };
+}
+
+/**
+ * Computes centroids and selects the closest candidate territory in the requested cardinal direction.
+ */
+export function getNextTerritoryInDirection(
+  currentId: string,
+  direction: "up" | "down" | "left" | "right",
+  map: GridMapDefinition = MAP_GRID_IRONREACH
+): string | null {
+  const currentCentroid = getTerritoryCentroid(currentId, map);
+  let bestTarget: string | null = null;
+  let bestScore = Infinity;
+
+  for (const t of map.territories) {
+    if (t.id === currentId) continue;
+    const targetCentroid = getTerritoryCentroid(t.id, map);
+    const dx = targetCentroid.x - currentCentroid.x;
+    const dy = targetCentroid.y - currentCentroid.y;
+
+    // Terminal characters visually have ~2:1 width-to-height ratio (rows are taller than columns)
+    const vx = dx;
+    const vy = dy * 2.0;
+
+    let projected: number;
+    let perp: number;
+
+    if (direction === "right") {
+      projected = vx;
+      perp = Math.abs(vy);
+    } else if (direction === "left") {
+      projected = -vx;
+      perp = Math.abs(vy);
+    } else if (direction === "down") {
+      projected = vy;
+      perp = Math.abs(vx);
+    } else if (direction === "up") {
+      projected = -vy;
+      perp = Math.abs(vx);
+    } else {
+      continue;
+    }
+
+    // Must be in the forward direction cone (projected > 0.5 and perp within cone)
+    if (projected > 0.5 && perp <= projected * 2.0) {
+      const score = projected + 2.0 * perp;
+      if (score < bestScore) {
+        bestScore = score;
+        bestTarget = t.id;
+      }
+    }
+  }
+
+  return bestTarget;
+}
+
 export {
   MAP_GRID_IRONREACH,
   type GridMapDefinition,
   type GridTerritoryMetadata,
   type GridSeaRoute,
   type GridMapDecoration,
+  type GridMapDecorations,
 };

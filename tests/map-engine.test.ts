@@ -7,19 +7,22 @@ import {
   NODE_HEIGHT,
   NODE_WIDTH,
   findTerritoryAt,
+  getNextTerritoryInDirection,
+  getTerritoryAt,
   getTerritoryBounds,
+  getTerritoryCentroid,
 } from "../packages/map-engine/src/index.js";
 
-describe("map-engine: ironreach map schema & integrity", () => {
-  it("exports MAP_IRONREACH with valid metadata and default export", () => {
+describe("map-engine: ironreach unified map schema & integrity", () => {
+  it("exports MAP_IRONREACH unified onto MAP_GRID_IRONREACH with valid metadata and default export", () => {
+    expect(MAP_IRONREACH).toBe(MAP_GRID_IRONREACH);
+    expect(DEFAULT_MAP).toBe(MAP_GRID_IRONREACH);
     expect(MAP_IRONREACH.id).toBe("ironreach");
     expect(MAP_IRONREACH.name).toBe("The Ironreach");
-    expect(MAP_IRONREACH.description).toBe(
-      "A fractured feudal continent of northern peaks, contested river marches, and volcanic coasts."
-    );
-    expect(DEFAULT_MAP).toBe(MAP_GRID_IRONREACH);
     expect(MAP_IRONREACH.recommendedPlayers.min).toBe(2);
-    expect(MAP_IRONREACH.recommendedPlayers.max).toBe(4);
+    expect(MAP_IRONREACH.recommendedPlayers.max).toBe(6);
+    expect(MAP_IRONREACH.width).toBe(104);
+    expect(MAP_IRONREACH.height).toBe(30);
   });
 
   it("exports MAP_SECTOR_07 for backward compatibility", () => {
@@ -27,33 +30,54 @@ describe("map-engine: ironreach map schema & integrity", () => {
     expect(MAP_SECTOR_07.territories.length).toBe(8);
   });
 
-  it("defines exactly 3 regions with expected sector bonuses and colors", () => {
-    expect(MAP_IRONREACH.sectors.length).toBe(3);
+  it("defines exactly 6 sectors with expected sector bonuses and colors", () => {
+    expect(MAP_IRONREACH.sectors.length).toBe(6);
 
-    const northreach = MAP_IRONREACH.sectors.find((s) => s.id === "northreach");
-    expect(northreach).toBeDefined();
-    expect(northreach?.name).toBe("Northreach");
-    expect(northreach?.bonusReinforcements).toBe(3);
-    expect(northreach?.colorHex).toBe("#00d2ff");
-    expect(northreach?.territoryIds).toEqual(["frostfell", "highwatch", "iron_hollow"]);
+    const nw = MAP_IRONREACH.sectors.find((s) => s.id === "nw_green");
+    expect(nw).toBeDefined();
+    expect(nw?.name).toBe("Verdant Fringe");
+    expect(nw?.bonusReinforcements).toBe(2);
+    expect(nw?.colorHex).toBe("#00ff66");
+    expect(nw?.territoryIds).toEqual(["A1", "A2", "A3"]);
 
-    const theMarches = MAP_IRONREACH.sectors.find((s) => s.id === "the_marches");
-    expect(theMarches).toBeDefined();
-    expect(theMarches?.name).toBe("The Marches");
-    expect(theMarches?.bonusReinforcements).toBe(2);
-    expect(theMarches?.colorHex).toBe("#ffaa00");
-    expect(theMarches?.territoryIds).toEqual(["stoneveil", "red_basin", "mossgate", "sunken_pass"]);
+    const nc = MAP_IRONREACH.sectors.find((s) => s.id === "nc_amber");
+    expect(nc).toBeDefined();
+    expect(nc?.name).toBe("Amber Steppes");
+    expect(nc?.bonusReinforcements).toBe(2);
+    expect(nc?.colorHex).toBe("#ffaa00");
+    expect(nc?.territoryIds).toEqual(["B1", "B2", "B3"]);
 
-    const emberlands = MAP_IRONREACH.sectors.find((s) => s.id === "emberlands");
-    expect(emberlands).toBeDefined();
-    expect(emberlands?.name).toBe("Emberlands");
-    expect(emberlands?.bonusReinforcements).toBe(3);
-    expect(emberlands?.colorHex).toBe("#ff3399");
-    expect(emberlands?.territoryIds).toEqual(["ember_coast", "ashmoor", "hollowmere"]);
+    const ne = MAP_IRONREACH.sectors.find((s) => s.id === "ne_cyan");
+    expect(ne).toBeDefined();
+    expect(ne?.name).toBe("Northreach");
+    expect(ne?.bonusReinforcements).toBe(3);
+    expect(ne?.colorHex).toBe("#00d2ff");
+    expect(ne?.territoryIds).toEqual(["C1", "C2", "C3", "C4"]);
+
+    const sw = MAP_IRONREACH.sectors.find((s) => s.id === "sw_red");
+    expect(sw).toBeDefined();
+    expect(sw?.name).toBe("Crimson Caldera");
+    expect(sw?.bonusReinforcements).toBe(3);
+    expect(sw?.colorHex).toBe("#ff4444");
+    expect(sw?.territoryIds).toEqual(["D1", "D2", "D3", "D4"]);
+
+    const sc = MAP_IRONREACH.sectors.find((s) => s.id === "sc_purple");
+    expect(sc).toBeDefined();
+    expect(sc?.name).toBe("The Blackfen");
+    expect(sc?.bonusReinforcements).toBe(2);
+    expect(sc?.colorHex).toBe("#9966ff");
+    expect(sc?.territoryIds).toEqual(["E1", "E2", "E3"]);
+
+    const se = MAP_IRONREACH.sectors.find((s) => s.id === "se_green");
+    expect(se).toBeDefined();
+    expect(se?.name).toBe("Emerald Isles");
+    expect(se?.bonusReinforcements).toBe(2);
+    expect(se?.colorHex).toBe("#22c55e");
+    expect(se?.territoryIds).toEqual(["F1", "F2", "F3"]);
   });
 
-  it("defines exactly 10 territories with valid positions and render dimensions", () => {
-    expect(MAP_IRONREACH.territories.length).toBe(10);
+  it("defines exactly 20 canonical territories with valid positions and render properties", () => {
+    expect(MAP_IRONREACH.territories.length).toBe(20);
 
     for (const t of MAP_IRONREACH.territories) {
       expect(typeof t.id).toBe("string");
@@ -62,10 +86,6 @@ describe("map-engine: ironreach map schema & integrity", () => {
       expect(typeof t.position.y).toBe("number");
       expect(t.neighbors.length).toBeGreaterThan(0);
       expect(t.render).toBeDefined();
-      expect(t.render?.width).toBeGreaterThanOrEqual(17);
-      expect(t.render?.width).toBeLessThanOrEqual(20);
-      expect(t.render?.height).toBeGreaterThanOrEqual(4);
-      expect(t.render?.height).toBeLessThanOrEqual(5);
       expect(typeof t.render?.flavor).toBe("string");
       expect(t.render?.flavor?.length).toBeGreaterThan(0);
     }
@@ -81,6 +101,61 @@ describe("map-engine: ironreach map schema & integrity", () => {
         expect(neighbor?.neighbors).toContain(t.id);
       }
     }
+  });
+
+  it("ensures normal neighbors physically share borders and sea routes do not", () => {
+    const seaRouteSet = new Set(
+      MAP_IRONREACH.seaRoutes.flatMap((r) => [`${r.from}-${r.to}`, `${r.to}-${r.from}`])
+    );
+
+    const contacts = new Map<string, Set<string>>();
+    for (const t of MAP_IRONREACH.territories) {
+      contacts.set(t.id, new Set());
+    }
+
+    for (let y = 0; y < MAP_IRONREACH.height; y++) {
+      for (let x = 0; x < MAP_IRONREACH.width; x++) {
+        const t1 = getTerritoryAt(x, y, MAP_IRONREACH);
+        if (!t1) continue;
+
+        for (const [dx, dy] of [[0, 1], [1, 0]]) {
+          const nx = x + dx;
+          const ny = y + dy;
+          const t2 = getTerritoryAt(nx, ny, MAP_IRONREACH);
+          if (t2 && t2 !== t1) {
+            contacts.get(t1)!.add(t2);
+            contacts.get(t2)!.add(t1);
+          }
+        }
+      }
+    }
+
+    for (const t of MAP_IRONREACH.territories) {
+      for (const nId of t.neighbors) {
+        const isSea = seaRouteSet.has(`${t.id}-${nId}`);
+        const touches = contacts.get(t.id)!.has(nId);
+        if (isSea) {
+          expect(touches).toBe(false);
+        } else {
+          expect(touches).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("calculates centroids and provides spatial navigation across cardinal directions", () => {
+    // Centroid calculation
+    const a1Centroid = getTerritoryCentroid("A1", MAP_IRONREACH);
+    expect(a1Centroid.x).toBeGreaterThan(15);
+    expect(a1Centroid.x).toBeLessThan(35);
+    expect(a1Centroid.y).toBeGreaterThan(1);
+    expect(a1Centroid.y).toBeLessThan(6);
+
+    // Spatial navigation for each cardinal direction
+    expect(getNextTerritoryInDirection("A1", "left", MAP_IRONREACH)).toBe("A2");
+    expect(getNextTerritoryInDirection("A1", "right", MAP_IRONREACH)).toBe("C1");
+    expect(getNextTerritoryInDirection("A1", "down", MAP_IRONREACH)).toBe("A3");
+    expect(getNextTerritoryInDirection("C2", "up", MAP_IRONREACH)).toBe("C1");
   });
 });
 
@@ -116,24 +191,24 @@ describe("map-engine: layout and bounding boxes", () => {
   });
 
   it("finds territory at given coordinates for both array and record inputs", () => {
-    const frostfell = MAP_IRONREACH.territories.find((t) => t.id === "frostfell")!;
-    const bounds = getTerritoryBounds(frostfell);
+    const highwatch = MAP_IRONREACH.territories.find((t) => t.id === "A1")!;
+    const bounds = getTerritoryBounds(highwatch);
 
-    // Coordinate inside frostfell
+    // Coordinate inside highwatch bounds
     const insideX = bounds.x + 2;
     const insideY = bounds.y + 1;
 
     // Test with array
     const foundArray = findTerritoryAt(MAP_IRONREACH.territories, insideX, insideY);
-    expect(foundArray?.id).toBe("frostfell");
+    expect(foundArray?.id).toBe("A1");
 
     // Test with record
-    const record: Record<string, typeof frostfell> = {};
+    const record: Record<string, typeof highwatch> = {};
     for (const t of MAP_IRONREACH.territories) {
       record[t.id] = t;
     }
     const foundRecord = findTerritoryAt(record, insideX, insideY);
-    expect(foundRecord?.id).toBe("frostfell");
+    expect(foundRecord?.id).toBe("A1");
 
     // Coordinate far outside any territory
     const outside = findTerritoryAt(record, 999, 999);

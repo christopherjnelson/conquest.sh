@@ -7,55 +7,57 @@ import defaultMap, {
   GRID_SEA_ROUTES,
   GRID_TEMPLATE,
   MAP_GRID_IRONREACH,
+  MAP_IRONREACH,
   getBorderInfo,
+  getNextTerritoryInDirection,
   getTerritoryAt,
   getTerritoryCells,
+  getTerritoryCentroid,
   isBorderCell,
 } from "../packages/map-engine/src/index.js";
 
 describe("grid-map: 2D Ironreach territory grid engine", () => {
-  it("exports MAP_GRID_IRONREACH as default and matches canvas dimensions", () => {
+  it("exports MAP_GRID_IRONREACH and matches canvas dimensions (104x30)", () => {
     expect(defaultMap).toBe(MAP_GRID_IRONREACH);
-    expect(MAP_GRID_IRONREACH.width).toBe(76);
-    expect(MAP_GRID_IRONREACH.height).toBe(28);
-    expect(GRID_CANVAS_WIDTH).toBe(76);
-    expect(GRID_CANVAS_HEIGHT).toBe(28);
-    expect(MAP_GRID_IRONREACH.template.length).toBe(28);
+    expect(MAP_IRONREACH).toBe(MAP_GRID_IRONREACH);
+    expect(MAP_GRID_IRONREACH.width).toBe(104);
+    expect(MAP_GRID_IRONREACH.height).toBe(30);
+    expect(GRID_CANVAS_WIDTH).toBe(104);
+    expect(GRID_CANVAS_HEIGHT).toBe(30);
+    expect(MAP_GRID_IRONREACH.template.length).toBe(30);
 
     for (let y = 0; y < MAP_GRID_IRONREACH.template.length; y++) {
-      expect(MAP_GRID_IRONREACH.template[y].length).toBe(76);
+      expect(MAP_GRID_IRONREACH.template[y].length).toBe(104);
     }
   });
 
-  it("defines all 18-20 canonical territories across 6 continental clusters", () => {
-    // There are 20 territories partitioned across 6 continental clusters
-    expect(MAP_GRID_IRONREACH.territories.length).toBeGreaterThanOrEqual(18);
+  it("defines all 20 canonical territories across 6 continental clusters", () => {
     expect(MAP_GRID_IRONREACH.territories.length).toBe(20);
 
     const expectedTerritories = [
-      // Cluster A (Northwest / Green)
+      // Cluster A (Northwest / Green) - North Continent
       { id: "A1", name: "Highwatch", sectorId: "nw_green", char: "A" },
       { id: "A2", name: "Whispering Woods", sectorId: "nw_green", char: "B" },
       { id: "A3", name: "Stoneveil", sectorId: "nw_green", char: "C" },
-      // Cluster B (North-Center / Amber-Gold)
+      // Cluster B (North-Center / Amber-Gold) - Central/South Continent
       { id: "B1", name: "Sunken Pass", sectorId: "nc_amber", char: "D" },
       { id: "B2", name: "The Marches", sectorId: "nc_amber", char: "E" },
       { id: "B3", name: "Golden Vale", sectorId: "nc_amber", char: "F" },
-      // Cluster C (Northeast / Ice Cyan)
+      // Cluster C (Northeast / Ice Cyan) - North Continent
       { id: "C1", name: "Frostfell", sectorId: "ne_cyan", char: "G" },
       { id: "C2", name: "Crown Citadel", sectorId: "ne_cyan", char: "H" },
       { id: "C3", name: "Glacier Bay", sectorId: "ne_cyan", char: "I" },
       { id: "C4", name: "White Cliff", sectorId: "ne_cyan", char: "J" },
-      // Cluster D (Southwest / Crimson Red)
+      // Cluster D (Southwest / Crimson Red) - Central/South Continent
       { id: "D1", name: "Ember Coast", sectorId: "sw_red", char: "K" },
       { id: "D2", name: "Ashmoor", sectorId: "sw_red", char: "L" },
       { id: "D3", name: "Red Basin", sectorId: "sw_red", char: "M" },
       { id: "D4", name: "Iron Hollow", sectorId: "sw_red", char: "N" },
-      // Cluster E (South-Center / Violet Purple)
+      // Cluster E (South-Center / Violet Purple) - Central/South Continent
       { id: "E1", name: "Hollowmere", sectorId: "sc_purple", char: "O" },
       { id: "E2", name: "Blackfen", sectorId: "sc_purple", char: "P" },
       { id: "E3", name: "Duskfall", sectorId: "sc_purple", char: "Q" },
-      // Cluster F (Southeast / Forest Green)
+      // Cluster F (Southeast / Forest Green) - Eastern Archipelago
       { id: "F1", name: "Mossgate", sectorId: "se_green", char: "R" },
       { id: "F2", name: "Verdant Reach", sectorId: "se_green", char: "S" },
       { id: "F3", name: "Mist Isle", sectorId: "se_green", char: "T" },
@@ -126,7 +128,7 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
     expect(se?.territoryIds).toEqual(["F1", "F2", "F3"]);
   });
 
-  it("verifies every territory has at least 15 land cells in the grid template", () => {
+  it("verifies every territory has at least 30 land cells in the grid template", () => {
     const charCounts: Record<string, number> = {};
     for (const row of MAP_GRID_IRONREACH.template) {
       for (const char of row) {
@@ -138,9 +140,8 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
 
     for (const t of MAP_GRID_IRONREACH.territories) {
       const count = charCounts[t.char] || 0;
-      expect(count).toBeGreaterThanOrEqual(15);
+      expect(count).toBeGreaterThanOrEqual(30);
 
-      // Verify helper getTerritoryCells returns identical count
       const cells = getTerritoryCells(t.id);
       expect(cells.length).toBe(count);
     }
@@ -154,8 +155,6 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
       expect(territoryAtPos).toBe(t.id);
       expect(t.position.x).toBe(x);
       expect(t.position.y).toBe(y);
-
-      // Verify character directly matches
       expect(MAP_GRID_IRONREACH.template[y][x]).toBe(t.char);
     }
   });
@@ -174,61 +173,113 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
     }
   });
 
+  it("verifies normal land neighbors physically share borders and sea routes do not", () => {
+    const seaRoutePairs = new Set(
+      MAP_GRID_IRONREACH.seaRoutes.flatMap((r) => [`${r.from}-${r.to}`, `${r.to}-${r.from}`])
+    );
+
+    // Build physical contacts between territories on the grid
+    const contacts = new Map<string, Set<string>>();
+    for (const t of MAP_GRID_IRONREACH.territories) {
+      contacts.set(t.id, new Set());
+    }
+
+    for (let y = 0; y < MAP_GRID_IRONREACH.height; y++) {
+      for (let x = 0; x < MAP_GRID_IRONREACH.width; x++) {
+        const t1 = getTerritoryAt(x, y);
+        if (!t1) continue;
+
+        for (const [dx, dy] of [[0, 1], [1, 0]]) {
+          const nx = x + dx;
+          const ny = y + dy;
+          const t2 = getTerritoryAt(nx, ny);
+          if (t2 && t2 !== t1) {
+            contacts.get(t1)!.add(t2);
+            contacts.get(t2)!.add(t1);
+          }
+        }
+      }
+    }
+
+    // Verify: each declared neighbor is either physically touching OR a sea route
+    for (const t of MAP_GRID_IRONREACH.territories) {
+      for (const nbrId of t.neighbors) {
+        const isSea = seaRoutePairs.has(`${t.id}-${nbrId}`);
+        const touches = contacts.get(t.id)!.has(nbrId);
+
+        if (isSea) {
+          expect(touches).toBe(false);
+        } else {
+          expect(touches).toBe(true);
+        }
+      }
+    }
+
+    // Verify: no non-neighbors physically touch
+    for (const [tId, touchedSet] of contacts.entries()) {
+      const territory = MAP_GRID_IRONREACH.territories.find((item) => item.id === tId)!;
+      for (const touchedId of touchedSet) {
+        expect(territory.neighbors).toContain(touchedId);
+      }
+    }
+  });
+
   it("correctly resolves getTerritoryAt for land, water, and out-of-bounds coordinates", () => {
-    // Land resolution
-    expect(getTerritoryAt(10, 4)).toBe("A1");
-    expect(getTerritoryAt(5, 9)).toBe("A2");
-    expect(getTerritoryAt(16, 9)).toBe("A3");
-    expect(getTerritoryAt(34, 4)).toBe("B1");
-    expect(getTerritoryAt(31, 10)).toBe("B2");
-    expect(getTerritoryAt(41, 10)).toBe("B3");
-    expect(getTerritoryAt(58, 4)).toBe("C1");
-    expect(getTerritoryAt(56, 9)).toBe("C2");
-    expect(getTerritoryAt(64, 10)).toBe("C3");
-    expect(getTerritoryAt(54, 13)).toBe("C4");
-    expect(getTerritoryAt(7, 16)).toBe("D1");
-    expect(getTerritoryAt(18, 16)).toBe("D2");
-    expect(getTerritoryAt(7, 20)).toBe("D3");
-    expect(getTerritoryAt(19, 21)).toBe("D4");
-    expect(getTerritoryAt(35, 18)).toBe("E1");
-    expect(getTerritoryAt(31, 22)).toBe("E2");
-    expect(getTerritoryAt(42, 22)).toBe("E3");
-    expect(getTerritoryAt(54, 19)).toBe("F1");
-    expect(getTerritoryAt(63, 19)).toBe("F2");
-    expect(getTerritoryAt(62, 23)).toBe("F3");
+    // Land resolution using actual label positions
+    expect(getTerritoryAt(24, 3)).toBe("A1");
+    expect(getTerritoryAt(9, 4)).toBe("A2");
+    expect(getTerritoryAt(19, 8)).toBe("A3");
+    expect(getTerritoryAt(20, 14)).toBe("B1");
+    expect(getTerritoryAt(34, 15)).toBe("B2");
+    expect(getTerritoryAt(50, 15)).toBe("B3");
+    expect(getTerritoryAt(41, 3)).toBe("C1");
+    expect(getTerritoryAt(38, 8)).toBe("C2");
+    expect(getTerritoryAt(59, 4)).toBe("C3");
+    expect(getTerritoryAt(58, 9)).toBe("C4");
+    expect(getTerritoryAt(9, 18)).toBe("D1");
+    expect(getTerritoryAt(20, 19)).toBe("D2");
+    expect(getTerritoryAt(9, 23)).toBe("D3");
+    expect(getTerritoryAt(20, 24)).toBe("D4");
+    expect(getTerritoryAt(37, 21)).toBe("E1");
+    expect(getTerritoryAt(32, 26)).toBe("E2");
+    expect(getTerritoryAt(54, 24)).toBe("E3");
+    expect(getTerritoryAt(78, 17)).toBe("F1");
+    expect(getTerritoryAt(91, 16)).toBe("F2");
+    expect(getTerritoryAt(86, 24)).toBe("F3");
 
     // Water resolution
     expect(getTerritoryAt(0, 0)).toBeNull();
-    expect(getTerritoryAt(75, 0)).toBeNull();
-    expect(getTerritoryAt(25, 8)).toBeNull();
-    expect(getTerritoryAt(48, 8)).toBeNull();
+    expect(getTerritoryAt(103, 0)).toBeNull();
+    expect(getTerritoryAt(0, 29)).toBeNull();
+    expect(getTerritoryAt(103, 29)).toBeNull();
+    expect(getTerritoryAt(19, 12)).toBeNull(); // Northern Isthmus strait
+    expect(getTerritoryAt(55, 12)).toBeNull(); // Eastern Sound strait
 
     // Out of bounds resolution
     expect(getTerritoryAt(-1, 0)).toBeNull();
     expect(getTerritoryAt(0, -1)).toBeNull();
-    expect(getTerritoryAt(76, 0)).toBeNull();
-    expect(getTerritoryAt(0, 28)).toBeNull();
+    expect(getTerritoryAt(104, 0)).toBeNull();
+    expect(getTerritoryAt(0, 30)).toBeNull();
     expect(getTerritoryAt(999, 999)).toBeNull();
   });
 
   it("detects border cells and orientation flags correctly", () => {
-    // (7, 3) is deep inside A1, surrounded on all 4 sides by A1
-    const interior = getBorderInfo(7, 3);
+    // (24, 3) is inside A1, surrounded on all 4 sides by A1
+    const interior = getBorderInfo(24, 3);
     expect(interior.territoryId).toBe("A1");
     expect(interior.isBorder).toBe(false);
     expect(interior.north).toBe(false);
     expect(interior.south).toBe(false);
     expect(interior.west).toBe(false);
     expect(interior.east).toBe(false);
-    expect(isBorderCell(7, 3)).toBe(false);
+    expect(isBorderCell(24, 3)).toBe(false);
 
-    // (5, 2) is on the top-left boundary of A1
-    const boundary = getBorderInfo(5, 2);
-    expect(boundary.territoryId).toBe("A1");
+    // (6, 1) is on the top boundary of A2 (whispering woods)
+    const boundary = getBorderInfo(6, 1);
+    expect(boundary.territoryId).toBe("A2");
     expect(boundary.isBorder).toBe(true);
     expect(boundary.north).toBe(true); // water above
-    expect(boundary.west).toBe(true);  // water left
-    expect(isBorderCell(5, 2)).toBe(true);
+    expect(isBorderCell(6, 1)).toBe(true);
 
     // Water cell (0, 0)
     const water = getBorderInfo(0, 0);
@@ -238,16 +289,11 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
   });
 
   it("defines sea routes connecting coastal territories across water", () => {
-    expect(GRID_SEA_ROUTES.length).toBeGreaterThanOrEqual(9);
+    expect(GRID_SEA_ROUTES.length).toBe(4);
 
     const routePairs = GRID_SEA_ROUTES.map((r) => `${r.from}<->${r.to}`);
-    expect(routePairs).toContain("A3<->B2");
-    expect(routePairs).toContain("A2<->D1");
-    expect(routePairs).toContain("A3<->D2");
-    expect(routePairs).toContain("B1<->C1");
-    expect(routePairs).toContain("B3<->C2");
-    expect(routePairs).toContain("B2<->E1");
-    expect(routePairs).toContain("D2<->E1");
+    expect(routePairs).toContain("A3<->B1");
+    expect(routePairs).toContain("C4<->B3");
     expect(routePairs).toContain("C4<->F1");
     expect(routePairs).toContain("E3<->F1");
 
@@ -260,6 +306,11 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
       expect(getTerritoryAt(start.x, start.y)).toBe(route.from);
       // Ending cell belongs to "to" territory
       expect(getTerritoryAt(end.x, end.y)).toBe(route.to);
+
+      // Intermediate cells must be open water
+      for (let i = 1; i < route.path.length - 1; i++) {
+        expect(getTerritoryAt(route.path[i].x, route.path[i].y)).toBeNull();
+      }
     }
   });
 
@@ -268,12 +319,51 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
     expect(GRID_DECORATIONS.mountains.length).toBeGreaterThan(0);
     expect(GRID_DECORATIONS.trees.length).toBeGreaterThan(0);
 
-    // Compass rose position specified in task
+    // Compass rose sits in open water
     expect(GRID_DECORATIONS.compass).toEqual({ x: 2, y: 22 });
-    expect(getTerritoryAt(2, 22)).toBeNull(); // Must sit in open water
+    expect(getTerritoryAt(2, 22)).toBeNull();
 
-    // Scale bar position specified in task
-    expect(GRID_DECORATIONS.scaleBar).toEqual({ x: 50, y: 26 });
-    expect(getTerritoryAt(50, 26)).toBeNull(); // Must sit in open water
+    // Scale bar sits in open water
+    expect(GRID_DECORATIONS.scaleBar).toEqual({ x: 50, y: 28 });
+    expect(getTerritoryAt(50, 28)).toBeNull();
+  });
+
+  it("calculates territory centroids accurately from land cells", () => {
+    for (const t of MAP_GRID_IRONREACH.territories) {
+      const centroid = getTerritoryCentroid(t.id);
+      const cells = getTerritoryCells(t.id);
+      expect(cells.length).toBeGreaterThanOrEqual(30);
+
+      const expectedX = cells.reduce((sum, c) => sum + c.x, 0) / cells.length;
+      const expectedY = cells.reduce((sum, c) => sum + c.y, 0) / cells.length;
+
+      expect(centroid.x).toBeCloseTo(expectedX, 4);
+      expect(centroid.y).toBeCloseTo(expectedY, 4);
+    }
+  });
+
+  it("navigates spatially in all cardinal directions via geometry", () => {
+    // From A1 (Highwatch)
+    expect(getNextTerritoryInDirection("A1", "left")).toBe("A2");
+    expect(getNextTerritoryInDirection("A1", "right")).toBe("C1");
+    expect(getNextTerritoryInDirection("A1", "down")).toBe("A3");
+    expect(getNextTerritoryInDirection("A1", "up")).toBeNull();
+
+    // From C2 (Crown Citadel)
+    expect(getNextTerritoryInDirection("C2", "up")).toBe("C1");
+    expect(getNextTerritoryInDirection("C2", "left")).toBe("A3");
+    expect(getNextTerritoryInDirection("C2", "right")).toBe("C4");
+    expect(getNextTerritoryInDirection("C2", "down")).toBe("B2");
+
+    // From B2 (The Marches)
+    expect(getNextTerritoryInDirection("B2", "left")).toBe("B1");
+    expect(getNextTerritoryInDirection("B2", "right")).toBe("B3");
+    expect(getNextTerritoryInDirection("B2", "down")).toBe("E1");
+    expect(getNextTerritoryInDirection("B2", "up")).toBe("C2");
+
+    // From F1 (Mossgate)
+    expect(getNextTerritoryInDirection("F1", "right")).toBe("F2");
+    expect(getNextTerritoryInDirection("F1", "down")).toBe("F3");
+    expect(getNextTerritoryInDirection("F1", "up")).toBe("C4");
   });
 });

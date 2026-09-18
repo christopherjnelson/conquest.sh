@@ -102,21 +102,21 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     expect(bobId).not.toBe(aliceId);
     expect(bobToken).toBeDefined();
 
-    // Verify 10 territories of Ironreach are initialized
+    // Verify 20 territories of Ironreach are initialized
     const territoryIds = Object.keys(gameSnapshotA.territories);
-    expect(territoryIds.length).toBe(10);
-    expect(territoryIds).toContain("frostfell");
-    expect(territoryIds).toContain("highwatch");
-    expect(territoryIds).toContain("hollowmere");
+    expect(territoryIds.length).toBe(20);
+    expect(territoryIds).toContain("A1");
+    expect(territoryIds).toContain("A2");
+    expect(territoryIds).toContain("C1");
 
     // Alice is active player (index 0)
     expect(gameSnapshotA.activePlayerIndex).toBe(0);
     expect(gameSnapshotA.players[0].id).toBe(aliceId);
     expect(gameSnapshotA.pendingReinforcements).toBeGreaterThanOrEqual(3);
 
-    // 3. Alice deploys reinforcements to territory frostfell
+    // 3. Alice deploys reinforcements to territory A1
     const alicePending = clientA.state!.pendingReinforcements;
-    clientA.deploy("frostfell", alicePending);
+    clientA.deploy("A1", alicePending);
 
     // Both clients receive units_deployed event
     const deployEventA = await clientA.waitForEvent((e) => e.type === "units_deployed");
@@ -125,7 +125,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     expect(deployEventA.type).toBe("units_deployed");
     if (deployEventA.type === "units_deployed") {
       expect(deployEventA.playerId).toBe(aliceId);
-      expect(deployEventA.territoryId).toBe("frostfell");
+      expect(deployEventA.territoryId).toBe("A1");
       expect(deployEventA.count).toBe(alicePending);
     }
     expect(deployEventB.type).toBe("units_deployed");
@@ -133,11 +133,11 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     // State should now transition to "attack" phase
     const attackPhaseA = await clientA.waitForSnapshot((s) => s.phase === "attack");
     expect(attackPhaseA.phase).toBe("attack");
-    expect(clientA.state?.territories["frostfell"].units).toBeGreaterThanOrEqual(alicePending);
+    expect(clientA.state?.territories["A1"].units).toBeGreaterThanOrEqual(alicePending);
 
-    // 4. Alice attacks Bob's adjacent territory (highwatch)
-    // In Ironreach, frostfell is adjacent to highwatch
-    clientA.attack("frostfell", "highwatch", 3);
+    // 4. Alice attacks Bob's adjacent territory (A2)
+    // In Ironreach, A1 is adjacent to A2
+    clientA.attack("A1", "A2", 3);
 
     const attackEventA = await clientA.waitForEvent((e) => e.type === "attack_resolved");
     const attackEventB = await clientB.waitForEvent((e) => e.type === "attack_resolved");
@@ -146,8 +146,8 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     if (attackEventA.type === "attack_resolved") {
       expect(attackEventA.attackerId).toBe(aliceId);
       expect(attackEventA.defenderId).toBe(bobId);
-      expect(attackEventA.sourceTerritoryId).toBe("frostfell");
-      expect(attackEventA.targetTerritoryId).toBe("highwatch");
+      expect(attackEventA.sourceTerritoryId).toBe("A1");
+      expect(attackEventA.targetTerritoryId).toBe("A2");
       expect(attackEventA.attackerRolls.length).toBeGreaterThan(0);
       expect(attackEventA.defenderRolls.length).toBeGreaterThan(0);
     }
