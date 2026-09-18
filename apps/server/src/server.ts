@@ -8,7 +8,7 @@ import {
   type ServerWelcome,
 } from "@conquest/protocol";
 import type { MapDefinition } from "@conquest/game-core";
-import { MAP_SECTOR_07 } from "@conquest/map-engine";
+import { MAP_GRID_IRONREACH, MAP_IRONREACH } from "@conquest/map-engine";
 import { logger } from "@conquest/shared";
 import { RoomManager, type GameRoom } from "./room.js";
 import { SessionStore, type SessionRecord } from "./session.js";
@@ -41,7 +41,7 @@ export class ConquestServer {
     this.serverName = options?.serverName ?? "conquest.sh-server";
     this.sessionStore = options?.sessionStore ?? new SessionStore(options?.dbPath ?? ":memory:");
     this.roomManager = new RoomManager({
-      defaultMap: options?.defaultMap ?? MAP_SECTOR_07,
+      defaultMap: options?.defaultMap ?? MAP_GRID_IRONREACH,
       defaultMaxPlayers: options?.maxPlayersPerRoom ?? 2,
     });
   }

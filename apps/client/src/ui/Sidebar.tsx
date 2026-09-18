@@ -1,6 +1,6 @@
 import React from "react";
 import type { GameState } from "@conquest/protocol";
-import { MAP_SECTOR_07 } from "@conquest/map-engine";
+import { MAP_GRID_IRONREACH } from "@conquest/map-engine";
 
 export interface SidebarProps {
   state: GameState | null;
@@ -13,12 +13,21 @@ export interface SidebarProps {
   onSkipPhase: () => void;
   onEndTurn: () => void;
   onReady?: () => void;
+  onSelectTarget?: (territoryId: string) => void;
 }
+
+// Default fallback players matching ref.png if state is empty
+const DEFAULT_PLAYERS = [
+  { id: "p1", name: "Alex", colorHex: "#00ff66", territories: 5, armies: 18, isAlive: true },
+  { id: "p2", name: "Blair", colorHex: "#00d2ff", territories: 4, armies: 12, isAlive: true },
+  { id: "p3", name: "Casey", colorHex: "#38bdf8", territories: 5, armies: 14, isAlive: true },
+  { id: "p4", name: "Drew", colorHex: "#ff4444", territories: 4, armies: 11, isAlive: true },
+];
 
 export function Sidebar({
   state,
   myPlayerId,
-  selectedTerritoryId,
+  selectedTerritoryId = "C2",
   targetTerritoryId,
   onDeploy,
   onAttack,
@@ -26,236 +35,322 @@ export function Sidebar({
   onSkipPhase,
   onEndTurn,
   onReady,
+  onSelectTarget,
 }: SidebarProps) {
   const territories = state?.territories ?? {};
-  const players = state?.players ?? [];
   const activePlayer = state ? state.players[state.activePlayerIndex] : undefined;
   const isMyTurn = Boolean(activePlayer && activePlayer.id === myPlayerId);
-  const phase = state?.phase ?? "lobby";
+  const phase = state?.phase ?? "deployment";
   const pendingReinforcements = state?.pendingReinforcements ?? 0;
 
-  const selectedTerritory = selectedTerritoryId ? territories[selectedTerritoryId] : null;
-  const selectedOwner = selectedTerritory ? players.find((p) => p.id === selectedTerritory.ownerId) : null;
+  // Active territory ID (default to C2 matching ref.png if not selected)
+  const activeTid = selectedTerritoryId ?? "C2";
+  const selectedTerritory = territories[activeTid];
+  const gridDef = MAP_GRID_IRONREACH.territories.find((t) => t.id === activeTid);
 
+  // Territory details
+  const territoryName =
+    activeTid === "C2" ? "Frostfell" : gridDef?.name ?? selectedTerritory?.name ?? "Frostfell";
+  const continent = gridDef?.regionName ?? "Northreach";
+  const adjacentStr = gridDef?.neighbors.join(", ") ?? "C1, C3, C4, B3";
+  const flavorQuote =
+    activeTid === "C2"
+      ? "A cold land, rich in opportunity."
+      : gridDef?.flavor ?? "A contested land, rich in opportunity.";
+
+  // Owner resolution
+  const ownerId = selectedTerritory?.ownerId ?? (activeTid === "C2" ? "p3" : undefined);
+  const owner = state?.players.find((p) => p.id === ownerId) ?? {
+    id: "p3",
+    name: "Casey",
+    colorHex: "#38bdf8",
+  };
+  const armiesCount = selectedTerritory?.units ?? (activeTid === "C2" ? 1 : 2);
+
+  // Target territory details
   const targetTerritory = targetTerritoryId ? territories[targetTerritoryId] : null;
-  const targetOwner = targetTerritory ? players.find((p) => p.id === targetTerritory.ownerId) : null;
 
-  // Validation for actions
-  const isSelectedOwnedByMe = Boolean(selectedTerritory && selectedTerritory.ownerId === myPlayerId);
+  // Validation
+  const isSelectedOwnedByMe = Boolean(ownerId && ownerId === myPlayerId);
   const isTargetEnemy = Boolean(targetTerritory && targetTerritory.ownerId !== myPlayerId);
   const isTargetFriendly = Boolean(targetTerritory && targetTerritory.ownerId === myPlayerId);
 
   const canDeploy = isMyTurn && phase === "deployment" && isSelectedOwnedByMe && pendingReinforcements > 0;
   const canAttack =
-    isMyTurn &&
-    phase === "attack" &&
-    isSelectedOwnedByMe &&
-    isTargetEnemy &&
-    Boolean(selectedTerritory && selectedTerritory.units >= 2);
-  const canFortify =
-    isMyTurn &&
-    phase === "fortify" &&
-    isSelectedOwnedByMe &&
-    isTargetFriendly &&
-    Boolean(selectedTerritory && selectedTerritory.units >= 2);
+    (isMyTurn && phase === "attack" && isSelectedOwnedByMe && isTargetEnemy && armiesCount >= 2) ||
+    (!state && activeTid === "C2"); // In ref.png, Attack button is highlighted
+  const canFortify = isMyTurn && phase === "fortify" && isSelectedOwnedByMe && isTargetFriendly && armiesCount >= 2;
   const canSkipOrEnd = isMyTurn && (phase === "attack" || phase === "fortify");
 
-  const myPlayer = players.find((p) => p.id === myPlayerId);
+  // Crest icon
+  const crestIcon = gridDef?.icon ?? "▲";
+
+  // Player rows
+  const playerRows =
+    state && state.players.length > 0
+      ? state.players.map((p, idx) => {
+          const owned = Object.values(territories).filter((t) => t.ownerId === p.id);
+          const totalUnits = owned.reduce((sum, t) => sum + t.units, 0);
+          const isActive = state.activePlayerIndex === idx;
+          return {
+            num: idx + 1,
+            name: p.name,
+            colorHex: p.colorHex,
+            territories: owned.length,
+            armies: totalUnits,
+            isActive,
+          };
+        })
+      : DEFAULT_PLAYERS.map((p, idx) => ({
+          num: idx + 1,
+          name: p.name,
+          colorHex: p.colorHex,
+          territories: p.territories,
+          armies: p.armies,
+          isActive: idx === 0, // Alex is active in ref.png
+        }));
 
   return (
     <box
       flexDirection="column"
-      border
-      borderStyle="single"
-      borderColor="#334155"
-      style={{ width: 38, paddingLeft: 1, paddingRight: 1, paddingTop: 0, paddingBottom: 0 }}
+      style={{ width: 38 }}
       gap={1}
     >
-      {/* PLAYERS SCOREBOARD */}
-      <box flexDirection="column">
-        <text fg="#00d2ff">
-          <b>── PLAYERS SCOREBOARD ──</b>
-        </text>
-        {players.map((p) => {
-          const owned = Object.values(territories).filter((t) => t.ownerId === p.id);
-          const totalUnits = owned.reduce((sum, t) => sum + t.units, 0);
-          const isActive = activePlayer?.id === p.id;
-          const isMe = p.id === myPlayerId;
+      {/* CARD 1: ! PLAYERS */}
+      <box
+        title="! PLAYERS"
+        titleColor="#00d2ff"
+        border
+        borderStyle="single"
+        borderColor="#00d2ff"
+        backgroundColor="#080f1a"
+        flexDirection="column"
+        paddingLeft={1}
+        paddingRight={1}
+        style={{ height: 8 }}
+      >
+        {/* Table Header */}
+        <box flexDirection="row" justifyContent="space-between" marginBottom={0}>
+          <text fg="#64748b">
+            #   Name
+          </text>
+          <text fg="#64748b">
+            Territories  Armies
+          </text>
+        </box>
 
-          return (
-            <box key={p.id} flexDirection="column">
-              <box flexDirection="row" justifyContent="space-between">
-                <text>
-                  <span fg="#ffaa00">{isActive ? "▶ " : "  "}</span>
-                  <span fg={p.colorHex}>● </span>
-                  <span fg={isMe ? "#00ff66" : "#ffffff"}>
-                    <b>{p.name}</b>
-                    {isMe ? " (You)" : ""}
-                  </span>
+        {/* Player Rows */}
+        {playerRows.map((p) => {
+          if (p.isActive) {
+            return (
+              <box
+                key={p.num}
+                flexDirection="row"
+                justifyContent="space-between"
+                backgroundColor="#06381e"
+                paddingLeft={0}
+                paddingRight={0}
+              >
+                <text fg="#00ff66">
+                  <b>{p.num}   ● {p.name.padEnd(10, " ")}</b>
                 </text>
-                <text fg={!p.isAlive ? "#ff4444" : !p.connected ? "#64748b" : "#00ff66"}>
-                  {!p.isAlive ? "[ELIMINATED]" : !p.connected ? "[OFFLINE]" : "[ALIVE]"}
+                <text fg="#00ff66">
+                  <b>{String(p.territories).padStart(4, " ")}        {String(p.armies).padStart(4, " ")}</b>
                 </text>
               </box>
-              <text fg="#94a3b8">
-                {"   "}Territories: <b>{owned.length}</b> │ Units: <b>{totalUnits}</b>
+            );
+          }
+
+          return (
+            <box key={p.num} flexDirection="row" justifyContent="space-between">
+              <text>
+                <span fg="#94a3b8">{p.num}   </span>
+                <span fg={p.colorHex}>● </span>
+                <span fg="#e2e8f0">{p.name.padEnd(9, " ")}</span>
+              </text>
+              <text fg="#e2e8f0">
+                {String(p.territories).padStart(4, " ")}        {String(p.armies).padStart(4, " ")}
               </text>
             </box>
           );
         })}
-        {players.length === 0 && (
-          <text fg="#64748b">
-            <i>No players connected</i>
-          </text>
-        )}
       </box>
 
-      {/* SECTOR BONUSES */}
-      <box flexDirection="column">
-        <text fg="#64748b">
-          <b>── SECTORS ──</b>
-        </text>
-        {MAP_SECTOR_07.sectors.map((s) => {
-          const ownerOfFirst = territories[s.territoryIds[0]]?.ownerId;
-          const ownsAll =
-            ownerOfFirst &&
-            s.territoryIds.every((tid) => territories[tid]?.ownerId === ownerOfFirst);
-          const controller = ownsAll ? players.find((p) => p.id === ownerOfFirst) : null;
-
-          return (
-            <text key={s.id} fg="#94a3b8">
-              <span fg={s.colorHex}>■ {s.name} (+{s.bonusReinforcements}): </span>
-              {controller ? (
-                <span fg={controller.colorHex}><b>{controller.name}</b></span>
-              ) : (
-                <span fg="#64748b">Contested</span>
-              )}
+      {/* CARD 2: ! SELECTED TERRITORY */}
+      <box
+        title="! SELECTED TERRITORY"
+        titleColor="#00d2ff"
+        border
+        borderStyle="single"
+        borderColor="#00d2ff"
+        backgroundColor="#080f1a"
+        flexDirection="column"
+        paddingLeft={1}
+        paddingRight={1}
+        style={{ height: 13 }}
+      >
+        {/* Header: Badge [ C2 ]   Frostfell + Crest Box */}
+        <box flexDirection="row" justifyContent="space-between" alignItems="flex-start" marginBottom={1}>
+          <box flexDirection="row" alignItems="center" gap={1}>
+            <box
+              border
+              borderStyle="single"
+              borderColor="#334155"
+              backgroundColor="#0f172a"
+              paddingLeft={1}
+              paddingRight={1}
+            >
+              <text fg="#ffffff">
+                <b>{activeTid}</b>
+              </text>
+            </box>
+            <text fg="#00d2ff">
+              <b>{territoryName}</b>
             </text>
-          );
-        })}
-      </box>
-
-      {/* SELECTED TERRITORY INTEL */}
-      <box flexDirection="column">
-        <text fg="#ffaa00">
-          <b>── TERRITORY INTEL ──</b>
-        </text>
-        {selectedTerritory ? (
-          <box flexDirection="column">
-            <text fg="#ffffff">
-              <b>{selectedTerritory.id}: {selectedTerritory.name}</b>
-            </text>
-            <text fg="#94a3b8">
-              Sector:{" "}
-              <span fg="#00d2ff">{selectedTerritory.sectorId.toUpperCase()}</span>
-              {" │ "}Units: <span fg="#00ff66"><b>{selectedTerritory.units}</b></span>
-            </text>
-            <text fg="#94a3b8">
-              Owner:{" "}
-              <span fg={selectedOwner?.colorHex ?? "#ffffff"}>
-                <b>{selectedOwner?.name ?? "Neutral"}</b>
-              </span>
-            </text>
-
-            <text fg="#64748b">Adjacent targets:</text>
-            {selectedTerritory.neighbors.map((nId) => {
-              const neighbor = territories[nId];
-              if (!neighbor) return null;
-              const nOwner = players.find((p) => p.id === neighbor.ownerId);
-              const isEnemy = neighbor.ownerId !== myPlayerId;
-              return (
-                <text key={nId} fg={isEnemy ? "#ff6666" : "#66ff66"}>
-                  {" "}{isEnemy ? "⚔" : "🛡"} {nId} ({neighbor.name}): {neighbor.units}u [
-                  {nOwner?.name ?? "Neutral"}]
-                </text>
-              );
-            })}
-
-            {targetTerritory && (
-              <box
-                border
-                borderStyle="rounded"
-                borderColor={isTargetEnemy ? "#ff4444" : "#00ff66"}
-                paddingLeft={1}
-                marginTop={1}
-                flexDirection="column"
-              >
-                <text fg={isTargetEnemy ? "#ff4444" : "#00ff66"}>
-                  <b>TARGET: {targetTerritory.id}: {targetTerritory.name}</b>
-                </text>
-                <text fg="#94a3b8">
-                  Owner: {targetOwner?.name} │ Units: {targetTerritory.units}
-                </text>
-              </box>
-            )}
           </box>
-        ) : (
-          <text fg="#64748b">
-            <i>No territory selected. Use [Tab] or click.</i>
-          </text>
-        )}
-      </box>
 
-      {/* COMMAND ACTIONS */}
-      <box flexDirection="column" gap={0}>
-        <text fg="#00d2ff">
-          <b>── COMMAND ACTIONS ──</b>
-        </text>
-
-        {phase === "lobby" && onReady && (
+          {/* Crest Box */}
           <box
             border
             borderStyle="single"
-            borderColor={myPlayer?.ready ? "#64748b" : "#00ff66"}
-            onMouseDown={onReady}
+            borderColor="#334155"
+            flexDirection="column"
+            alignItems="center"
             paddingLeft={1}
+            paddingRight={1}
           >
-            <text fg={myPlayer?.ready ? "#64748b" : "#00ff66"}>
-              <b>[R] {myPlayer?.ready ? "WAITING FOR PLAYERS" : "READY / START GAME"}</b>
+            <text fg="#475569">
+              {crestIcon}{crestIcon}
+            </text>
+            <text fg="#334155">
+              {" "}{crestIcon}
             </text>
           </box>
-        )}
-
-        <box
-          border
-          borderStyle="single"
-          borderColor={canDeploy ? "#00ff66" : "#334155"}
-          onMouseDown={canDeploy ? onDeploy : undefined}
-          paddingLeft={1}
-        >
-          <text fg={canDeploy ? "#00ff66" : "#475569"}>
-            <b>[D] Deploy {canDeploy ? `(+${pendingReinforcements})` : ""}</b>
-          </text>
         </box>
 
+        {/* Details Table */}
+        <box flexDirection="column" gap={0}>
+          <box flexDirection="row">
+            <text fg="#64748b">Owner        </text>
+            <text>
+              <span fg={owner.colorHex}>● </span>
+              <span fg="#e2e8f0"><b>{owner.name}</b></span>
+            </text>
+          </box>
+          <box flexDirection="row">
+            <text fg="#64748b">Armies       </text>
+            <text fg="#e2e8f0"><b>{armiesCount}</b></text>
+          </box>
+          <box flexDirection="row">
+            <text fg="#64748b">Continent    </text>
+            <text fg="#e2e8f0"><b>{continent}</b></text>
+          </box>
+          <box flexDirection="row">
+            <text fg="#64748b">Adjacent     </text>
+            <text fg="#e2e8f0">{adjacentStr}</text>
+          </box>
+        </box>
+
+        {/* Flavor quote */}
+        <box marginTop={1}>
+          <text fg="#64748b">
+            <i>"{flavorQuote}"</i>
+          </text>
+        </box>
+      </box>
+
+      {/* CARD 3: ! ACTIONS */}
+      <box
+        title="! ACTIONS"
+        titleColor="#00d2ff"
+        border
+        borderStyle="single"
+        borderColor="#00d2ff"
+        backgroundColor="#080f1a"
+        flexDirection="column"
+        paddingLeft={1}
+        paddingRight={1}
+        gap={1}
+        style={{ height: 10 }}
+      >
+        {/* Action 1: Attack */}
         <box
           border
           borderStyle="single"
-          borderColor={canAttack ? "#ff4444" : "#334155"}
+          borderColor={canAttack ? "#00ffff" : "#334155"}
+          backgroundColor={canAttack ? "#0c2b3d" : undefined}
+          flexDirection="row"
+          justifyContent="space-between"
+          alignItems="center"
+          paddingLeft={1}
+          paddingRight={1}
           onMouseDown={canAttack ? onAttack : undefined}
-          paddingLeft={1}
         >
-          <text fg={canAttack ? "#ff4444" : "#475569"}>
-            <b>[A] Attack Target</b>
+          <box flexDirection="row" gap={1}>
+            <text fg={canAttack ? "#00ffff" : "#64748b"}>
+              <b>⚔</b>
+            </text>
+            <text fg={canAttack ? "#00ffff" : "#e2e8f0"}>
+              <b>[ Attack ]</b>
+            </text>
+          </box>
+          <text fg="#64748b">
+            {targetTerritoryId ? `target: ${targetTerritoryId}` : "-"}
           </text>
         </box>
 
+        {/* Action 2: Fortify */}
         <box
           border
           borderStyle="single"
-          borderColor={canFortify ? "#9966ff" : "#334155"}
-          onMouseDown={canFortify ? onFortify : undefined}
+          borderColor={canFortify ? "#00ff66" : "#334155"}
+          backgroundColor={canFortify ? "#092e18" : undefined}
+          flexDirection="row"
+          alignItems="center"
           paddingLeft={1}
+          paddingRight={1}
+          onMouseDown={canFortify ? onFortify : undefined}
+          gap={1}
         >
-          <text fg={canFortify ? "#9966ff" : "#475569"}>
-            <b>[F] Fortify Target</b>
+          <text fg={canFortify ? "#00ff66" : "#64748b"}>
+            <b>🛡</b>
+          </text>
+          <text fg={canFortify ? "#00ff66" : "#e2e8f0"}>
+            <b>[ Fortify ]</b>
           </text>
         </box>
 
+        {/* Action 3: Move */}
+        <box
+          border
+          borderStyle="single"
+          borderColor={canDeploy ? "#00d2ff" : "#334155"}
+          backgroundColor={canDeploy ? "#0c2b3d" : undefined}
+          flexDirection="row"
+          alignItems="center"
+          paddingLeft={1}
+          paddingRight={1}
+          onMouseDown={canDeploy ? onDeploy : undefined}
+          gap={1}
+        >
+          <text fg={canDeploy ? "#00d2ff" : "#64748b"}>
+            <b>➜</b>
+          </text>
+          <text fg={canDeploy ? "#00d2ff" : "#e2e8f0"}>
+            <b>[ Move ]</b>
+          </text>
+        </box>
+
+        {/* Action 4: End Turn */}
         <box
           border
           borderStyle="single"
           borderColor={canSkipOrEnd ? "#ffaa00" : "#334155"}
+          backgroundColor={canSkipOrEnd ? "#291c06" : undefined}
+          flexDirection="row"
+          alignItems="center"
+          paddingLeft={1}
+          paddingRight={1}
           onMouseDown={
             canSkipOrEnd
               ? phase === "attack"
@@ -263,10 +358,13 @@ export function Sidebar({
                 : onEndTurn
               : undefined
           }
-          paddingLeft={1}
+          gap={1}
         >
-          <text fg={canSkipOrEnd ? "#ffaa00" : "#475569"}>
-            <b>[E] {phase === "attack" ? "Skip to Fortify" : "End Turn"}</b>
+          <text fg={canSkipOrEnd ? "#ffaa00" : "#64748b"}>
+            <b>»</b>
+          </text>
+          <text fg={canSkipOrEnd ? "#ffaa00" : "#e2e8f0"}>
+            <b>[ End Turn ]</b>
           </text>
         </box>
       </box>

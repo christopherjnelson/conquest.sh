@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { ConquestServer } from "../apps/server/src/server.js";
+import { MAP_IRONREACH } from "../packages/map-engine/src/index.js";
 import type {
   ClientAttack,
   ClientDeploy,
@@ -147,6 +148,7 @@ describe("ConquestServer: Full Integration Flow", () => {
       port: 0,
       serverName: "test-conquest-ws",
       maxPlayersPerRoom: 2,
+      defaultMap: MAP_IRONREACH,
     });
     server.start();
     port = server.port;
@@ -240,7 +242,7 @@ describe("ConquestServer: Full Integration Flow", () => {
     // 3. Player 1 deploys units -> verify both clients receive units_deployed event
     const deployMsg: ClientDeploy = {
       type: "client:deploy",
-      territoryId: "A1",
+      territoryId: "frostfell",
       count: snapshotA.state.pendingReinforcements,
     };
     clientA.send(deployMsg);
@@ -255,14 +257,14 @@ describe("ConquestServer: Full Integration Flow", () => {
     expect(deployEventA.event.type).toBe("units_deployed");
     if (deployEventA.event.type === "units_deployed") {
       expect(deployEventA.event.playerId).toBe(aliceId);
-      expect(deployEventA.event.territoryId).toBe("A1");
+      expect(deployEventA.event.territoryId).toBe("frostfell");
       expect(deployEventA.event.count).toBe(snapshotA.state.pendingReinforcements);
     }
 
     expect(deployEventB.event.type).toBe("units_deployed");
     if (deployEventB.event.type === "units_deployed") {
       expect(deployEventB.event.playerId).toBe(aliceId);
-      expect(deployEventB.event.territoryId).toBe("A1");
+      expect(deployEventB.event.territoryId).toBe("frostfell");
     }
 
     // Both should also receive phase_changed to "attack"
@@ -272,11 +274,11 @@ describe("ConquestServer: Full Integration Flow", () => {
     expect(attackPhaseEventA).toBeDefined();
 
     // 4. Player 1 attacks Player 2 -> verify both receive attack_resolved event
-    // Alice owns A1, Bob owns adjacent territory A2
+    // Alice owns frostfell, Bob owns adjacent territory highwatch
     const attackMsg: ClientAttack = {
       type: "client:attack",
-      sourceTerritoryId: "A1",
-      targetTerritoryId: "A2",
+      sourceTerritoryId: "frostfell",
+      targetTerritoryId: "highwatch",
       units: 3,
     };
     clientA.send(attackMsg);
@@ -292,8 +294,8 @@ describe("ConquestServer: Full Integration Flow", () => {
     if (attackEventA.event.type === "attack_resolved") {
       expect(attackEventA.event.attackerId).toBe(aliceId);
       expect(attackEventA.event.defenderId).toBe(bobId);
-      expect(attackEventA.event.sourceTerritoryId).toBe("A1");
-      expect(attackEventA.event.targetTerritoryId).toBe("A2");
+      expect(attackEventA.event.sourceTerritoryId).toBe("frostfell");
+      expect(attackEventA.event.targetTerritoryId).toBe("highwatch");
       expect(attackEventA.event.attackerRolls.length).toBeGreaterThan(0);
       expect(attackEventA.event.defenderRolls.length).toBeGreaterThan(0);
     }

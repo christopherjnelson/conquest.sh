@@ -1,4 +1,4 @@
-import type { TerritoryState } from "@conquest/protocol";
+import type { TerritoryRender, TerritoryState } from "@conquest/protocol";
 
 export interface BoundingBox {
   x: number;
@@ -7,28 +7,43 @@ export interface BoundingBox {
   height: number;
 }
 
-export const NODE_WIDTH = 12;
-export const NODE_HEIGHT = 4;
+export const NODE_WIDTH = 18;
+export const NODE_HEIGHT = 5;
 
-export function getTerritoryBounds(territory: { position: { x: number; y: number } }): BoundingBox {
+export interface TerritoryLike {
+  id?: string;
+  position: { x: number; y: number };
+  render?: TerritoryRender;
+}
+
+export function getTerritoryBounds(territory: TerritoryLike): BoundingBox {
   return {
     x: territory.position.x,
     y: territory.position.y,
-    width: NODE_WIDTH,
-    height: NODE_HEIGHT,
+    width: territory.render?.width ?? NODE_WIDTH,
+    height: territory.render?.height ?? NODE_HEIGHT,
   };
 }
 
-export function findTerritoryAt(
-  territories: Record<string, TerritoryState>,
+export function findTerritoryAt<T extends TerritoryLike = TerritoryState>(
+  territories: Record<string, T> | T[],
   x: number,
   y: number
-): TerritoryState | null {
-  for (const t of Object.values(territories)) {
+): T | null {
+  const list = Array.isArray(territories) ? territories : Object.values(territories);
+  for (const t of list) {
     const bounds = getTerritoryBounds(t);
-    if (x >= bounds.x && x < bounds.x + bounds.width && y >= bounds.y && y < bounds.y + bounds.height) {
+    if (
+      x >= bounds.x &&
+      x < bounds.x + bounds.width &&
+      y >= bounds.y &&
+      y < bounds.y + bounds.height
+    ) {
       return t;
     }
   }
   return null;
 }
+
+export * from "./grid-engine.js";
+

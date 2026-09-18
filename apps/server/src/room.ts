@@ -17,7 +17,7 @@ import {
   type ActionResult,
   type MapDefinition,
 } from "@conquest/game-core";
-import { MAP_SECTOR_07 } from "@conquest/map-engine";
+import { MAP_GRID_IRONREACH, MAP_IRONREACH } from "@conquest/map-engine";
 import { generateId, generateRoomCode, getPlayerColor, logger } from "@conquest/shared";
 
 export interface RoomSocket {
@@ -67,7 +67,7 @@ export class GameRoom {
     this.roomCode = options.roomCode.toUpperCase();
     this.gameId = options.gameId ?? generateId("game");
     this.maxPlayers = Math.max(2, Math.min(4, options.maxPlayers ?? 2));
-    this.map = options.map ?? MAP_SECTOR_07;
+    this.map = options.map ?? MAP_GRID_IRONREACH;
     this.autoStart = options.autoStart ?? true;
 
     const initialSectors: Record<string, Sector> = {};
@@ -487,7 +487,7 @@ export class RoomManager {
   private defaultMaxPlayers: number;
 
   constructor(options?: { defaultMap?: MapDefinition; defaultMaxPlayers?: number }) {
-    this.defaultMap = options?.defaultMap ?? MAP_SECTOR_07;
+    this.defaultMap = options?.defaultMap ?? MAP_GRID_IRONREACH;
     this.defaultMaxPlayers = options?.defaultMaxPlayers ?? 2;
   }
 

@@ -9,7 +9,7 @@ import {
   resolveCombat,
   skipPhase,
 } from "../packages/game-core/src/index.js";
-import { MAP_SECTOR_07 } from "../packages/map-engine/src/index.js";
+import { MAP_IRONREACH, MAP_SECTOR_07 } from "../packages/map-engine/src/index.js";
 import type { Player } from "../packages/protocol/src/index.js";
 
 describe("game-core: combat resolution", () => {
@@ -56,6 +56,22 @@ describe("game-core: state initialization", () => {
 
     expect(p1Territories.length).toBe(4);
     expect(p2Territories.length).toBe(4);
+
+    expect(state.phase).toBe("deployment");
+    expect(state.pendingReinforcements).toBeGreaterThanOrEqual(3);
+    expect(state.activePlayerIndex).toBe(0);
+  });
+
+  it("distributes 10 territories evenly between 2 players for MAP_IRONREACH", () => {
+    const state = createInitialGameState("g1", "TEST", players, MAP_IRONREACH, 3);
+    expect(state.players.length).toBe(2);
+    expect(Object.keys(state.territories).length).toBe(10);
+
+    const p1Territories = Object.values(state.territories).filter((t) => t.ownerId === "p1");
+    const p2Territories = Object.values(state.territories).filter((t) => t.ownerId === "p2");
+
+    expect(p1Territories.length).toBe(5);
+    expect(p2Territories.length).toBe(5);
 
     expect(state.phase).toBe("deployment");
     expect(state.pendingReinforcements).toBeGreaterThanOrEqual(3);

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
-import { MAP_SECTOR_07 } from "@conquest/map-engine";
+import type { MapDefinition } from "@conquest/game-core";
+import { MAP_GRID_IRONREACH, MAP_IRONREACH, MAP_SECTOR_07 } from "@conquest/map-engine";
 import { logger } from "@conquest/shared";
 import { ConquestServer } from "./server.js";
 
@@ -14,7 +15,7 @@ if (import.meta.main) {
     options: {
       port: { type: "string", short: "p", default: "4000" },
       name: { type: "string", short: "n", default: "conquest.sh-server" },
-      map: { type: "string", short: "m", default: "sector-07" },
+      map: { type: "string", short: "m", default: "ironreach" },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: true,
@@ -27,7 +28,7 @@ conquest.sh authoritative game server
 Options:
   -p, --port <number>  Port to bind to (default: 4000)
   -n, --name <string>  Server display name (default: "conquest.sh-server")
-  -m, --map <string>   Map id to load (default: "sector-07")
+  -m, --map <string>   Map id to load: ironreach, ironreach-legacy, sector-07 (default: "ironreach")
   -h, --help           Show this help message
 `);
     process.exit(0);
@@ -35,11 +36,18 @@ Options:
 
   const port = parseInt(values.port ?? "4000", 10);
   const serverName = values.name ?? "conquest.sh-server";
-  const mapChoice = values.map ?? "sector-07";
+  const mapChoice = values.map ?? "ironreach";
 
-  const map = MAP_SECTOR_07;
-  if (mapChoice !== "sector-07") {
-    logger.warn(`Unknown map "${mapChoice}", defaulting to sector-07`);
+  let map: MapDefinition = MAP_GRID_IRONREACH;
+  if (mapChoice === "sector-07") {
+    map = MAP_SECTOR_07;
+  } else if (mapChoice === "ironreach" || mapChoice === "grid-ironreach") {
+    map = MAP_GRID_IRONREACH;
+  } else if (mapChoice === "ironreach-legacy") {
+    map = MAP_IRONREACH;
+  } else {
+    logger.warn(`Unknown map "${mapChoice}", defaulting to ironreach`);
+    map = MAP_GRID_IRONREACH;
   }
 
   const server = new ConquestServer({

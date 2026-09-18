@@ -14,6 +14,13 @@ export const PlayerSchema = z.object({
 });
 export type Player = z.infer<typeof PlayerSchema>;
 
+export const TerritoryRenderSchema = z.object({
+  width: z.number().optional(),
+  height: z.number().optional(),
+  flavor: z.string().optional(),
+});
+export type TerritoryRender = z.infer<typeof TerritoryRenderSchema>;
+
 export const TerritoryStateSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -25,6 +32,7 @@ export const TerritoryStateSchema = z.object({
     x: z.number(),
     y: z.number(),
   }),
+  render: TerritoryRenderSchema.optional(),
 });
 export type TerritoryState = z.infer<typeof TerritoryStateSchema>;
 
