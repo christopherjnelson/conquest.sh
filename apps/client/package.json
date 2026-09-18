@@ -1,0 +1,21 @@
+{
+  "name": "@conquest/client",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "conquest": "./src/index.ts"
+  },
+  "dependencies": {
+    "@conquest/game-core": "workspace:*",
+    "@conquest/map-engine": "workspace:*",
+    "@conquest/protocol": "workspace:*",
+    "@conquest/shared": "workspace:*",
+    "@opentui/core": "^0.5.11",
+    "@opentui/react": "^0.5.11",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0"
+  }
+}
