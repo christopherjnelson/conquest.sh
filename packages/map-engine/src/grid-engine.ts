@@ -187,6 +187,67 @@ export function getNextTerritoryInDirection(
   return bestTarget;
 }
 
+/**
+ * Computes territory silhouette fill ratio: cells.length / (bbox.width * bbox.height).
+ */
+export function getTerritoryFillRatio(
+  territoryId: string,
+  map: GridMapDefinition = MAP_GRID_IRONREACH
+): number {
+  const cells = getTerritoryCells(territoryId, map);
+  if (cells.length === 0) return 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const c of cells) {
+    if (c.x < minX) minX = c.x;
+    if (c.x > maxX) maxX = c.x;
+    if (c.y < minY) minY = c.y;
+    if (c.y > maxY) maxY = c.y;
+  }
+  const width = maxX - minX + 1;
+  const height = maxY - minY + 1;
+  return cells.length / (width * height);
+}
+
+/**
+ * Finds the bounding box of all non-water cells in the map.
+ */
+export function getGeographyBoundingBox(
+  map: GridMapDefinition = MAP_GRID_IRONREACH
+): { minX: number; maxX: number; minY: number; maxY: number; width: number; height: number } {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  for (let y = 0; y < map.template.length; y++) {
+    const row = map.template[y];
+    for (let x = 0; x < row.length; x++) {
+      if (row[x] !== ".") {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (minX === Infinity) {
+    return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+  }
+
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1,
+  };
+}
+
 export {
   MAP_GRID_IRONREACH,
   type GridMapDefinition,
@@ -195,3 +256,4 @@ export {
   type GridMapDecoration,
   type GridMapDecorations,
 };
+

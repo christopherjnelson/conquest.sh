@@ -1,7 +1,13 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { GameEvent, GameState } from "@conquest/protocol";
-import { MAP_GRID_IRONREACH, getTerritoryAt, getNextTerritoryInDirection } from "@conquest/map-engine";
+import {
+  MAP_GRID_IRONREACH,
+  getTerritoryAt,
+  getNextTerritoryInDirection,
+  getMapContentDimensionsForTerminal,
+  getMapForTerminalDimensions,
+} from "@conquest/map-engine";
 import { GameClient, type ConnectionStatus } from "../network/client.js";
 import { Header } from "./Header.js";
 import { MapCanvas } from "./MapCanvas.js";
@@ -382,7 +388,8 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
         return;
       }
       const dir = key.name as "up" | "down" | "left" | "right";
-      const nextId = getNextTerritoryInDirection(selectedTerritoryId, dir, MAP_GRID_IRONREACH);
+      const activeMapDef = getMapForTerminalDimensions(dimensions.columns, dimensions.rows);
+      const nextId = getNextTerritoryInDirection(selectedTerritoryId, dir, activeMapDef);
       if (nextId) {
         setSelectedTerritoryId(nextId);
         setTargetTerritoryId(null);
@@ -460,8 +467,10 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
         gap={1}
       >
         {/* Left: MapCanvas (~75% width) */}
-        <box flexGrow={3} flexDirection="column" alignItems="center">
+        <box flexGrow={3} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
           <MapCanvas
+            contentDimensions={getMapContentDimensionsForTerminal(dimensions.columns, dimensions.rows)}
+            terminalDimensions={dimensions}
             territories={state?.territories ?? {}}
             players={state?.players ?? []}
             myPlayerId={myPlayerId}
@@ -483,10 +492,12 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
         </box>
 
         {/* Right: Sidebar (~25% width) */}
-        <box flexGrow={1} flexDirection="column">
+        <box flexGrow={1} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
           <Sidebar
             state={state}
             myPlayerId={myPlayerId}
+            roomCode={client.roomCode}
+            connectionStatus={status}
             selectedTerritoryId={selectedTerritoryId}
             targetTerritoryId={targetTerritoryId}
             onDeploy={handleDeploy}

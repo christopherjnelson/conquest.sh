@@ -58,68 +58,13 @@ export interface GridMapDefinition extends MapDefinition {
   decorations: GridMapDecorations;
 }
 
-export const GRID_CANVAS_WIDTH = 104;
-export const GRID_CANVAS_HEIGHT = 30;
+export const GRID_CANVAS_COMPACT_WIDTH = 104;
+export const GRID_CANVAS_COMPACT_HEIGHT = 30;
+export const GRID_CANVAS_WIDE_WIDTH = 136;
+export const GRID_CANVAS_WIDE_HEIGHT = 36;
 
-/**
- * 2D ASCII Grid Map Template for Ironreach.
- * Dimensions: 104 columns wide x 30 rows high.
- *
- * Encoding:
- *   '.' = Open water
- *   'A' = A1 (Highwatch)
- *   'B' = A2 (Whispering Woods)
- *   'C' = A3 (Stoneveil)
- *   'D' = B1 (Sunken Pass)
- *   'E' = B2 (The Marches)
- *   'F' = B3 (Golden Vale)
- *   'G' = C1 (Frostfell)
- *   'H' = C2 (Crown Citadel)
- *   'I' = C3 (Glacier Bay)
- *   'J' = C4 (White Cliff)
- *   'K' = D1 (Ember Coast)
- *   'L' = D2 (Ashmoor)
- *   'M' = D3 (Red Basin)
- *   'N' = D4 (Iron Hollow)
- *   'O' = E1 (Hollowmere)
- *   'P' = E2 (Blackfen)
- *   'Q' = E3 (Duskfall)
- *   'R' = F1 (Mossgate)
- *   'S' = F2 (Verdant Reach)
- *   'T' = F3 (Mist Isle)
- */
-export const GRID_TEMPLATE: string[] = [
-  "........................................................................................................", // 0
-  "......BBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIII.....................................", // 1
-  ".....BBBBBBBBBBBAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIII...................................", // 2
-  "....BBBBBBBBBBBBAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIII..................................", // 3
-  "....BBBBBBBBBBBAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIII...................................", // 4
-  "....BBBBBBBBBBBAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIII....................................", // 5
-  ".....BBBBBBBBCCCCCCCCCCCCCCC.HHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIII.....................................", // 6
-  "......BBBBBBCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJ.....................................", // 7
-  "..........CCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJ....................................", // 8
-  "...........CCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJ....................................", // 9
-  ".............CCCCCCCCCCCCC..HHHHHHHHHHHHHHHHHHH..JJJJJJJJJJJJJJJJJJ.....................................", // 10
-  "...............CCCCCCCCC........HHHHHHHHHHHHH......JJJJJJJJJJJJJJ.......................................", // 11
-  "........................................................................................................", // 12
-  "..............DDDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFFF...........................SSSSSSSSSSS.......", // 13
-  "..............DDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFF..............RRRRRRRRRRSSSSSSSSSSSSSS.....", // 14
-  "..............DDDDDDDDDDEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFF...........RRRRRRRRRRRRSSSSSSSSSSSSSSS....", // 15
-  ".....KKKKKKKKLLDDDDDDDLLLLLEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFF............RRRRRRRRRRRRRSSSSSSSSSSSSSSS....", // 16
-  "....KKKKKKKKKKLLLLLLLLLLLLLLEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF..............RRRRRRRRRRRRSSSSSSSSSSSSSSS.....", // 17
-  "....KKKKKKKKKKLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOO....................RRRRRRRRRRRSSSSSSSSSSSSSS......", // 18
-  "....KKKKKKKKKKLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOO....................RRRRRRRRRRSSSSSSSSSSSS........", // 19
-  ".....KKKKKKKKKKLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQ............RRRRRRRRRSSSSSSSSSS..........", // 20
-  ".....MMMMMMMMMMLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQ...........RRRRRRRTTTTTTTTTTTTT.........", // 21
-  "....MMMMMMMMMMMNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQ............TTTTTTTTTTTTTTTTTTT........", // 22
-  "....MMMMMMMMMMNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQQ...........TTTTTTTTTTTTTTTTTTTTT.......", // 23
-  ".....MMMMMMMMMNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQQQ.............TTTTTTTTTTTTTTTTTTTT.......", // 24
-  "......MMMMMMM.NNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQ...............TTTTTTTTTTTTTTTTTT........", // 25
-  "...............NNNNNNPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQ...................TTTTTTTTTTTTTT..........", // 26
-  "......................PPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQ.........................TTTTTTTTT.............", // 27
-  ".........................PPPPPPPPPPPPPPP................................................................", // 28
-  "........................................................................................................", // 29
-];
+export const GRID_CANVAS_WIDTH = GRID_CANVAS_WIDE_WIDTH;
+export const GRID_CANVAS_HEIGHT = GRID_CANVAS_WIDE_HEIGHT;
 
 export const CHAR_TO_TERRITORY_ID: Record<string, string> = {
   A: "A1",
@@ -193,7 +138,89 @@ export const GRID_SECTORS: Sector[] = [
   },
 ];
 
-export const GRID_TERRITORIES: GridTerritoryMetadata[] = [
+/**
+ * 2D ASCII Compact Grid Map Template for Ironreach.
+ * Dimensions: 104 columns wide x 30 rows high.
+ */
+export const GRID_TEMPLATE_COMPACT: string[] = [
+  ".......BBBBBB........AAAAA................GGGGGG........................................................", // 0
+  "......BBBBBBBBB....AAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGG...IIIIIIIIII.......................................", // 1
+  ".....BBBBBBBBBBBAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIII....................................", // 2
+  "....BBBBBBBBBBBBAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIII..................................", // 3
+  "....BBBBBBBBBBBBAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIII..................................", // 4
+  "....BBBBBBBBBBBAAAAAAAAAAAAAGGGGGGGGGGGHHHHHHGGGGGIIIIIIIIIIIIIIIIIII...................................", // 5
+  ".....BBBBBBBBCCCCCCCCCCCCCCC.HHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIJJJJJJ...............................", // 6
+  "......BBBBBBCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJ...............................", // 7
+  "..........CCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJ.............................", // 8
+  "...........CCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJ.............................", // 9
+  ".............CCCCCCCCCCCCC...HHHHHHHHHHHHHHHHH...JJJJJJJJJJJJJJJJJJJJJJ.................................", // 10
+  "...............CCCCCCCCC........HHHHHHHHHHHHH......JJJJJJJJJJJJJJ.......................................", // 11
+  "........................................................................................................", // 12
+  "..............DDDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFFF...........................SSSSSSSSSSS.......", // 13
+  "..............DDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFF..............RRRRRRRRRRSSSSSSSSSSSSSS.....", // 14
+  "......KKKKK...DDDDDDDDDDEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFF...........RRRRRRRRRRRRSSSSSSSSSSSSSSS....", // 15
+  ".....KKKKKKKKLLDDDDDDDLLLLLEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFF............RRRRRRRRRRRRRSSSSSSSSSSSSSSS....", // 16
+  "...KKKKKKKKKKKLLLLLLLLLLLLLLEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF..............RRRRRRRRRRRRSSSSSSSSSSSSSSS.....", // 17
+  "...KKKKKKKKKKKLLLLLLLLLLLLLEEEEEEOOOOOOOOOOOOOOOOOOOOOOOOO................RRRRRRRRRRSSSSSSSSSSSSSS......", // 18
+  "....KKKKKKKKKKLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOO....................RRRRRRRRRRSSSSSSSSSSSS........", // 19
+  ".....KKKKKK...LLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQ............RRRRRRRRRSSSSSSSSSS..........", // 20
+  ".....MMMMMMMMMMLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQ...........RRRRRRRTTTTTTTTTTTTT.........", // 21
+  "....MMMMMMMMMMMNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQ............TTTTTTTTTTTTTTTTTTT........", // 22
+  "....MMMMMMMMMMNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQQ...........TTTTTTTTTTTTTTTTTTTTT.......", // 23
+  ".....MMMMMMMMMNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQQQ.............TTTTTTTTTTTTTTTTTTTT.......", // 24
+  ".....MMMMMMMM.NNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQ...............TTTTTTTTTTTTTTTTTT........", // 25
+  "....MMMM.......NNNNNNPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQ...................TTTTTTTTTTTTTT..........", // 26
+  "....MM................PPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQ.........................TTTTTTTTT.............", // 27
+  ".........................PPPPPPPPPPPPPPP................................................................", // 28
+  "............................PPPPPPPPP...................................................................", // 29
+];
+
+/**
+ * 2D ASCII Wide Grid Map Template for Ironreach.
+ * Dimensions: 136 columns wide x 36 rows high.
+ */
+export const GRID_TEMPLATE_WIDE: string[] = [
+  "..........BBBBBBB...........AAAAAA.....................GGGGGGGG.........................................................................", // 0
+  "..........BBBBBBB...........AAAAAA.....................GGGGGGGG.........................................................................", // 1
+  "........BBBBBBBBBBBB.....AAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG....IIIIIIIIIIIII...................................................", // 2
+  ".......BBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIII...............................................", // 3
+  "......BBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIII............................................", // 4
+  "......BBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIIII............................................", // 5
+  "......BBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGHHHHHHHHGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 6
+  "......BBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGHHHHHHHHGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 7
+  ".......BBBBBBBBBBCCCCCCCCCCCCCCCCCCCC.HHHHHHHHHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIIIIIIJJJJJJJJ........................................", // 8
+  "........BBBBBBBBCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ........................................", // 9
+  "..............CCCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ.....................................", // 10
+  "...............CCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ.....................................", // 11
+  ".................CCCCCCCCCCCCCCCCC....HHHHHHHHHHHHHHHHHHHHHHH....JJJJJJJJJJJJJJJJJJJJJJJJJJJJ...........................................", // 12
+  ".................CCCCCCCCCCCCCCCCC....HHHHHHHHHHHHHHHHHHHHHHH....JJJJJJJJJJJJJJJJJJJJJJJJJJJJ...........................................", // 13
+  "....................CCCCCCCCCCCC..........HHHHHHHHHHHHHHHHH........JJJJJJJJJJJJJJJJJJ...................................................", // 14
+  "..................................DDDD..................................................................................................", // 15
+  "...................DDDDDDDDDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFFFFFFFFFF..........................................SSSSSSSSSSS......", // 16
+  "...................DDDDDDDDDDDDDDD.EEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFF...........................RRRRRRRRRRRRSSSSSSSSSSSSSSSSSS..", // 17
+  "........KKKKKKK....DDDDDDDDDDDDD.EEEEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS", // 18
+  ".......KKKKKKKKK...DDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS", // 19
+  "......KKKKKKKKKKKLLLLLLLDDDDDDDDDLLLLLEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFFF.........................RRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS", // 20
+  "....KKKKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFF............................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS", // 21
+  "....KKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLLLEEEEEEEEOOOOOOOOOOOOOOOOOO.FFFFFFFFFFFF..........................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS..", // 22
+  "......KKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLLEEEEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO..........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSSS...", // 23
+  ".......KKKKKKKKKKLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOO.QQQQQQQQQQQQQ........................RRRRRRRRRRRSSSSSSSSSSSSSS........", // 24
+  ".......KKKKKKKKLLLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQ........................RRRRRRRRRRRSSSSSSSSSSSSS.........", // 25
+  ".......MMMMMMMMMMMLLLLLLLLLLLLLLNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO.QQQQQQQQQQQQQQQ........................RRRRRRRRRTTTTTTTTTTTTTTTTT.......", // 26
+  "......MMMMMMMMMMMMMMNNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTTT......", // 27
+  "......MMMMMMMMMMMMMNNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQ........................TTTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 28
+  ".......MMMMMMMMMMMMNNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQQQ.........................TTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 29
+  ".......MMMMMMMMMM..NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 30
+  ".......MMMMMMMMMM..NNNNNNNNNNNNNNN.PPPPPPPPPPPPPPPPPPP.......QQQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 31
+  "......MMMMM.........NNNNNNNNNNNNN...PPPPPPPPPPPPPP............QQQQQQQQQQQQQQQQQ.............................TTTTTTTTTTTTTTTTTT..........", // 32
+  "......MM..............NNNNNNNNNN.....PPPPPPPPPPPP...............QQQQQQQQQQQQQ...................................TTTTTTTTTTTT............", // 33
+  "........................NNNNN..........PPPPPPPP...................QQQQQQQQ...........................................TTTTTTTTT..........", // 34
+  ".........................................PPPP...........................................................................................", // 35
+];
+
+export const GRID_TEMPLATE = GRID_TEMPLATE_WIDE;
+
+export const GRID_TERRITORIES_COMPACT: GridTerritoryMetadata[] = [
   // Cluster A (Northwest / Green) - North Continent
   {
     id: "A1",
@@ -567,7 +594,40 @@ export const GRID_TERRITORIES: GridTerritoryMetadata[] = [
   },
 ];
 
-export const GRID_SEA_ROUTES: GridSeaRoute[] = [
+export const GRID_TERRITORIES_WIDE: GridTerritoryMetadata[] = GRID_TERRITORIES_COMPACT.map((t) => {
+  const widePositions: Record<string, { x: number; y: number }> = {
+    A1: { x: 31, y: 4 },
+    A2: { x: 13, y: 5 },
+    A3: { x: 25, y: 11 },
+    B1: { x: 29, y: 17 },
+    B2: { x: 45, y: 19 },
+    B3: { x: 67, y: 19 },
+    C1: { x: 54, y: 4 },
+    C2: { x: 50, y: 10 },
+    C3: { x: 78, y: 5 },
+    C4: { x: 80, y: 11 },
+    D1: { x: 11, y: 22 },
+    D2: { x: 26, y: 23 },
+    D3: { x: 12, y: 29 },
+    D4: { x: 27, y: 30 },
+    E1: { x: 50, y: 26 },
+    E2: { x: 44, y: 32 },
+    E3: { x: 71, y: 29 },
+    F1: { x: 110, y: 21 },
+    F2: { x: 125, y: 20 },
+    F3: { x: 118, y: 30 },
+  };
+  const pos = widePositions[t.id] ?? t.labelPos;
+  return {
+    ...t,
+    labelPos: { ...pos },
+    position: { ...pos },
+  };
+});
+
+export const GRID_TERRITORIES: GridTerritoryMetadata[] = GRID_TERRITORIES_WIDE;
+
+export const GRID_SEA_ROUTES_COMPACT: GridSeaRoute[] = [
   // A3 <-> B1 (Northern Isthmus strait)
   {
     from: "A3",
@@ -614,7 +674,57 @@ export const GRID_SEA_ROUTES: GridSeaRoute[] = [
   },
 ];
 
-export const GRID_DECORATIONS: GridMapDecorations = {
+export const GRID_SEA_ROUTES_WIDE: GridSeaRoute[] = [
+  // A3 <-> B1 (Northern Isthmus strait)
+  {
+    from: "A3",
+    to: "B1",
+    path: [
+      { x: 25, y: 14 },
+      { x: 25, y: 15 },
+      { x: 25, y: 16 },
+    ],
+  },
+  // C4 <-> B3 (Eastern Sound strait)
+  {
+    from: "C4",
+    to: "B3",
+    path: [
+      { x: 76, y: 14 },
+      { x: 75, y: 15 },
+      { x: 74, y: 16 },
+    ],
+  },
+  // C4 <-> F1 (North Sea crossing)
+  {
+    from: "C4",
+    to: "F1",
+    path: [
+      { x: 88, y: 13 },
+      { x: 92, y: 14 },
+      { x: 96, y: 15 },
+      { x: 100, y: 16 },
+      { x: 105, y: 17 },
+    ],
+  },
+  // E3 <-> F1 (Mist Strait)
+  {
+    from: "E3",
+    to: "F1",
+    path: [
+      { x: 78, y: 24 },
+      { x: 83, y: 24 },
+      { x: 88, y: 23 },
+      { x: 94, y: 23 },
+      { x: 99, y: 22 },
+      { x: 105, y: 22 },
+    ],
+  },
+];
+
+export const GRID_SEA_ROUTES: GridSeaRoute[] = GRID_SEA_ROUTES_WIDE;
+
+export const GRID_DECORATIONS_COMPACT: GridMapDecorations = {
   waves: [
     { x: 3, y: 1, text: "~ ~ ~" },
     { x: 80, y: 2, text: "~ ~ ~" },
@@ -650,21 +760,118 @@ export const GRID_DECORATIONS: GridMapDecorations = {
   scaleBar: { x: 50, y: 28 },
 };
 
-export const MAP_GRID_IRONREACH: GridMapDefinition = {
+export const GRID_DECORATIONS_WIDE: GridMapDecorations = {
+  waves: [
+    { x: 3, y: 1, text: "~ ~ ~" },
+    { x: 105, y: 2, text: "~ ~ ~" },
+    { x: 120, y: 3, text: "~ ~" },
+    { x: 98, y: 6, text: "~ ~ ~" },
+    { x: 112, y: 7, text: "~ ~" },
+    { x: 2, y: 15, text: "~ ~ ~" },
+    { x: 88, y: 16, text: "~ ~ ~" },
+    { x: 2, y: 20, text: "~ ~ ~" },
+    { x: 88, y: 30, text: "~ ~ ~" },
+    { x: 12, y: 34, text: "~ ~ ~" },
+    { x: 53, y: 33, text: "~ ~ ~" },
+    { x: 128, y: 34, text: "~ ~" },
+  ],
+  mountains: [
+    { x: 26, y: 3, text: "▲▲" },
+    { x: 44, y: 11, text: "▲▲" },
+    { x: 28, y: 11, text: "▲▲" },
+    { x: 28, y: 18, text: "▲" },
+    { x: 24, y: 31, text: "▲▲" },
+  ],
+  trees: [
+    { x: 13, y: 3, text: "🌲" },
+    { x: 9, y: 6, text: "🌲" },
+    { x: 60, y: 3, text: "🌲" },
+    { x: 39, y: 19, text: "🌲" },
+    { x: 72, y: 20, text: "🌲" },
+    { x: 55, y: 24, text: "🌲" },
+    { x: 118, y: 18, text: "🌲" },
+    { x: 115, y: 31, text: "🌲" },
+  ],
+  compass: { x: 1, y: 26 },
+  scaleBar: { x: 82, y: 34 },
+};
+
+export const GRID_DECORATIONS: GridMapDecorations = GRID_DECORATIONS_WIDE;
+
+export const MAP_GRID_IRONREACH_COMPACT: GridMapDefinition = {
   id: "ironreach",
   name: "The Ironreach",
   description:
     "A fractured feudal realm of 2 major continents, 1 archipelago, and coastal sea routes across 20 contested territories.",
   recommendedPlayers: { min: 2, max: 6 },
-  width: GRID_CANVAS_WIDTH,
-  height: GRID_CANVAS_HEIGHT,
-  template: GRID_TEMPLATE,
+  width: GRID_CANVAS_COMPACT_WIDTH,
+  height: GRID_CANVAS_COMPACT_HEIGHT,
+  template: GRID_TEMPLATE_COMPACT,
   charToTerritoryId: CHAR_TO_TERRITORY_ID,
   territoryIdToChar: TERRITORY_ID_TO_CHAR,
-  territories: GRID_TERRITORIES,
+  territories: GRID_TERRITORIES_COMPACT,
   sectors: GRID_SECTORS,
-  seaRoutes: GRID_SEA_ROUTES,
-  decorations: GRID_DECORATIONS,
+  seaRoutes: GRID_SEA_ROUTES_COMPACT,
+  decorations: GRID_DECORATIONS_COMPACT,
 };
+
+export const MAP_GRID_IRONREACH_WIDE: GridMapDefinition = {
+  id: "ironreach",
+  name: "The Ironreach",
+  description:
+    "A fractured feudal realm of 2 major continents, 1 archipelago, and coastal sea routes across 20 contested territories.",
+  recommendedPlayers: { min: 2, max: 6 },
+  width: GRID_CANVAS_WIDE_WIDTH,
+  height: GRID_CANVAS_WIDE_HEIGHT,
+  template: GRID_TEMPLATE_WIDE,
+  charToTerritoryId: CHAR_TO_TERRITORY_ID,
+  territoryIdToChar: TERRITORY_ID_TO_CHAR,
+  territories: GRID_TERRITORIES_WIDE,
+  sectors: GRID_SECTORS,
+  seaRoutes: GRID_SEA_ROUTES_WIDE,
+  decorations: GRID_DECORATIONS_WIDE,
+};
+
+/**
+ * Calculates the available content width and height inside the World Map pane
+ * from the total terminal dimensions, taking into account layout chrome
+ * (Header: 6 rows, EventLog: 8 rows, Footer: 3 rows, Tactical gap: 1 col, 75% flex width, 1-char borders).
+ */
+export function getMapContentDimensionsForTerminal(
+  terminalCols: number,
+  terminalRows: number
+): { width: number; height: number } {
+  const paneWidth = Math.floor(Math.max(0, terminalCols - 1) * 0.75);
+  const paneHeight = Math.max(0, terminalRows - 17);
+  return {
+    width: Math.max(0, paneWidth - 2),
+    height: Math.max(0, paneHeight - 2),
+  };
+}
+
+/**
+ * Returns the appropriate map definition based on available WORLD MAP content dimensions.
+ * Returns wide template if contentWidth >= 136 and contentHeight >= 36, otherwise compact template.
+ */
+export function getMapForDimensions(contentWidth: number, contentHeight: number): GridMapDefinition {
+  if (contentWidth >= GRID_CANVAS_WIDE_WIDTH && contentHeight >= GRID_CANVAS_WIDE_HEIGHT) {
+    return MAP_GRID_IRONREACH_WIDE;
+  }
+  return MAP_GRID_IRONREACH_COMPACT;
+}
+
+/**
+ * Convenience helper that evaluates total terminal dimensions directly to select the canonical map.
+ */
+export function getMapForTerminalDimensions(
+  terminalCols: number,
+  terminalRows: number
+): GridMapDefinition {
+  const { width, height } = getMapContentDimensionsForTerminal(terminalCols, terminalRows);
+  return getMapForDimensions(width, height);
+}
+
+export const MAP_GRID_IRONREACH: GridMapDefinition = MAP_GRID_IRONREACH_WIDE;
+export const MAP_IRONREACH: GridMapDefinition = MAP_GRID_IRONREACH;
 
 export default MAP_GRID_IRONREACH;
