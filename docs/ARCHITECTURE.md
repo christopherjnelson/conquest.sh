@@ -4,7 +4,7 @@
 
 `conquest.sh` is a modern, multiplayer-first terminal territorial strategy game. It pairs a server-authoritative backend with a clickable, responsive Terminal User Interface (TUI) built using OpenTUI (`@opentui/core` and `@opentui/react`).
 
-The core loop focuses on strategic territory control, resource reinforcements, combat resolution, and tactical fortification. From the first milestone, multiplayer and server authority are the foundational pillars.
+The game centers on territorial conquest across a fictional continent ("The Ironreach"). Players command factions, deploy reinforcements, mount invasions across frontiers, fortify positions, and negotiate in real time. From the first milestone, multiplayer and server authority are the foundational pillars.
 
 ---
 
@@ -13,9 +13,9 @@ The core loop focuses on strategic territory control, resource reinforcements, c
 ```text
 conquest.sh/
 ├── apps/
-│   ├── client/              # OpenTUI client (CLI, terminal renderer, keyboard & mouse controls)
+│   ├── client/              # OpenTUI clickable React client (CLI, terminal renderer, keyboard & mouse controls)
 │   │   ├── src/
-│   │   │   ├── ui/          # React OpenTUI components (MapCanvas, Sidebar, ActionModal, Chat)
+│   │   │   ├── ui/          # OpenTUI components (MapCanvas, Sidebar, Header, EventLog, Footer, App)
 │   │   │   ├── network/     # WebSocket client & reconnect manager
 │   │   │   ├── state/       # Client game state store
 │   │   │   └── index.ts     # CLI entry point
@@ -23,8 +23,8 @@ conquest.sh/
 │   │   └── tsconfig.json
 │   └── server/              # Authoritative server (WebSockets, RoomManager, SQLite sessions)
 │       ├── src/
-│       │   ├── server.ts    # WebSocket server lifecycle
-│       │   ├── room.ts      # Game room / match manager
+│       │   ├── server.ts    # WebSocket server lifecycle & HTTP health endpoints
+│       │   ├── room.ts      # Game room / matchmaking manager
 │       │   ├── session.ts   # Reconnect token store & SQLite persistence
 │       │   └── index.ts     # Server CLI entry point
 │       ├── package.json
@@ -40,13 +40,13 @@ conquest.sh/
 │   ├── protocol/            # Shared typed protocol with Zod schemas
 │   │   ├── src/
 │   │   │   ├── messages.ts  # Client & Server message definitions
-│   │   │   ├── events.ts    # Structured game events
+│   │   │   ├── events.ts    # Structured game events & territory schemas
 │   │   │   └── index.ts
 │   │   └── package.json
-│   ├── map-engine/          # Map topology, layout coordinates, ASCII/Unicode connectors
+│   ├── map-engine/          # Realm map topologies, layout coordinates, bounding boxes
 │   │   ├── src/
-│   │   │   ├── maps/        # Predefined maps (Sector 07, Kernel Grid)
-│   │   │   ├── layout.ts    # Terminal coordinate calculation & grid rendering
+│   │   │   ├── maps/        # Predefined maps (ironreach.ts, sector-07.ts)
+│   │   │   ├── layout.ts    # Terminal coordinate calculation & area detection
 │   │   │   └── index.ts
 │   │   └── package.json
 │   └── shared/              # Shared constants, colors, ID generators, logging
@@ -55,7 +55,9 @@ conquest.sh/
 │       │   ├── id.ts        # Nanoid / token generation
 │       │   └── index.ts
 │       └── package.json
-├── tests/                   # Integration & end-to-end tests
+├── tests/                   # Integration & unit test suites (37 passing tests)
+├── conquest.sh              # Client executable wrapper
+├── conquest-server.sh       # Server executable wrapper
 ├── package.json             # Monorepo root workspace
 ├── tsconfig.json            # Base TypeScript config
 └── README.md
@@ -79,44 +81,47 @@ Client B (Observes)        ─┘         │
 ```
 
 ### Turn Phases:
-1. **Deployment**: Player receives reinforcements based on owned territories ($\max(3, \lfloor N/3 \rfloor)$) plus continent bonuses. Deploys units to owned territories.
-2. **Attack**: Player can attack adjacent enemy territories from any owned territory with $\ge 2$ units. Resolves probabilistic combat. If territory is conquered, units move in.
-3. **Fortify**: Player may optionally move units from one owned territory to another connected owned territory.
-4. **End Turn**: Passes turn to next living player, recalculates reinforcements, updates turn number.
+1. **Deployment**: Sovereign receives reinforcements based on owned territories ($\max(3, \lfloor N/3 \rfloor)$) plus continental control bonuses. Deploys armies to owned realms.
+2. **Attack**: Sovereign can mount an assault against adjacent enemy realms from any owned territory with $\ge 2$ armies. Resolves probabilistic combat (highest-to-highest comparison, defender wins ties). If realm is conquered, victorious armies occupy the land.
+3. **Fortify**: Sovereign may redeploy garrison troops between friendly connected territories.
+4. **End Turn**: Passes turn to next living lord, recalculates reinforcements, updates chronicle.
 
 ---
 
 ## 4. Reconnection & Session Handling
 
-Each connected client receives a unique `sessionToken`.
-- If a terminal closes or the network drops, the server retains the game room and marks `connected = false`.
-- When the client reconnects with its stored `sessionToken`, the server restores the player's identity and emits an authoritative `server:snapshot`.
-- The game state is unaffected by client disconnection.
+Each connected client receives an isolated per-player `sessionToken`.
+- If a terminal closes or network drops, the server marks `connected = false` and broadcasts a departure event.
+- When the client restarts under their handle, the client resumes seamlessly with its cached token and receives an authoritative `server:snapshot`.
+- Quick-match matchmaking prevents stale room isolation: clients without an explicit `--room` flag automatically enter the active open game room.
 
 ---
 
-## 5. Development Map: "Sector 07"
+## 5. Strategic Realm Map: "The Ironreach"
 
-An 8-territory cyber-defense topology optimized for terminal grids:
+A 10-territory fictional strategic realm engineered for terminal space:
 
-- **WAN Sector (Bonus: +2)**:
-  - `A1: GATEWAY` (Connects to A2, A3, B1)
-  - `A2: FIREWALL` (Connects to A1, A3, C1)
-  - `A3: ROUTER` (Connects to A1, A2, B2, C1)
-- **DMZ Sector (Bonus: +2)**:
-  - `B1: PROXY` (Connects to A1, B2, C2)
-  - `B2: SUBNET` (Connects to A3, B1, C2)
-- **CORE Sector (Bonus: +3)**:
-  - `C1: KERNEL` (Connects to A2, A3, C2)
-  - `C2: DAEMON` (Connects to B1, B2, C1, C3)
-  - `C3: VAULT` (Connects to C2)
+- **❄ Northreach (+3 bonus armies)**:
+  - `frostfell`: Glacial mountain fortress guarding the northern passes.
+  - `highwatch`: Craggy peak citadel overseeing the border trails into the central valley.
+  - `iron_hollow`: Deep subterranean bastion with rich iron veins and fortifications.
+- **⚔ The Marches (+2 bonus armies)**:
+  - `stoneveil`: Contested hillside bastion standing between Northreach and the river valley.
+  - `red_basin`: Fertile crimson river valley and battlefield of historic rivalries.
+  - `mossgate`: Fortified wooden gatehouse straddling the central trade and marsh roads.
+  - `sunken_pass`: Mist-shrouded gorge forming the vital chokepoint into the southern rim.
+- **🌋 Emberlands (+3 bonus armies)**:
+  - `ember_coast`: Rugged volcanic coastline with obsidian harbors.
+  - `ashmoor`: Vast scorched plains under perpetual smoke and cinder.
+  - `hollowmere`: Sunken caldera basin housing the southern warlord seat.
 
 ---
 
-## 6. OpenTUI Terminal Architecture
+## 6. OpenTUI Terminal Presentation
 
 The client uses `@opentui/core` and `@opentui/react`:
-- Full mouse support: clicking territory boxes, action buttons, selecting target nodes.
-- Full keyboard support: Arrow keys / `hjkl` navigation, hotkeys `[A]`ttack, `[D]`eploy, `[F]`ortify, `[E]`nd Turn, `[C]`hat.
-- Responsive layout: adapts to terminal height & width.
-- Rich terminal aesthetics: Unicode box borders, ANSI colors, health/strength gauges, status badges.
+- **Screen Dominance**: The map canvas occupies ~68 columns by 31 rows with clear land boundaries, regional domain headers, garrison badges, ruler banners, and mountain pass/waterway connectors.
+- **Mouse Tracking**: Full mouse support. Clicking directly on a realm selects it; clicking a neighbor sets an attack target or fortify destination. Sidebar bordering realm chips can also be clicked directly.
+- **Keyboard Navigation**: Spatial 2D arrow keys (`Up`/`Down`/`Left`/`Right`), `Tab`/`Shift+Tab` cycling, and hotkeys (`[A]ttack`, `[D]eploy`, `[F]ortify`, `[E]nd Turn`, `[C]hat`, `[Esc]`, `[Q]uit`).
+- **Sidebar Strategic Intel**: Factions & armies leaderboard, deep territory inspector (lore, garrison, bordering realms list), and context-sensitive action council buttons.
+- **Military Chronicle**: Historical narrative action log for conquests, battles, deployments, and raven chat.

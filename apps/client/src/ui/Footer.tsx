@@ -40,7 +40,7 @@ export function Footer({ toastMessage, toastType = "info" }: FooterProps) {
         </text>
       ) : (
         <text fg="#475569">
-          <i>Sector 07 Perimeter Protocol Active</i>
+          <i>The Ironreach Realm Strategy Active</i>
         </text>
       )}
     </box>

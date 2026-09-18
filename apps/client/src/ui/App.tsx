@@ -13,17 +13,20 @@ export interface AppProps {
   onExit?: () => void;
 }
 
-const TERRITORY_IDS = ["A1", "A2", "A3", "B1", "B2", "C1", "C2", "C3"];
-
-const SPATIAL_NAV: Record<string, { up?: string; down?: string; left?: string; right?: string }> = {
-  A1: { left: "A2", down: "A3", right: "B1" },
-  A2: { up: "A1", right: "A3", down: "C1" },
-  A3: { up: "A1", left: "A2", right: "B2", down: "C1" },
-  B1: { left: "A1", down: "B2" },
-  B2: { up: "B1", left: "A3", down: "C2" },
-  C1: { up: "A2", right: "C2" },
-  C2: { up: "A3", left: "C1", right: "C3" },
-  C3: { up: "B2", left: "C2" },
+const SPATIAL_NAV_IRONREACH: Record<
+  string,
+  { up?: string; down?: string; left?: string; right?: string }
+> = {
+  frostfell: { right: "highwatch", down: "iron_hollow" },
+  highwatch: { left: "frostfell", down: "stoneveil" },
+  iron_hollow: { up: "frostfell", right: "stoneveil", down: "red_basin", left: "frostfell" },
+  stoneveil: { up: "highwatch", left: "iron_hollow", down: "mossgate" },
+  red_basin: { up: "iron_hollow", right: "sunken_pass", down: "ember_coast" },
+  mossgate: { up: "stoneveil", left: "sunken_pass", down: "ashmoor" },
+  sunken_pass: { up: "iron_hollow", left: "red_basin", right: "mossgate", down: "hollowmere" },
+  ember_coast: { up: "red_basin", right: "hollowmere" },
+  ashmoor: { up: "mossgate", left: "hollowmere" },
+  hollowmere: { up: "sunken_pass", left: "ember_coast", right: "ashmoor" },
 };
 
 export function App({ client, onExit }: AppProps) {
@@ -78,6 +81,7 @@ export function App({ client, onExit }: AppProps) {
   const activePlayer = state ? state.players[state.activePlayerIndex] : undefined;
   const isMyTurn = Boolean(activePlayer && activePlayer.id === myPlayerId);
   const phase = state?.phase ?? "lobby";
+  const territoryIds = state?.territories ? Object.keys(state.territories) : [];
 
   // Action Dispatchers
   const handleDeploy = useCallback(() => {
@@ -213,23 +217,24 @@ export function App({ client, onExit }: AppProps) {
 
     // Tab territory cycling
     if (key.name === "tab") {
+      if (territoryIds.length === 0) return;
       if (key.shift) {
         // Cycle backward
         if (!selectedTerritoryId) {
-          setSelectedTerritoryId(TERRITORY_IDS[TERRITORY_IDS.length - 1]);
+          setSelectedTerritoryId(territoryIds[territoryIds.length - 1]);
         } else {
-          const idx = TERRITORY_IDS.indexOf(selectedTerritoryId);
-          const prevIdx = (idx - 1 + TERRITORY_IDS.length) % TERRITORY_IDS.length;
-          setSelectedTerritoryId(TERRITORY_IDS[prevIdx]);
+          const idx = territoryIds.indexOf(selectedTerritoryId);
+          const prevIdx = (idx - 1 + territoryIds.length) % territoryIds.length;
+          setSelectedTerritoryId(territoryIds[prevIdx]);
         }
       } else {
         // Cycle forward
         if (!selectedTerritoryId) {
-          setSelectedTerritoryId(TERRITORY_IDS[0]);
+          setSelectedTerritoryId(territoryIds[0]);
         } else {
-          const idx = TERRITORY_IDS.indexOf(selectedTerritoryId);
-          const nextIdx = (idx + 1) % TERRITORY_IDS.length;
-          setSelectedTerritoryId(TERRITORY_IDS[nextIdx]);
+          const idx = territoryIds.indexOf(selectedTerritoryId);
+          const nextIdx = (idx + 1) % territoryIds.length;
+          setSelectedTerritoryId(territoryIds[nextIdx]);
         }
       }
       setTargetTerritoryId(null);
@@ -238,15 +243,53 @@ export function App({ client, onExit }: AppProps) {
 
     // Arrow keys spatial navigation
     if (["up", "down", "left", "right"].includes(key.name)) {
+      if (territoryIds.length === 0) return;
       if (!selectedTerritoryId) {
-        setSelectedTerritoryId("A1");
+        setSelectedTerritoryId(territoryIds[0]);
         return;
       }
-      const nav = SPATIAL_NAV[selectedTerritoryId];
-      if (nav) {
-        const nextId = nav[key.name as "up" | "down" | "left" | "right"];
-        if (nextId) {
-          setSelectedTerritoryId(nextId);
+      const dir = key.name as "up" | "down" | "left" | "right";
+      const nav = SPATIAL_NAV_IRONREACH[selectedTerritoryId];
+      if (nav && nav[dir] && state?.territories[nav[dir]!]) {
+        setSelectedTerritoryId(nav[dir]!);
+        setTargetTerritoryId(null);
+        return;
+      }
+
+      // Fallback: geometric spatial calculation or neighbor traversal
+      const current = state?.territories[selectedTerritoryId];
+      if (current) {
+        let bestTarget: string | null = null;
+        let bestScore = Infinity;
+
+        for (const tid of territoryIds) {
+          if (tid === selectedTerritoryId) continue;
+          const target = state?.territories[tid];
+          if (!target) continue;
+
+          const dx = target.position.x - current.position.x;
+          const dy = target.position.y - current.position.y;
+
+          let matchesDir = false;
+          if (dir === "right" && dx > 0 && Math.abs(dx) >= Math.abs(dy) * 0.4) matchesDir = true;
+          if (dir === "left" && dx < 0 && Math.abs(dx) >= Math.abs(dy) * 0.4) matchesDir = true;
+          if (dir === "down" && dy > 0 && Math.abs(dy) >= Math.abs(dx) * 0.3) matchesDir = true;
+          if (dir === "up" && dy < 0 && Math.abs(dy) >= Math.abs(dx) * 0.3) matchesDir = true;
+
+          if (matchesDir) {
+            const dist = dx * dx + dy * dy;
+            if (dist < bestScore) {
+              bestScore = dist;
+              bestTarget = tid;
+            }
+          }
+        }
+
+        if (bestTarget) {
+          setSelectedTerritoryId(bestTarget);
+          setTargetTerritoryId(null);
+        } else if (current.neighbors.length > 0) {
+          setSelectedTerritoryId(current.neighbors[0]);
           setTargetTerritoryId(null);
         }
       }
@@ -299,9 +342,9 @@ export function App({ client, onExit }: AppProps) {
         isMyTurn={isMyTurn}
       />
 
-      {/* Main Tactical Area */}
+      {/* Main Tactical Area: MapCanvas dominant central layout */}
       <box flexDirection="row" flexGrow={1} style={{ marginTop: 0, marginBottom: 0 }}>
-        <box flexDirection="column" flexGrow={1}>
+        <box flexDirection="column" flexGrow={1} style={{ marginRight: 1 }}>
           <MapCanvas
             territories={state?.territories ?? {}}
             players={state?.players ?? []}
@@ -341,6 +384,7 @@ export function App({ client, onExit }: AppProps) {
           onSkipPhase={handleSkipPhase}
           onEndTurn={handleEndTurn}
           onReady={handleReady}
+          onSelectTarget={(id) => setTargetTerritoryId(id)}
         />
       </box>
 

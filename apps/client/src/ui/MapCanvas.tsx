@@ -1,6 +1,6 @@
 import React from "react";
 import type { GamePhase, Player, TerritoryState } from "@conquest/protocol";
-import { MAP_SECTOR_07 } from "@conquest/map-engine";
+import { MAP_IRONREACH } from "@conquest/map-engine";
 
 export interface MapCanvasProps {
   territories: Record<string, TerritoryState>;
@@ -53,111 +53,137 @@ export function MapCanvas({
     }
   };
 
-  const sectorColors: Record<string, string> = {
-    wan: "#00d2ff",
-    dmz: "#ffaa00",
-    core: "#ff3399",
-  };
+  const sectorMap = new Map(MAP_IRONREACH.sectors.map((s) => [s.id, s]));
 
   return (
     <box
-      title="TACTICAL NETWORK MAP: SECTOR 07"
+      title="THE IRONREACH ── REALM TERRITORIES"
       titleColor="#00d2ff"
       border
       borderStyle="single"
       borderColor="#334155"
-      style={{ position: "relative", width: 58, height: 18 }}
+      style={{ position: "relative", width: 68, height: 31 }}
     >
-      {/* Sector Zone Markers */}
-      <text style={{ position: "absolute", left: 2, top: 0 }} fg="#00d2ff">
-        ◆ WAN SECTOR (+2)
+      {/* Regional Domain Banners */}
+      <text style={{ position: "absolute", left: 22, top: 0 }} fg="#00d2ff">
+        <b>❄ NORTHREACH (+3 Armies)</b>
       </text>
-      <text style={{ position: "absolute", left: 38, top: 0 }} fg="#ffaa00">
-        ◆ DMZ SECTOR (+2)
+      <text style={{ position: "absolute", left: 22, top: 11 }} fg="#ffaa00">
+        <b>⚔ THE MARCHES (+2 Armies)</b>
       </text>
-      <text style={{ position: "absolute", left: 10, top: 16 }} fg="#ff3399">
-        ◆ CORE SECTOR (+3)
-      </text>
-
-      {/* Network Connectors (ASCII / Unicode Adjacency Lines) */}
-      {/* A1 <-> B1 horizontal */}
-      <text style={{ position: "absolute", left: 30, top: 2 }} fg="#475569">
-        ──══──
+      <text style={{ position: "absolute", left: 22, top: 21 }} fg="#ff3399">
+        <b>🌋 EMBERLANDS (+3 Armies)</b>
       </text>
 
-      {/* A1 <-> A2 diagonal */}
-      <text style={{ position: "absolute", left: 12, top: 5 }} fg="#475569">
-        ╱
+      {/* Frontier Connectors (Mountain Passes & Border Trails) */}
+      {/* 1. Frostfell <-> Highwatch (horizontal northern pass) */}
+      <text style={{ position: "absolute", left: 22, top: 3 }} fg="#475569">
+        ══··══··══··══··══
       </text>
 
-      {/* A1 <-> A3 diagonal */}
-      <text style={{ position: "absolute", left: 21, top: 5 }} fg="#475569">
-        ╲
+      {/* 2. Frostfell <-> Iron Hollow (diagonal descent) */}
+      <text style={{ position: "absolute", left: 20, top: 5 }} fg="#475569">
+        ╲╲
+      </text>
+      <text style={{ position: "absolute", left: 22, top: 6 }} fg="#475569">
+        ╲╲
       </text>
 
-      {/* A2 <-> A3 horizontal */}
-      <text style={{ position: "absolute", left: 17, top: 7 }} fg="#475569">
-        ─────
-      </text>
-
-      {/* A2 <-> C1 diagonal */}
-      <text style={{ position: "absolute", left: 7, top: 10 }} fg="#475569">
-        ╲
-      </text>
-      <text style={{ position: "absolute", left: 8, top: 11 }} fg="#475569">
-        ╲
-      </text>
-
-      {/* A3 <-> C1 diagonal */}
-      <text style={{ position: "absolute", left: 18, top: 10 }} fg="#475569">
-        ╱
-      </text>
-      <text style={{ position: "absolute", left: 17, top: 11 }} fg="#475569">
-        ╱
-      </text>
-
-      {/* A3 <-> B2 horizontal */}
-      <text style={{ position: "absolute", left: 36, top: 7 }} fg="#475569">
-        ──
-      </text>
-
-      {/* B1 <-> B2 vertical */}
+      {/* 3. Highwatch <-> Iron Hollow (diagonal descent) */}
       <text style={{ position: "absolute", left: 44, top: 5 }} fg="#475569">
-        │
+        ╱╱
       </text>
-      <text style={{ position: "absolute", left: 44, top: 6 }} fg="#475569">
-        │
-      </text>
-
-      {/* B1 <-> C2 diagonal */}
-      <text style={{ position: "absolute", left: 36, top: 5 }} fg="#475569">
-        ╱
+      <text style={{ position: "absolute", left: 43, top: 6 }} fg="#475569">
+        ╱╱
       </text>
 
-      {/* B2 <-> C2 diagonal */}
-      <text style={{ position: "absolute", left: 35, top: 11 }} fg="#475569">
-        ╱
+      {/* 4. Highwatch <-> Stoneveil (vertical eastern cliff pass) */}
+      <text style={{ position: "absolute", left: 55, top: 6 }} fg="#475569">
+        ││
       </text>
 
-      {/* C1 <-> C2 horizontal */}
-      <text style={{ position: "absolute", left: 24, top: 13 }} fg="#475569">
-        ══
+      {/* 5. Iron Hollow <-> Stoneveil (horizontal mid pass) */}
+      <text style={{ position: "absolute", left: 43, top: 8 }} fg="#475569">
+        ══··
       </text>
 
-      {/* C2 <-> C3 horizontal */}
-      <text style={{ position: "absolute", left: 40, top: 13 }} fg="#475569">
-        ══
+      {/* 6. Iron Hollow <-> Red Basin (southwest canyon pass) */}
+      <text style={{ position: "absolute", left: 22, top: 10 }} fg="#475569">
+        ╱╱
+      </text>
+      <text style={{ position: "absolute", left: 20, top: 11 }} fg="#475569">
+        ╱╱
       </text>
 
-      {/* Territory Nodes */}
-      {MAP_SECTOR_07.territories.map((def) => {
+      {/* 7. Stoneveil <-> Red Basin (cross-marches trail) */}
+      <text style={{ position: "absolute", left: 43, top: 11 }} fg="#334155">
+        ··══··
+      </text>
+
+      {/* 8. Stoneveil <-> Mossgate (river gate road) */}
+      <text style={{ position: "absolute", left: 55, top: 12 }} fg="#475569">
+        ││
+      </text>
+
+      {/* 9. Red Basin <-> Sunken Pass (lowland gorge) */}
+      <text style={{ position: "absolute", left: 21, top: 16 }} fg="#475569">
+        ╲╲
+      </text>
+
+      {/* 10. Mossgate <-> Sunken Pass (waterway causeway) */}
+      <text style={{ position: "absolute", left: 43, top: 16 }} fg="#475569">
+        ╱╱
+      </text>
+
+      {/* 11. Mossgate <-> Ashmoor (volcanic border ridge) */}
+      <text style={{ position: "absolute", left: 55, top: 18 }} fg="#475569">
+        ││
+      </text>
+      <text style={{ position: "absolute", left: 55, top: 19 }} fg="#475569">
+        ··
+      </text>
+      <text style={{ position: "absolute", left: 55, top: 20 }} fg="#475569">
+        ││
+      </text>
+
+      {/* 12. Sunken Pass <-> Ember Coast (sulfur descent) */}
+      <text style={{ position: "absolute", left: 22, top: 20 }} fg="#475569">
+        ╱╱
+      </text>
+      <text style={{ position: "absolute", left: 20, top: 21 }} fg="#475569">
+        ╱╱
+      </text>
+
+      {/* 13. Sunken Pass <-> Ashmoor (ashfall passage) */}
+      <text style={{ position: "absolute", left: 43, top: 20 }} fg="#475569">
+        ╲╲
+      </text>
+      <text style={{ position: "absolute", left: 44, top: 21 }} fg="#475569">
+        ╲╲
+      </text>
+
+      {/* 14. Ember Coast <-> Hollowmere (obsidian causeway) */}
+      <text style={{ position: "absolute", left: 21, top: 25 }} fg="#475569">
+        ══··
+      </text>
+
+      {/* 15. Ashmoor <-> Hollowmere (caldera trail) */}
+      <text style={{ position: "absolute", left: 43, top: 25 }} fg="#475569">
+        ··══
+      </text>
+
+      {/* Territorial Realm Boxes */}
+      {MAP_IRONREACH.territories.map((def) => {
+        const sector = sectorMap.get(def.sectorId);
+        const regionName = sector?.name ?? def.sectorId;
+        const sectorColor = sector?.colorHex ?? "#00d2ff";
+
         const tState = territories[def.id];
-        const units = tState?.units ?? 3;
+        const units = tState?.units ?? 2;
         const ownerId = tState?.ownerId;
         const owner = players.find((p) => p.id === ownerId);
         const ownerName = owner?.name ?? "Neutral";
         const ownerColor = owner?.colorHex ?? "#94a3b8";
-        const sectorColor = sectorColors[def.sectorId] ?? "#00d2ff";
 
         const isSelected = selectedTerritoryId === def.id;
         const isTarget = targetTerritoryId === def.id;
@@ -170,11 +196,11 @@ export function MapCanvas({
         let backgroundColor = "#0b1329";
 
         if (isSelected) {
-          borderStyle = "heavy";
-          borderColor = "#ffffff";
+          borderStyle = "double";
+          borderColor = "#ffff00"; // High-contrast bright yellow/cyan
           backgroundColor = "#1e293b";
         } else if (isTarget) {
-          borderStyle = "rounded";
+          borderStyle = "double";
           borderColor = isEnemy ? "#ff4444" : "#00ff66";
           backgroundColor = isEnemy ? "#2e1018" : "#0d2b1a";
         } else if (isNeighbor) {
@@ -187,13 +213,21 @@ export function MapCanvas({
           }
         }
 
-        const titleText = `${def.id}: ${def.name}`;
+        const titleText = `⚑ ${def.name.toUpperCase()}`;
 
         return (
           <box
             key={def.id}
             title={titleText}
-            titleColor={isSelected ? "#ffffff" : isTarget ? (isEnemy ? "#ff4444" : "#00ff66") : sectorColor}
+            titleColor={
+              isSelected
+                ? "#ffff00"
+                : isTarget
+                ? isEnemy
+                  ? "#ff4444"
+                  : "#00ff66"
+                : sectorColor
+            }
             titleAlignment="center"
             border
             borderStyle={borderStyle}
@@ -204,17 +238,30 @@ export function MapCanvas({
               position: "absolute",
               left: def.position.x,
               top: def.position.y,
-              width: 14,
-              height: 4,
-              alignItems: "center",
-              justifyContent: "center",
+              width: def.render?.width ?? 19,
+              height: def.render?.height ?? 5,
+              paddingLeft: 1,
+              paddingRight: 1,
             }}
           >
-            <text fg={ownerColor}>
-              [ <b>{ownerName.slice(0, 8)}</b> ]
-            </text>
+            {isSelected ? (
+              <text fg="#ffff00">
+                <b>► SELECTED ◄</b>
+              </text>
+            ) : isTarget ? (
+              <text fg={isEnemy ? "#ff4444" : "#00ff66"}>
+                <b>{isEnemy ? "⚔ TARGET" : "🛡 DEST"}</b>
+              </text>
+            ) : (
+              <text fg={sectorColor}>
+                <b>[{regionName}]</b>
+              </text>
+            )}
             <text fg="#ffffff">
-              Units: <b>{units}</b>
+              ⚔ <b>{units} Armies</b>
+            </text>
+            <text fg={ownerColor}>
+              Ruler: <b>{ownerName.slice(0, 9)}</b>
             </text>
           </box>
         );

@@ -1,5 +1,6 @@
 import React from "react";
 import type { GameEvent, Player } from "@conquest/protocol";
+import { MAP_IRONREACH } from "@conquest/map-engine";
 
 export interface EventLogProps {
   events: GameEvent[];
@@ -14,70 +15,91 @@ export function formatEvent(
   players: Player[]
 ): { text: string; color: string } {
   const getPlayerName = (id: string) => players.find((p) => p.id === id)?.name ?? id;
+  const getTerritoryName = (id: string) =>
+    MAP_IRONREACH.territories.find((t) => t.id === id)?.name ?? id;
 
   switch (e.type) {
     case "player_joined":
       return {
-        text: `[+] Player ${e.player.name} connected to grid`,
+        text: `⚜ Lord ${e.player.name} has taken their seat at the war table`,
         color: "#00d2ff",
       };
     case "player_left":
       return {
-        text: `[-] Player ${getPlayerName(e.playerId)} lost connection`,
+        text: `✦ Lord ${getPlayerName(e.playerId)} retreated from the council`,
         color: "#ff4444",
       };
     case "player_reconnected":
       return {
-        text: `[↺] Player ${getPlayerName(e.playerId)} reconnected to room`,
+        text: `↺ Lord ${getPlayerName(e.playerId)} returned to the realm`,
         color: "#00ff66",
       };
     case "game_started":
       return {
-        text: `=== SECTOR 07 ONLINE // COMBAT INITIATED (Turn 1) ===`,
+        text: `⚔ WAR FOR THE IRONREACH HAS BEGUN ── Turn 1 ⚔`,
         color: "#ffaa00",
       };
     case "phase_changed":
       return {
-        text: `[►] Phase: ${e.phase.toUpperCase()} (${getPlayerName(e.activePlayerId)})`,
+        text: `📜 Council Order: ${e.phase.toUpperCase()} phase initiated by ${getPlayerName(e.activePlayerId)}`,
         color: "#38bdf8",
       };
-    case "units_deployed":
+    case "units_deployed": {
+      const player = getPlayerName(e.playerId);
+      const territory = getTerritoryName(e.territoryId);
       return {
-        text: `[DEPLOY] ${getPlayerName(e.playerId)} deployed ${e.count} units to ${e.territoryId}`,
+        text: `🛡 ${player} reinforced ${territory} (+${e.count} armies)`,
         color: "#00ff66",
       };
-    case "attack_resolved": {
-      const rollsStr = `[${e.attackerRolls.join(",")}] vs [${e.defenderRolls.join(",")}]`;
-      const lossStr = `-${e.attackerLosses} att, -${e.defenderLosses} def`;
-      const base = `[ATTACK] ${getPlayerName(e.attackerId)} -> ${e.targetTerritoryId} (${getPlayerName(e.defenderId)}) Rolls ${rollsStr} (${lossStr})`;
-      if (e.conquered) {
-        return { text: `${base} ★ CONQUERED!`, color: "#ff3399" };
-      }
-      return { text: base, color: "#f97316" };
     }
-    case "units_fortified":
+    case "attack_resolved": {
+      const attacker = getPlayerName(e.attackerId);
+      const defender = getPlayerName(e.defenderId);
+      const territory = getTerritoryName(e.targetTerritoryId);
+
+      if (e.conquered) {
+        return {
+          text: `⚔ ${attacker} captured ${territory} from ${defender}!`,
+          color: "#ff3399",
+        };
+      }
+
+      const losses = `-${e.attackerLosses} att, -${e.defenderLosses} def`;
       return {
-        text: `[FORTIFY] ${getPlayerName(e.playerId)} moved ${e.units} units: ${e.sourceTerritoryId} -> ${e.targetTerritoryId}`,
+        text: `🎲 Battle at ${territory}: ${attacker} vs ${defender} (${losses})`,
+        color: "#f97316",
+      };
+    }
+    case "units_fortified": {
+      const player = getPlayerName(e.playerId);
+      const target = getTerritoryName(e.targetTerritoryId);
+      return {
+        text: `🛡 ${player} fortified ${e.units} armies to ${target}`,
         color: "#9966ff",
       };
+    }
     case "turn_ended":
       return {
-        text: `── Turn ${e.turnNumber}: Active player ${getPlayerName(e.nextPlayerId)} (+${e.reinforcements} reinforcements) ──`,
+        text: `── Turn ${e.turnNumber}: Sovereign ${getPlayerName(e.nextPlayerId)} commands (+${e.reinforcements} reinforcements) ──`,
         color: "#ffaa00",
       };
-    case "player_eliminated":
+    case "player_eliminated": {
+      const player = getPlayerName(e.playerId);
       return {
-        text: `☠ ELIMINATED: ${getPlayerName(e.playerId)} was defeated by ${getPlayerName(e.eliminatedBy)}!`,
+        text: `💀 ${player} has fallen in battle!`,
         color: "#ff4444",
       };
-    case "game_won":
+    }
+    case "game_won": {
+      const winner = e.winnerName;
       return {
-        text: `★ VICTORY: ${e.winnerName} HAS CONQUERED SECTOR 07! ★`,
-        color: "#ff3399",
+        text: `👑 ${winner} has conquered the entire realm!`,
+        color: "#ffaa00",
       };
+    }
     case "chat_message":
       return {
-        text: `[CHAT] ${e.senderName}: ${e.text}`,
+        text: `💬 [Raven] ${e.senderName}: "${e.text}"`,
         color: "#e879f9",
       };
     default:
@@ -107,10 +129,10 @@ export function EventLog({
     >
       <box flexDirection="row" justifyContent="space-between">
         <text fg="#00d2ff">
-          <b>TACTICAL COMM & EVENT LOG</b>
+          <b>CHRONICLES OF WAR & REALM COMMUNICATIONS</b>
         </text>
         <text fg="#64748b">
-          {chatOpen ? "[Esc] Close Chat" : "[C] Open Chat"}
+          {chatOpen ? "[Esc] Close Raven" : "[C] Send Raven (Chat)"}
         </text>
       </box>
 
@@ -126,7 +148,7 @@ export function EventLog({
         })}
         {displayedEvents.length === 0 && (
           <text fg="#64748b">
-            <i>Awaiting telemetry and tactical data...</i>
+            <i>The chronicles await the clash of steel...</i>
           </text>
         )}
       </box>
@@ -145,11 +167,11 @@ export function EventLog({
           flexDirection="row"
         >
           <text fg="#ff3399">
-            <b>Chat: </b>
+            <b>Send Raven: </b>
           </text>
           <input
             focused
-            placeholder="Type message and press Enter..."
+            placeholder="Compose message to other lords and press Enter..."
             onSubmit={(val: any) => {
               const str = typeof val === "string" ? val : String(val?.value ?? "");
               if (str.trim()) {
