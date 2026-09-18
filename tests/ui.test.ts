@@ -174,3 +174,258 @@ describe("ui: Ironreach realm map schema & layout", () => {
     }
   });
 });
+
+describe("ui: Cellular MapCanvas & Refitted UI components", () => {
+  const testPlayers: Player[] = [
+    {
+      id: "p1",
+      name: "Alex",
+      colorIndex: 0,
+      colorHex: "#00ff66",
+      connected: true,
+      isAlive: true,
+      ready: true,
+    },
+    {
+      id: "p2",
+      name: "Blair",
+      colorIndex: 1,
+      colorHex: "#00d2ff",
+      connected: true,
+      isAlive: true,
+      ready: true,
+    },
+    {
+      id: "p3",
+      name: "Casey",
+      colorIndex: 2,
+      colorHex: "#38bdf8",
+      connected: true,
+      isAlive: true,
+      ready: true,
+    },
+    {
+      id: "p4",
+      name: "Drew",
+      colorIndex: 3,
+      colorHex: "#ff4444",
+      connected: true,
+      isAlive: true,
+      ready: true,
+    },
+  ];
+
+  it("renders MapCanvas as a 2D cellular grid without rectangular territory boxes", async () => {
+    const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
+    const el: any = MapCanvas({
+      territories: {},
+      players: testPlayers,
+      myPlayerId: "p1",
+      phase: "deployment",
+      selectedTerritoryId: "C2",
+      targetTerritoryId: null,
+      onSelectTerritory: () => {},
+      onSelectTarget: () => {},
+      onDeselect: () => {},
+    });
+
+    expect(el.type).toBe("box");
+    expect(el.props.title).toContain("WORLD MAP");
+    expect(el.props.title).toContain("Territories • Connections • Empires");
+    expect(el.props.style.width).toBe(78);
+    expect(el.props.style.height).toBe(30);
+
+    // Inner container holds the 28 lines
+    const innerBox = el.props.children;
+    expect(innerBox.type).toBe("box");
+    const lines = innerBox.props.children;
+    expect(lines.length).toBe(28);
+
+    // Each line is a <text> element with styled <span> runs
+    for (const line of lines) {
+      expect(line.type).toBe("text");
+    }
+  });
+
+  it("renders Sidebar with 3 cards matching ref.png", async () => {
+    const { Sidebar } = await import("../apps/client/src/ui/Sidebar.js");
+    const el: any = Sidebar({
+      state: null,
+      myPlayerId: "p1",
+      selectedTerritoryId: "C2",
+      targetTerritoryId: null,
+      onDeploy: () => {},
+      onAttack: () => {},
+      onFortify: () => {},
+      onSkipPhase: () => {},
+      onEndTurn: () => {},
+    });
+
+    expect(el.type).toBe("box");
+    expect(el.props.style.width).toBe(38);
+
+    const cards = el.props.children;
+    expect(cards.length).toBe(3);
+
+    // Card 1: ! PLAYERS
+    expect(cards[0].props.title).toBe("! PLAYERS");
+    // Card 2: ! SELECTED TERRITORY
+    expect(cards[1].props.title).toBe("! SELECTED TERRITORY");
+    // Card 3: ! ACTIONS
+    expect(cards[2].props.title).toBe("! ACTIONS");
+  });
+
+  it("renders Header with IRON FRONT banner, turn, active player and quote", async () => {
+    const { Header } = await import("../apps/client/src/ui/Header.js");
+    const el: any = Header({
+      roomCode: "H5CM",
+      turnNumber: 3,
+      activePlayer: testPlayers[0],
+      phase: "deployment",
+      pendingReinforcements: 5,
+      connectionStatus: "connected",
+      isMyTurn: true,
+    });
+
+    expect(el.type).toBe("box");
+    const [topBar, mainBox] = el.props.children;
+    expect(topBar).toBeDefined();
+    expect(mainBox).toBeDefined();
+    expect(mainBox.props.border).toBe(true);
+  });
+
+  it("renders Footer with pills and slogan", async () => {
+    const { Footer } = await import("../apps/client/src/ui/Footer.js");
+    const el: any = Footer({
+      toastMessage: null,
+      toastType: "info",
+      activeTab: 1,
+    });
+
+    expect(el.type).toBe("box");
+    const [leftPills, rightSlogan] = el.props.children;
+    expect(leftPills.props.children.length).toBe(5);
+    expect(rightSlogan).toBeDefined();
+  });
+
+  it("renders TerminalSizeWarning with double amber border, header, subtitle, and current dimensions", async () => {
+    const { TerminalSizeWarning } = await import("../apps/client/src/ui/App.js");
+    const el: any = TerminalSizeWarning({
+      columns: 80,
+      rows: 24,
+    });
+
+    expect(el.type).toBe("box");
+    const innerBox = el.props.children;
+    expect(innerBox.type).toBe("box");
+    expect(innerBox.props.border).toBe(true);
+    expect(innerBox.props.borderStyle).toBe("double");
+    expect(innerBox.props.borderColor).toBe("#f59e0b");
+
+    const [header, subtitle, dimensions, prompt, overrideBox] = innerBox.props.children;
+    expect(header.type).toBe("text");
+    expect(header.props.children.props.children).toBe("⚠️  TERMINAL WINDOW TOO SMALL");
+    expect(subtitle.type).toBe("text");
+    expect(subtitle.props.children).toBe(
+      "conquest.sh requires at least 110 columns x 38 rows for the tactical realm map."
+    );
+    expect(dimensions.type).toBe("text");
+    expect(dimensions.props.children).toBe("Current: 80 cols × 24 rows");
+    expect(prompt.type).toBe("text");
+    expect(prompt.props.children).toBe(
+      "Please expand or zoom out your terminal window to resume play."
+    );
+    expect(overrideBox.type).toBe("box");
+  });
+
+  it("App displays size warning on small terminal and renders game when overridden or sufficiently sized", async () => {
+    // @ts-ignore
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+
+    let exited = false;
+    const mockClient: any = {
+      state: null,
+      myPlayerId: "p1",
+      status: "connected",
+      roomCode: "H5CM",
+      onSnapshot: () => () => {},
+      onEvent: () => () => {},
+      onStatusChange: () => () => {},
+      onError: () => () => {},
+    };
+
+    // 1. Small dimensions (80x24) -> Shows warning
+    const setupSmall = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        onExit: () => {
+          exited = true;
+        },
+        terminalDimensions: { columns: 80, rows: 24 },
+      }),
+      {}
+    );
+    await act(async () => {
+      await setupSmall.renderOnce();
+    });
+    const frameSmall = setupSmall.captureCharFrame();
+    expect(frameSmall).toContain("TERMINAL WINDOW TOO SMALL");
+    expect(frameSmall).toContain("80 cols × 24 rows");
+
+    // 2. Press 'i' / any key -> Overrides warning and renders main game UI
+    await act(async () => {
+      setupSmall.mockInput.pressKey("i");
+    });
+    await act(async () => {
+      await setupSmall.renderOnce();
+    });
+    const frameOverridden = setupSmall.captureCharFrame();
+    expect(frameOverridden).toContain("IRON FRONT");
+    expect(frameOverridden).not.toContain("TERMINAL WINDOW TOO SMALL");
+    await act(async () => {
+      setupSmall.renderer.destroy();
+    });
+
+    // 3. Non-TTY / undefined / 0 dimensions -> Renders normal game UI directly without warning
+    const setupZero = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 0, rows: 0 },
+      }),
+      {}
+    );
+    await act(async () => {
+      await setupZero.renderOnce();
+    });
+    const frameZero = setupZero.captureCharFrame();
+    expect(frameZero).toContain("IRON FRONT");
+    expect(frameZero).not.toContain("TERMINAL WINDOW TOO SMALL");
+    await act(async () => {
+      setupZero.renderer.destroy();
+    });
+
+    // 4. Large dimensions (120x40) -> Renders normal game UI directly
+    const setupLarge = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 120, rows: 40 },
+      }),
+      {}
+    );
+    await act(async () => {
+      await setupLarge.renderOnce();
+    });
+    const frameLarge = setupLarge.captureCharFrame();
+    expect(frameLarge).toContain("IRON FRONT");
+    expect(frameLarge).not.toContain("TERMINAL WINDOW TOO SMALL");
+    await act(async () => {
+      setupLarge.renderer.destroy();
+    });
+  });
+});
+

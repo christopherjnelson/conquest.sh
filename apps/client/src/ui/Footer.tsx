@@ -3,46 +3,93 @@ import React from "react";
 export interface FooterProps {
   toastMessage?: string | null;
   toastType?: "info" | "success" | "error";
+  activeTab?: number;
+  onSelectTab?: (tab: number) => void;
 }
 
-export function Footer({ toastMessage, toastType = "info" }: FooterProps) {
+export function Footer({
+  toastMessage,
+  toastType = "info",
+  activeTab = 1,
+  onSelectTab,
+}: FooterProps) {
   let toastColor = "#38bdf8";
   if (toastType === "error") toastColor = "#ff4444";
   if (toastType === "success") toastColor = "#00ff66";
+
+  const pills = [
+    { id: 1, label: "Map" },
+    { id: 2, label: "Cards" },
+    { id: 3, label: "Diplomacy" },
+    { id: 4, label: "Chat" },
+    { id: 5, label: "Help" },
+  ];
 
   return (
     <box
       flexDirection="row"
       justifyContent="space-between"
       alignItems="center"
-      border
-      borderStyle="single"
-      borderColor="#334155"
+      style={{ width: "100%", height: 3 }}
       paddingLeft={1}
       paddingRight={1}
-      height={3}
+      marginTop={0}
     >
-      <text>
-        <span fg="#00d2ff"><b>[Tab]</b> Select  </span>
-        <span fg="#00d2ff"><b>[Arrows]</b> Move  </span>
-        <span fg="#00ff66"><b>[D]</b> Deploy  </span>
-        <span fg="#ff4444"><b>[A]</b> Attack  </span>
-        <span fg="#9966ff"><b>[F]</b> Fortify  </span>
-        <span fg="#ffaa00"><b>[E]</b> End Turn  </span>
-        <span fg="#ff3399"><b>[C]</b> Chat  </span>
-        <span fg="#64748b"><b>[Esc]</b> Clear  </span>
-        <span fg="#ff4444"><b>[Q]</b> Quit</span>
-      </text>
+      {/* Left Pills matching ref.png */}
+      <box flexDirection="row" gap={1} alignItems="center">
+        {pills.map((pill) => {
+          const isActive = pill.id === activeTab;
+          if (isActive) {
+            return (
+              <box
+                key={pill.id}
+                border
+                borderStyle="single"
+                borderColor="#00ff66"
+                backgroundColor="#064e3b"
+                paddingLeft={1}
+                paddingRight={1}
+                onMouseDown={() => onSelectTab?.(pill.id)}
+              >
+                <text fg="#00ff66">
+                  <b>{pill.id}   {pill.label}</b>
+                </text>
+              </box>
+            );
+          }
 
-      {toastMessage ? (
-        <text fg={toastColor}>
-          <b>{toastMessage}</b>
-        </text>
-      ) : (
-        <text fg="#475569">
-          <i>The Ironreach Realm Strategy Active</i>
-        </text>
-      )}
+          return (
+            <box
+              key={pill.id}
+              border
+              borderStyle="single"
+              borderColor="#334155"
+              backgroundColor="#0b1329"
+              paddingLeft={1}
+              paddingRight={1}
+              onMouseDown={() => onSelectTab?.(pill.id)}
+            >
+              <text fg="#94a3b8">
+                <b>{pill.id}</b>   {pill.label}
+              </text>
+            </box>
+          );
+        })}
+      </box>
+
+      {/* Right Side Slogan & Game Identifier */}
+      <box flexDirection="row" alignItems="center" gap={1}>
+        {toastMessage ? (
+          <text fg={toastColor}>
+            <b>{toastMessage}</b>
+          </text>
+        ) : (
+          <text>
+            <span fg="#64748b">Play fair. Play bold.  │  </span>
+            <span fg="#00d2ff"><b>IRON FRONT</b></span>
+          </text>
+        )}
+      </box>
     </box>
   );
 }

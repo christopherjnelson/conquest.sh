@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
+import { MAP_IRONREACH } from "../packages/map-engine/src/index.js";
 import type { GameEvent, ServerEvent } from "@conquest/protocol";
 
 describe("GameClient: Client Flow & State Synchronization", () => {
@@ -29,6 +30,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       port: 0,
       serverName: "test-client-flow-server",
       maxPlayersPerRoom: 2,
+      defaultMap: MAP_IRONREACH,
     });
     server.start();
     port = server.port;
@@ -738,6 +740,184 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     } finally {
       memServer.stop();
       cleanupMem();
+    }
+  });
+
+  it("runs full game flow against default MAP_GRID_IRONREACH server: distributes 20 territories, deploys, attacks, ends turn", async () => {
+    const sessionFileAliceGrid = path.resolve(process.cwd(), ".conquest-test-grid-alice.json");
+    const sessionFileBobGrid = path.resolve(process.cwd(), ".conquest-test-grid-bob.json");
+
+    const cleanupGrid = () => {
+      try {
+        if (fs.existsSync(sessionFileAliceGrid)) fs.unlinkSync(sessionFileAliceGrid);
+        if (fs.existsSync(sessionFileBobGrid)) fs.unlinkSync(sessionFileBobGrid);
+      } catch {
+        // Ignore cleanup error
+      }
+    };
+
+    cleanupGrid();
+
+    // Default ConquestServer constructor uses MAP_GRID_IRONREACH without specifying defaultMap
+    const gridServer = new ConquestServer({
+      port: 0,
+      serverName: "test-grid-server",
+      maxPlayersPerRoom: 2,
+    });
+    gridServer.start();
+    const gridPort = gridServer.port;
+
+    try {
+      // 1. Connect Client A (Alice)
+      const clientA = new GameClient({
+        host: `localhost:${gridPort}`,
+        sessionFilePath: sessionFileAliceGrid,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+
+      await clientA.connect();
+      expect(clientA.status).toBe("connected");
+      clientA.join("Alice");
+
+      const snapshotA = await clientA.waitForSnapshot((s) => s.phase === "lobby" || s.phase === "deployment");
+      expect(snapshotA).toBeDefined();
+      const roomCode = clientA.roomCode!;
+      const aliceId = clientA.myPlayerId!;
+      expect(roomCode).toBeDefined();
+      expect(aliceId).toBeDefined();
+
+      // 2. Connect Client B (Bob) to the same room
+      const clientB = new GameClient({
+        host: `localhost:${gridPort}`,
+        sessionFilePath: sessionFileBobGrid,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+
+      await clientB.connect();
+      expect(clientB.status).toBe("connected");
+      clientB.join("Bob", roomCode);
+
+      // Wait for deployment phase snapshot on both clients (auto-start when 2 players join)
+      const gameSnapshotA = await clientA.waitForSnapshot((s) => s.phase === "deployment");
+      const gameSnapshotB = await clientB.waitForSnapshot((s) => s.phase === "deployment");
+
+      expect(gameSnapshotA.phase).toBe("deployment");
+      expect(gameSnapshotB.phase).toBe("deployment");
+      expect(gameSnapshotA.players.length).toBe(2);
+      expect(gameSnapshotB.players.length).toBe(2);
+
+      const bobId = clientB.myPlayerId!;
+      expect(bobId).not.toBe(aliceId);
+
+      // Verify all 20 territories (A1-A3, B1-B3, C1-C4, D1-D4, E1-E3, F1-F3) are distributed
+      const territoryIds = Object.keys(gameSnapshotA.territories);
+      expect(territoryIds.length).toBe(20);
+
+      const expectedGridTerritories = [
+        "A1", "A2", "A3",
+        "B1", "B2", "B3",
+        "C1", "C2", "C3", "C4",
+        "D1", "D2", "D3", "D4",
+        "E1", "E2", "E3",
+        "F1", "F2", "F3",
+      ];
+      for (const expectedId of expectedGridTerritories) {
+        expect(territoryIds).toContain(expectedId);
+        const t = gameSnapshotA.territories[expectedId];
+        expect(t).toBeDefined();
+        expect([aliceId, bobId]).toContain(t.ownerId);
+        expect(t.units).toBeGreaterThanOrEqual(1);
+      }
+
+      // Verify even distribution (10 territories each)
+      const aliceTerritories = territoryIds.filter((id) => gameSnapshotA.territories[id].ownerId === aliceId);
+      const bobTerritories = territoryIds.filter((id) => gameSnapshotA.territories[id].ownerId === bobId);
+      expect(aliceTerritories.length).toBe(10);
+      expect(bobTerritories.length).toBe(10);
+
+      // Alice is active player (turn 1)
+      expect(gameSnapshotA.activePlayerIndex).toBe(0);
+      expect(gameSnapshotA.players[0].id).toBe(aliceId);
+
+      // 3. Alice deploys to C2 (or whichever territory she owns)
+      const deployTerritoryId = gameSnapshotA.territories["C2"]?.ownerId === aliceId
+        ? "C2"
+        : (aliceTerritories.find((id) =>
+            gameSnapshotA.territories[id].neighbors.some((nId) => gameSnapshotA.territories[nId].ownerId === bobId)
+          ) ?? aliceTerritories[0]);
+
+      const pendingReinforcements = clientA.state!.pendingReinforcements;
+      expect(pendingReinforcements).toBeGreaterThanOrEqual(3);
+
+      clientA.deploy(deployTerritoryId, pendingReinforcements);
+
+      // Both clients receive units_deployed event
+      const deployEventA = await clientA.waitForEvent((e) => e.type === "units_deployed");
+      const deployEventB = await clientB.waitForEvent((e) => e.type === "units_deployed");
+
+      expect(deployEventA.type).toBe("units_deployed");
+      if (deployEventA.type === "units_deployed") {
+        expect(deployEventA.playerId).toBe(aliceId);
+        expect(deployEventA.territoryId).toBe(deployTerritoryId);
+        expect(deployEventA.count).toBe(pendingReinforcements);
+      }
+      expect(deployEventB.type).toBe("units_deployed");
+
+      // Game transitions to attack phase
+      const attackPhaseA = await clientA.waitForSnapshot((s) => s.phase === "attack");
+      expect(attackPhaseA.phase).toBe("attack");
+      expect(clientA.state?.territories[deployTerritoryId].units).toBeGreaterThanOrEqual(pendingReinforcements);
+
+      // 4. Alice attacks an adjacent territory
+      const targetTerritoryId = gameSnapshotA.territories[deployTerritoryId].neighbors.find(
+        (nId) => gameSnapshotA.territories[nId].ownerId === bobId
+      )!;
+      expect(targetTerritoryId).toBeDefined();
+
+      clientA.attack(deployTerritoryId, targetTerritoryId, 3);
+
+      const attackEventA = await clientA.waitForEvent((e) => e.type === "attack_resolved");
+      const attackEventB = await clientB.waitForEvent((e) => e.type === "attack_resolved");
+
+      expect(attackEventA.type).toBe("attack_resolved");
+      if (attackEventA.type === "attack_resolved") {
+        expect(attackEventA.attackerId).toBe(aliceId);
+        expect(attackEventA.defenderId).toBe(bobId);
+        expect(attackEventA.sourceTerritoryId).toBe(deployTerritoryId);
+        expect(attackEventA.targetTerritoryId).toBe(targetTerritoryId);
+        expect(attackEventA.attackerRolls.length).toBeGreaterThan(0);
+        expect(attackEventA.defenderRolls.length).toBeGreaterThan(0);
+      }
+      expect(attackEventB.type).toBe("attack_resolved");
+
+      // 5. Alice ends turn; Bob becomes active
+      clientA.endTurn();
+
+      const turnEndedEventA = await clientA.waitForEvent((e) => e.type === "turn_ended");
+      const turnEndedEventB = await clientB.waitForEvent((e) => e.type === "turn_ended");
+
+      expect(turnEndedEventA.type).toBe("turn_ended");
+      if (turnEndedEventA.type === "turn_ended") {
+        expect(turnEndedEventA.previousPlayerId).toBe(aliceId);
+        expect(turnEndedEventA.nextPlayerId).toBe(bobId);
+      }
+      expect(turnEndedEventB.type).toBe("turn_ended");
+
+      const bobTurnSnapshot = await clientB.waitForSnapshot(
+        (s) => s.phase === "deployment" && s.activePlayerIndex === 1
+      );
+      expect(bobTurnSnapshot.activePlayerIndex).toBe(1);
+      expect(bobTurnSnapshot.players[1].id).toBe(bobId);
+      expect(bobTurnSnapshot.pendingReinforcements).toBeGreaterThanOrEqual(3);
+
+      // Cleanup
+      clientA.disconnect();
+      clientB.disconnect();
+    } finally {
+      gridServer.stop();
+      cleanupGrid();
     }
   });
 });

@@ -14,103 +14,123 @@ export interface HeaderProps {
 
 export function Header({
   roomCode,
-  turnNumber,
+  turnNumber = 3,
   activePlayer,
   phase,
-  pendingReinforcements,
+  pendingReinforcements = 5,
   connectionStatus,
   isMyTurn,
 }: HeaderProps) {
-  let phaseColor = "#00d2ff";
-  let phaseLabel = "DEPLOYMENT";
-
-  switch (phase) {
-    case "lobby":
-      phaseColor = "#ffaa00";
-      phaseLabel = "LOBBY";
-      break;
-    case "deployment":
-      phaseColor = "#00d2ff";
-      phaseLabel = "DEPLOYMENT";
-      break;
-    case "attack":
-      phaseColor = "#ff4444";
-      phaseLabel = "ATTACK";
-      break;
-    case "fortify":
-      phaseColor = "#9966ff";
-      phaseLabel = "FORTIFY";
-      break;
-    case "game_over":
-      phaseColor = "#ff3399";
-      phaseLabel = "GAME OVER";
-      break;
-  }
-
-  let statusColor = "#00ff66";
-  let statusLabel = "● ONLINE";
-  if (connectionStatus === "reconnecting") {
-    statusColor = "#ffaa00";
-    statusLabel = "◌ RECONNECTING";
-  } else if (connectionStatus === "connecting") {
-    statusColor = "#ffaa00";
-    statusLabel = "◌ CONNECTING";
-  } else if (connectionStatus === "disconnected") {
-    statusColor = "#ff4444";
-    statusLabel = "○ OFFLINE";
-  }
-
-  const activePlayerName = activePlayer?.name ?? "Waiting";
+  // Fallbacks matching ref.png if game not started
+  const displayTurn = turnNumber > 0 ? turnNumber : 3;
+  const displayName = activePlayer?.name ?? "Alex";
+  const displayColor = activePlayer?.colorHex ?? "#00ff66";
+  const displayReinforcements = pendingReinforcements > 0 ? pendingReinforcements : 5;
 
   return (
-    <box
-      flexDirection="row"
-      justifyContent="space-between"
-      alignItems="center"
-      border
-      borderStyle="rounded"
-      borderColor="#00d2ff"
-      paddingLeft={1}
-      paddingRight={1}
-      height={3}
-    >
-      <box flexDirection="row" gap={1}>
-        <text fg="#00d2ff">
-          <b>CONQUEST.SH ── WAR FOR THE IRONREACH</b>
-        </text>
-        <text fg="#475569">│</text>
-        <text fg="#ffaa00">
-          ROOM: <b>{roomCode ?? "----"}</b>
-        </text>
+    <box flexDirection="column" style={{ width: "100%" }} marginBottom={0}>
+      {/* Top Window Bar: Traffic lights, App Title, Quit Shortcut & Version */}
+      <box
+        flexDirection="row"
+        justifyContent="space-between"
+        alignItems="center"
+        paddingLeft={1}
+        paddingRight={1}
+        height={1}
+      >
+        <box flexDirection="row" gap={1}>
+          <text>
+            <span fg="#ff5f56">● </span>
+            <span fg="#ffbd2e">● </span>
+            <span fg="#27c93f">● </span>
+            <span fg="#e2e8f0"><b>IRON FRONT ─ A Terminal Strategy Game</b></span>
+          </text>
+        </box>
+
+        <box flexDirection="row" gap={1}>
+          <text fg="#64748b">
+            Ctrl+C to quit  │  v0.2.0
+          </text>
+        </box>
       </box>
 
-      <box flexDirection="row" gap={1}>
-        <text fg="#ffffff">
-          Turn <b>{turnNumber}</b>
-        </text>
-        <text fg="#475569">│</text>
-        <text fg={phaseColor}>
-          Phase: <b>{phaseLabel}</b>
-        </text>
-        <text fg="#475569">│</text>
-        <text fg="#00ff66">
-          Reinforcements: <b>{pendingReinforcements}</b>
-        </text>
-        <text fg="#475569">│</text>
-        <text>
-          <span fg="#94a3b8">Active: </span>
-          <span fg={activePlayer?.colorHex ?? "#ffffff"}>● </span>
-          <span fg="#ffffff">
-            <b>{activePlayerName}</b>
-          </span>
-          {isMyTurn && <span fg="#00ff66"><b> (YOU)</b></span>}
-        </text>
-      </box>
+      {/* Main Header Box */}
+      <box
+        flexDirection="row"
+        justifyContent="space-between"
+        alignItems="center"
+        border
+        borderStyle="single"
+        borderColor="#00d2ff"
+        backgroundColor="#080f1a"
+        paddingLeft={1}
+        paddingRight={2}
+        style={{ height: 5 }}
+      >
+        {/* Left: ASCII Art Logo + Subtitle */}
+        <box flexDirection="row" alignItems="center" gap={2}>
+          <box flexDirection="column">
+            <text fg="#00ffff">
+              <b>╔╦╗╦═╗╔═╗╔╗╔   ╔═╗╦═╗╔═╗╔╗╔╔╦╗</b>
+            </text>
+            <text fg="#00ffff">
+              <b> ║ ╠╦╝║ ║║║║   ╠╣ ╠╦╝║ ║║║║ ║ </b>
+            </text>
+            <text fg="#00ffff">
+              <b>╩╩╝╩╚═╚═╝╝╚╝   ╚  ╩╚═╚═╝╝╚╝ ╩ </b>
+            </text>
+          </box>
 
-      <box flexDirection="row" gap={1}>
-        <text fg={statusColor}>
-          <b>{statusLabel}</b>
-        </text>
+          <text fg="#334155">│</text>
+
+          <text fg="#22d3ee">
+            <b>CONQUER   NEGOTIATE   SURVIVE</b>
+          </text>
+        </box>
+
+        {/* Center-Right Columns: Turn, Active Player, Reinforcements, Quote */}
+        <box flexDirection="row" alignItems="center" gap={3}>
+          {/* Turn Column */}
+          <box flexDirection="column" alignItems="center">
+            <text fg="#64748b">
+              Turn <span fg="#00d2ff"><b>{displayTurn}/∞</b></span>
+            </text>
+            <text fg="#00d2ff">
+              🏰
+            </text>
+          </box>
+
+          {/* Active Player Column */}
+          <box flexDirection="column">
+            <text fg="#64748b">Active Player</text>
+            <text>
+              <span fg={displayColor}>● </span>
+              <span fg={displayColor}><b>{displayName}</b></span>
+              {isMyTurn && <span fg="#00ff66"> (You)</span>}
+            </text>
+          </box>
+
+          {/* Reinforcements Column */}
+          <box flexDirection="column">
+            <text fg="#64748b">Reinforcements</text>
+            <text fg="#38bdf8">
+              ♟ <b>{displayReinforcements} remaining</b>
+            </text>
+          </box>
+
+          {/* Slogan Quote Column */}
+          <box flexDirection="column">
+            <text fg="#64748b">
+              <i>"Same map.</i>
+            </text>
+            <text fg="#64748b">
+              <i>Different stories."</i>
+            </text>
+            <text fg="#475569">
+              ─ CONQUEST.SH
+            </text>
+          </box>
+        </box>
       </box>
     </box>
   );

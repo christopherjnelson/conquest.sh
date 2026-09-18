@@ -44,3 +44,6 @@ export function findTerritoryAt<T extends TerritoryLike = TerritoryState>(
   }
   return null;
 }
+
+export * from "./grid-engine.js";
+

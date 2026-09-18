@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { ConquestServer } from "../apps/server/src/server.js";
+import { MAP_IRONREACH } from "../packages/map-engine/src/index.js";
 import type {
   ClientAttack,
   ClientDeploy,
@@ -147,6 +148,7 @@ describe("ConquestServer: Full Integration Flow", () => {
       port: 0,
       serverName: "test-conquest-ws",
       maxPlayersPerRoom: 2,
+      defaultMap: MAP_IRONREACH,
     });
     server.start();
     port = server.port;

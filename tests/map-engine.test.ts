@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   DEFAULT_MAP,
+  MAP_GRID_IRONREACH,
   MAP_IRONREACH,
   MAP_SECTOR_07,
   NODE_HEIGHT,
@@ -16,7 +17,7 @@ describe("map-engine: ironreach map schema & integrity", () => {
     expect(MAP_IRONREACH.description).toBe(
       "A fractured feudal continent of northern peaks, contested river marches, and volcanic coasts."
     );
-    expect(DEFAULT_MAP).toBe(MAP_IRONREACH);
+    expect(DEFAULT_MAP).toBe(MAP_GRID_IRONREACH);
     expect(MAP_IRONREACH.recommendedPlayers.min).toBe(2);
     expect(MAP_IRONREACH.recommendedPlayers.max).toBe(4);
   });
