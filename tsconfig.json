@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/react",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@conquest/shared": ["packages/shared/src/index.ts"],
+      "@conquest/protocol": ["packages/protocol/src/index.ts"],
+      "@conquest/game-core": ["packages/game-core/src/index.ts"],
+      "@conquest/map-engine": ["packages/map-engine/src/index.ts"]
+    }
+  }
+}
