@@ -515,6 +515,17 @@ export class GameRoom {
     }
   }
 
+  getPlayerSocket(playerId: string): RoomSocket | undefined {
+    return this.playerSockets.get(playerId);
+  }
+
+  hasSocket(socket: RoomSocket): boolean {
+    for (const s of this.playerSockets.values()) {
+      if (s === socket) return true;
+    }
+    return false;
+  }
+
   /**
    * Returns a lightweight summary of room status matching @conquest/protocol RoomSummary.
    */

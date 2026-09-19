@@ -68,11 +68,14 @@ export function parseArgs(rawArgs: string[] = process.argv.slice(2), exitOnHelp 
         nameSetByName = true;
       }
     } else if (arg === "--room" || arg === "-r") {
-      room = args[++i] || undefined;
+      const val = args[++i];
+      room = val ? val.trim().toUpperCase() : undefined;
     } else if (arg.startsWith("--room=")) {
-      room = arg.slice("--room=".length) || undefined;
+      const val = arg.slice("--room=".length);
+      room = val ? val.trim().toUpperCase() : undefined;
     } else if (arg.startsWith("-r=")) {
-      room = arg.slice("-r=".length) || undefined;
+      const val = arg.slice("-r=".length);
+      room = val ? val.trim().toUpperCase() : undefined;
     } else if (arg === "--quick" || arg === "-q") {
       quick = true;
     } else if (arg === "--new") {

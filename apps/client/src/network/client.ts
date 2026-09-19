@@ -390,8 +390,12 @@ export class GameClient {
     const previousName = this.playerName;
     this.playerName = name;
     if (roomCode) {
-      this.explicitRoomCode = roomCode;
-      this.roomCode = roomCode;
+      const normalizedCode = roomCode.trim().toUpperCase();
+      this.explicitRoomCode = normalizedCode;
+      this.roomCode = normalizedCode;
+    } else if (this.explicitRoomCode) {
+      this.explicitRoomCode = this.explicitRoomCode.trim().toUpperCase();
+      this.roomCode = this.explicitRoomCode;
     }
 
     if (!this.options.sessionFilePath && (!previousName || previousName !== name)) {

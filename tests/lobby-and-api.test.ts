@@ -620,6 +620,173 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       expect(RoomCodeSchema.safeParse("AB-C").success).toBe(false); // symbol
       expect(RoomCodeSchema.safeParse("").success).toBe(false); // empty
     });
+
+    it("GameClient.join() normalizes explicit lowercase room codes to uppercase (and parseArgs normalizes --room)", async () => {
+      const { parseArgs } = await import("../apps/client/src/index.js");
+      const parsedCli = parseArgs(["--room", "abcd", "--name", "Tester"], false);
+      expect(parsedCli.room).toBe("ABCD");
+
+      const p1 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p1.connect();
+      p1.createRoom({ playerName: "PlayerOne", roomName: "CaseNorm", maxPlayers: 2 });
+      await p1.waitForSnapshot((s) => s.phase === "lobby");
+      const roomCode = p1.roomCode!;
+      expect(roomCode).toMatch(/^[A-Z0-9]{4}$/);
+
+      const p2 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile2,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p2.connect();
+      // Join using explicit lowercase room code
+      p2.join("PlayerTwo", roomCode.toLowerCase());
+      await p2.waitForSnapshot((s) => s.phase === "lobby");
+
+      expect(p2.roomCode).toBe(roomCode);
+      expect(p2.state?.roomCode).toBe(roomCode);
+
+      p1.disconnect();
+      p2.disconnect();
+    });
+
+    it("hostile client: prevents connected socket from leaving, joining, or creating another room during active match, and cannot register in two rooms", async () => {
+      const p1 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      const p2 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile2,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+
+      await p1.connect();
+      await p2.connect();
+
+      p1.createRoom({ playerName: "HostileSecurity", roomName: "MatchSecurity", maxPlayers: 2 });
+      await p1.waitForSnapshot((s) => s.phase === "lobby");
+      const room1Code = p1.roomCode!;
+
+      p2.join("PlayerTwo", room1Code);
+      await p2.waitForSnapshot((s) => s.phase === "lobby");
+
+      // Start the match
+      p1.ready(true);
+      p2.ready(true);
+      await p1.waitForSnapshot((s) => s.phase === "deployment");
+      await p2.waitForSnapshot((s) => s.phase === "deployment");
+
+      const room1 = server.roomManager.getRoom(room1Code)!;
+      expect(room1.state.phase).toBe("deployment");
+
+      // Set up error listener on p1
+      const p1Errors: Array<{ msg: string; code?: string }> = [];
+      p1.onError((msg, code) => {
+        p1Errors.push({ msg, code });
+      });
+
+      const p1Ws = (p1 as any).ws as WebSocket;
+      expect(p1Ws).toBeDefined();
+
+      const p1ServerWs = room1.getPlayerSocket(p1.myPlayerId!)!;
+      expect(p1ServerWs).toBeDefined();
+
+      // 1. Hostile client attempts to leave active match
+      p1Ws.send(JSON.stringify({ type: "client:leave_room" }));
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(p1Errors.length).toBeGreaterThanOrEqual(1);
+      expect(p1Errors[p1Errors.length - 1].code).toBe("ACTION_FAILED");
+      expect(p1Errors[p1Errors.length - 1].msg).toContain("Cannot leave room while match is in progress");
+
+      // Confirm p1 is still registered in room1 with the exact same server socket
+      expect(room1.getPlayerSocket(p1.myPlayerId!)).toBe(p1ServerWs);
+      expect(room1.getPlayer(p1.myPlayerId!)?.connected).toBe(true);
+
+      // 2. Hostile client attempts to create another room on the same WebSocket
+      p1Ws.send(
+        JSON.stringify({
+          type: "client:create_room",
+          playerName: "HostilePlayer",
+          displayName: "SecondRoom",
+          visibility: "public",
+          maxPlayers: 2,
+        })
+      );
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(p1Errors.length).toBeGreaterThanOrEqual(2);
+      expect(p1Errors[p1Errors.length - 1].code).toBe("ACTION_FAILED");
+      expect(p1Errors[p1Errors.length - 1].msg).toContain("Cannot create another room while current match is in progress");
+
+      // Confirm p1 is still in room1
+      expect(room1.getPlayerSocket(p1.myPlayerId!)).toBe(p1ServerWs);
+
+      // 3. Create a distinct Room 2 with Player 3
+      const p3 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile3,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p3.connect();
+      p3.createRoom({ playerName: "SepHost", roomName: "SeparateMatch", maxPlayers: 2 });
+      await p3.waitForSnapshot((s) => s.phase === "lobby");
+      const room2Code = p3.roomCode!;
+      const room2 = server.roomManager.getRoom(room2Code)!;
+
+      // 4. Hostile client attempts to join Room 2 on the existing active WebSocket
+      p1Ws.send(
+        JSON.stringify({
+          type: "client:join",
+          name: "HostilePlayer",
+          roomCode: room2Code,
+        })
+      );
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(p1Errors.length).toBeGreaterThanOrEqual(3);
+      expect(p1Errors[p1Errors.length - 1].code).toBe("ACTION_FAILED");
+      expect(p1Errors[p1Errors.length - 1].msg).toContain("Cannot join another room while current match is in progress");
+
+      // 5. Prove one WebSocket CANNOT become registered in two rooms:
+      // p1ServerWs must exist in room1's playerSockets
+      expect(room1.getPlayerSocket(p1.myPlayerId!)).toBe(p1ServerWs);
+      expect(room1.hasSocket(p1ServerWs)).toBe(true);
+      // p1ServerWs must NOT exist anywhere in room2's playerSockets
+      expect(room2.hasSocket(p1ServerWs)).toBe(false);
+
+      // Verify room2 events are NOT received by p1Ws
+      let p1EventsReceived = 0;
+      p1.onEvent(() => {
+        p1EventsReceived++;
+      });
+      p3.sendChat("Hello room 2 only!");
+      await new Promise((r) => setTimeout(r, 150));
+      expect(p1EventsReceived).toBe(0);
+
+      // Verify p1Ws is still functional in room1
+      p1.sendChat("Still commanding room 1!");
+      await new Promise((r) => setTimeout(r, 150));
+      const room1Chat = room1.state.history.find(
+        (e) => e.type === "chat_message" && (e as any).text === "Still commanding room 1!"
+      );
+      expect(room1Chat).toBeDefined();
+
+      p1.disconnect();
+      p2.disconnect();
+      p3.disconnect();
+    });
   });
 
   describe("Client HTTP & Utility Methods", () => {

@@ -171,11 +171,17 @@ export class ConquestServer {
     if (playerId && roomCode) {
       const room = this.roomManager.getRoom(roomCode);
       if (room) {
-        if (room.state.phase === "lobby") {
-          room.disconnectPlayer(playerId, "left room");
-          if (sessionToken) {
-            this.sessionStore.clearRoom(sessionToken);
-          }
+        if (room.state.phase !== "lobby") {
+          this.sendError(
+            ws,
+            "ACTION_FAILED",
+            "Cannot leave room while match is in progress"
+          );
+          return;
+        }
+        room.disconnectPlayer(playerId, "left room");
+        if (sessionToken) {
+          this.sessionStore.clearRoom(sessionToken);
         }
       }
     }
@@ -184,17 +190,17 @@ export class ConquestServer {
   }
 
   private handleJoin(ws: ServerWebSocket<WSData>, msg: ClientJoin) {
-    // If socket was already registered in a lobby room, detach it first so it doesn't linger
+    // If socket is already in an active match, reject immediately
     if (ws.data.roomCode && ws.data.playerId) {
       const currentRoom = this.roomManager.getRoom(ws.data.roomCode);
-      if (currentRoom && currentRoom.state.phase === "lobby") {
-        currentRoom.disconnectPlayer(ws.data.playerId, "switching rooms");
-        if (ws.data.sessionToken) {
-          this.sessionStore.clearRoom(ws.data.sessionToken);
-        }
+      if (currentRoom && currentRoom.state.phase !== "lobby") {
+        this.sendError(
+          ws,
+          "ACTION_FAILED",
+          "Cannot join another room while current match is in progress"
+        );
+        return;
       }
-      ws.data.roomCode = undefined;
-      ws.data.playerId = undefined;
     }
 
     let session: SessionRecord | null = null;
@@ -280,7 +286,19 @@ export class ConquestServer {
       return;
     }
 
-    // 5. Player is validated as joinable! Now create session and emit server:welcome
+    // 5. Player is validated as joinable! Detach from any existing lobby room before attaching to new room
+    if (ws.data.roomCode && ws.data.playerId) {
+      const currentRoom = this.roomManager.getRoom(ws.data.roomCode);
+      if (currentRoom && currentRoom.roomCode !== room.roomCode && currentRoom.state.phase === "lobby") {
+        currentRoom.disconnectPlayer(ws.data.playerId, "switching rooms");
+        if (ws.data.sessionToken) {
+          this.sessionStore.clearRoom(ws.data.sessionToken);
+        }
+      }
+      ws.data.roomCode = undefined;
+      ws.data.playerId = undefined;
+    }
+
     const newSession = this.sessionStore.create(msg.name, room.roomCode);
     ws.data.sessionToken = newSession.token;
     ws.data.playerId = newSession.playerId;
@@ -301,9 +319,16 @@ export class ConquestServer {
   }
 
   private handleCreateRoom(ws: ServerWebSocket<WSData>, msg: ClientCreateRoom) {
-    // If socket was already registered in a lobby room, detach it first so it doesn't linger
     if (ws.data.roomCode && ws.data.playerId) {
       const currentRoom = this.roomManager.getRoom(ws.data.roomCode);
+      if (currentRoom && currentRoom.state.phase !== "lobby") {
+        this.sendError(
+          ws,
+          "ACTION_FAILED",
+          "Cannot create another room while current match is in progress"
+        );
+        return;
+      }
       if (currentRoom && currentRoom.state.phase === "lobby") {
         currentRoom.disconnectPlayer(ws.data.playerId, "switching rooms");
         if (ws.data.sessionToken) {
