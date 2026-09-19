@@ -115,10 +115,10 @@ export function Sidebar({
         {/* Table Header */}
         <box flexDirection="row" justifyContent="space-between" marginBottom={0}>
           <text fg="#64748b">
-            #   Player
+            # Player
           </text>
           <text fg="#64748b">
-            {isLobby ? "Status" : "Terrs   Armies  Cards  Turn"}
+            {isLobby ? "Status" : "Terrs Armies   Turn"}
           </text>
         </box>
 
@@ -133,13 +133,16 @@ export function Sidebar({
           players.map((p, idx) => {
             const statusText = p.ready ? "Ready" : p.connected ? "Connected" : "Offline";
             const statusColor = p.ready ? "#00ff66" : p.connected ? "#00d2ff" : "#64748b";
+            const isMe = p.id === myPlayerId;
+            const rawName = p.name;
+            const displayName = (rawName.length > 7 ? rawName.slice(0, 6) + "…" : rawName).padEnd(7, " ");
             return (
               <box key={p.id} flexDirection="row" justifyContent="space-between">
                 <text>
-                  <span fg="#94a3b8">{idx + 1}   </span>
+                  <span fg="#94a3b8">{idx + 1} </span>
                   <span fg={p.colorHex}>● </span>
-                  <span fg="#e2e8f0">{p.name.padEnd(9, " ")}</span>
-                  {p.id === myPlayerId && <span fg="#00ff66"> (You)</span>}
+                  <span fg="#e2e8f0">{displayName}</span>
+                  {isMe && <span fg="#00ff66">*</span>}
                 </text>
                 <text fg={statusColor}>
                   <b>{statusText}</b>
@@ -152,7 +155,11 @@ export function Sidebar({
             const owned = Object.values(territories).filter((t) => t.ownerId === p.id);
             const totalUnits = owned.reduce((sum, t) => sum + t.units, 0);
             const isActive = state?.activePlayerIndex === idx;
-            const turnText = isActive ? "Active" : p.isAlive ? "Wait" : "Dead";
+            const isEliminated = !p.isAlive;
+            const turnText = isActive ? "Active" : isEliminated ? "Dead" : "Wait";
+            const isMe = p.id === myPlayerId;
+            const rawName = p.name;
+            const displayName = (rawName.length > 7 ? rawName.slice(0, 6) + "…" : rawName).padEnd(7, " ");
 
             return (
               <box
@@ -163,15 +170,17 @@ export function Sidebar({
                 paddingLeft={0}
                 paddingRight={0}
               >
-                <text fg={isActive ? "#00ff66" : undefined}>
-                  <span fg="#94a3b8">{idx + 1}   </span>
+                <text fg={isActive ? "#00ff66" : isEliminated ? "#ef4444" : undefined}>
+                  <span fg="#94a3b8">{idx + 1} </span>
                   <span fg={p.colorHex}>● </span>
-                  <span fg={isActive ? "#00ff66" : "#e2e8f0"}><b>{p.name.padEnd(9, " ")}</b></span>
-                  {p.id === myPlayerId && <span fg="#00ff66"> (You)</span>}
+                  <span fg={isActive ? "#00ff66" : isEliminated ? "#ef4444" : "#e2e8f0"}>
+                    <b>{displayName}</b>
+                  </span>
+                  {isMe && <span fg={isEliminated ? "#ef4444" : "#00ff66"}>*</span>}
                 </text>
-                <text fg={isActive ? "#00ff66" : "#e2e8f0"}>
+                <text fg={isActive ? "#00ff66" : isEliminated ? "#ef4444" : "#e2e8f0"}>
                   <b>
-                    {String(owned.length).padStart(4, " ")}    {String(totalUnits).padStart(5, " ")}     0    {turnText.padStart(6, " ")}
+                    {String(owned.length).padStart(3, " ")}  {String(totalUnits).padStart(4, " ")}   {turnText.padStart(6, " ")}
                   </b>
                 </text>
               </box>
@@ -344,7 +353,19 @@ export function Sidebar({
         gap={1}
         style={{ height: 10 }}
       >
-        {isLobby ? (
+        {myPlayer && !myPlayer.isAlive ? (
+          <box flexDirection="column" gap={1} justifyContent="center" alignItems="center" flexGrow={1}>
+            <text fg="#ef4444">
+              <b>YOU HAVE BEEN ELIMINATED</b>
+            </text>
+            <text fg="#94a3b8">
+              <i>Spectating remaining commanders</i>
+            </text>
+            <text fg="#64748b">
+              Map inspection & chat active
+            </text>
+          </box>
+        ) : isLobby ? (
           <box flexDirection="column" gap={1} justifyContent="center" flexGrow={1}>
             <box
               border
@@ -368,7 +389,28 @@ export function Sidebar({
           </box>
         ) : (
           <>
-            {/* Action 1: Attack */}
+            {/* Action 1: Deploy */}
+            <box
+              border
+              borderStyle="single"
+              borderColor={canDeploy ? "#00d2ff" : "#334155"}
+              backgroundColor={canDeploy ? "#0c2b3d" : undefined}
+              flexDirection="row"
+              justifyContent="space-between"
+              alignItems="center"
+              paddingLeft={1}
+              paddingRight={1}
+              onMouseDown={canDeploy ? onDeploy : undefined}
+            >
+              <text fg={canDeploy ? "#00d2ff" : "#e2e8f0"}>
+                <b>[ ➜ Deploy ]</b>
+              </text>
+              <text fg="#64748b">
+                {pendingReinforcements > 0 ? `+${pendingReinforcements} units` : "-"}
+              </text>
+            </box>
+
+            {/* Action 2: Attack */}
             <box
               border
               borderStyle="single"
@@ -389,7 +431,7 @@ export function Sidebar({
               </text>
             </box>
 
-            {/* Action 2: Fortify */}
+            {/* Action 3: Fortify */}
             <box
               border
               borderStyle="single"
@@ -407,25 +449,7 @@ export function Sidebar({
               </text>
             </box>
 
-            {/* Action 3: Move / Deploy */}
-            <box
-              border
-              borderStyle="single"
-              borderColor={canDeploy ? "#00d2ff" : "#334155"}
-              backgroundColor={canDeploy ? "#0c2b3d" : undefined}
-              flexDirection="row"
-              alignItems="center"
-              paddingLeft={1}
-              paddingRight={1}
-              onMouseDown={canDeploy ? onDeploy : undefined}
-              gap={1}
-            >
-              <text fg={canDeploy ? "#00d2ff" : "#e2e8f0"}>
-                <b>[ ➜ Move ]</b>
-              </text>
-            </box>
-
-            {/* Action 4: End Turn */}
+            {/* Action 4: End Attack / End Turn */}
             <box
               border
               borderStyle="single"
@@ -445,7 +469,7 @@ export function Sidebar({
               gap={1}
             >
               <text fg={canSkipOrEnd ? "#ffaa00" : "#e2e8f0"}>
-                <b>{phase === "attack" ? "[ » Skip Attack ]" : "[ » End Turn ]"}</b>
+                <b>{phase === "attack" ? "[ » End Attack ]" : "[ » End Turn ]"}</b>
               </text>
             </box>
           </>

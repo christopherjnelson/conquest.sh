@@ -17,10 +17,12 @@ import { Sidebar } from "./Sidebar.js";
 import { CompactInspector } from "./CompactInspector.js";
 import { EventLog } from "./EventLog.js";
 import { Footer } from "./Footer.js";
+import { MatchResultsScreen } from "./MatchResultsScreen.js";
 
 export interface AppProps {
   client: GameClient;
   onExit?: () => void;
+  onReturnHome?: () => void;
   terminalDimensions?: { columns: number; rows: number };
   initialSelectedTerritoryId?: string | null;
   initialTargetTerritoryId?: string | null;
@@ -91,6 +93,7 @@ export function TerminalSizeWarning({
 export function App({
   client,
   onExit,
+  onReturnHome,
   terminalDimensions,
   initialSelectedTerritoryId,
   initialTargetTerritoryId,
@@ -212,6 +215,8 @@ export function App({
 
   const activePlayer = state ? state.players[state.activePlayerIndex] : undefined;
   const isMyTurn = Boolean(activePlayer && activePlayer.id === myPlayerId);
+  const myPlayer = state?.players.find((p) => p.id === myPlayerId);
+  const isEliminated = Boolean(myPlayer && !myPlayer.isAlive);
   const phase = state?.phase ?? "deployment";
 
   const allTerritoryIds = useMemo(() => {
@@ -418,36 +423,38 @@ export function App({
       return;
     }
 
-    // Action shortcuts
-    if (key.name === "d" || key.name === "D") {
-      handleDeploy();
-      return;
-    }
-
-    if (key.name === "a" || key.name === "A") {
-      handleAttack();
-      return;
-    }
-
-    if (key.name === "f" || key.name === "F") {
-      handleFortify();
-      return;
-    }
-
-    if (key.name === "e" || key.name === "E") {
-      if (phase === "attack") {
-        handleSkipPhase();
-      } else {
-        handleEndTurn();
+    // Action shortcuts (disabled for eliminated spectators)
+    if (!isEliminated) {
+      if (key.name === "d" || key.name === "D") {
+        handleDeploy();
+        return;
       }
-      return;
-    }
 
-    if (key.name === "r" || key.name === "R") {
-      if (phase === "lobby") {
-        handleReady();
+      if (key.name === "a" || key.name === "A") {
+        handleAttack();
+        return;
       }
-      return;
+
+      if (key.name === "f" || key.name === "F") {
+        handleFortify();
+        return;
+      }
+
+      if (key.name === "e" || key.name === "E") {
+        if (phase === "attack") {
+          handleSkipPhase();
+        } else if (phase === "fortify") {
+          handleEndTurn();
+        }
+        return;
+      }
+
+      if (key.name === "r" || key.name === "R") {
+        if (phase === "lobby") {
+          handleReady();
+        }
+        return;
+      }
     }
   });
 
@@ -458,6 +465,24 @@ export function App({
         rows={rows}
         onIgnore={() => setOverrideWarning(true)}
         onExit={onExit}
+      />
+    );
+  }
+
+  // When game is over, render the dedicated MatchResultsScreen
+  if (state && state.phase === "game_over") {
+    return (
+      <MatchResultsScreen
+        state={state}
+        myPlayerId={myPlayerId}
+        onRematch={(ready) => client.requestRematch(ready)}
+        onReturnHome={onReturnHome ?? (() => {
+          client.leaveRoom();
+          onExit?.();
+        })}
+        onQuit={onExit}
+        onSendChat={(text) => client.sendChat(text)}
+        terminalDimensions={dimensions}
       />
     );
   }
@@ -478,6 +503,7 @@ export function App({
         pendingReinforcements={state?.pendingReinforcements ?? 0}
         connectionStatus={status}
         isMyTurn={isMyTurn}
+        isEliminated={isEliminated}
         layoutMode={layoutMode}
       />
 

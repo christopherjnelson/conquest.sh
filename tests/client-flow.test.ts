@@ -892,7 +892,9 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       }
       expect(attackEventB.type).toBe("attack_resolved");
 
-      // 5. Alice ends turn; Bob becomes active
+      // 5. Alice skips attack to fortify, then ends turn; Bob becomes active
+      clientA.skipPhase();
+      await clientA.waitForEvent((e) => e.type === "phase_changed" && e.phase === "fortify");
       clientA.endTurn();
 
       const turnEndedEventA = await clientA.waitForEvent((e) => e.type === "turn_ended");

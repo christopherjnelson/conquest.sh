@@ -8,7 +8,8 @@ export function createInitialGameState(
   players: Player[],
   map: MapDefinition,
   initialUnitsPerTerritory: number = 3,
-  shuffleFn?: <T>(arr: T[]) => T[]
+  shuffleFn?: <T>(arr: T[]) => T[],
+  matchNumber: number = 1
 ): GameState {
   if (players.length < 2) {
     throw new Error("At least 2 players are required to start a game");
@@ -38,20 +39,25 @@ export function createInitialGameState(
   });
 
   const now = Date.now();
-  const activePlayer = players[0];
+  const startingPlayerIndex = (matchNumber - 1) % players.length;
+  const activePlayer = players[startingPlayerIndex];
 
   const initialStateWithoutReinforcements: GameState = {
     gameId,
     roomCode,
     turnNumber: 1,
-    activePlayerIndex: 0,
+    activePlayerIndex: startingPlayerIndex,
     phase: "deployment",
-    players: players.map((p) => ({ ...p, isAlive: true })),
+    players: players.map((p) => ({ ...p, isAlive: true, ready: false, rematchReady: false })),
     territories,
     sectors,
     pendingReinforcements: 0,
     hasConqueredThisTurn: false,
     winnerId: null,
+    result: null,
+    matchNumber,
+    startedAt: now,
+    endedAt: null,
     history: [],
   };
 

@@ -7,6 +7,7 @@ import type {
   ClientEndTurn,
   ClientJoin,
   ClientPing,
+  ClientSkipPhase,
   ServerEvent,
   ServerMessage,
   ServerPong,
@@ -306,7 +307,16 @@ describe("ConquestServer: Full Integration Flow", () => {
       expect(attackEventB.event.defenderId).toBe(bobId);
     }
 
-    // 5. Player 1 ends turn -> verify Player 2 becomes active
+    // 5. Player 1 skips attack to enter fortify, then ends turn -> verify Player 2 becomes active
+    const skipPhaseMsg: ClientSkipPhase = {
+      type: "client:skip_phase",
+    };
+    clientA.send(skipPhaseMsg);
+
+    await clientA.waitForMessage<ServerEvent>(
+      (m) => m.type === "server:event" && m.event.type === "phase_changed" && m.event.phase === "fortify"
+    );
+
     const endTurnMsg: ClientEndTurn = {
       type: "client:end_turn",
     };

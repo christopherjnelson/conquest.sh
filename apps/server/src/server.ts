@@ -5,6 +5,7 @@ import {
   type ClientCreateRoom,
   type ClientJoin,
   type ClientMessage,
+  type GamePhase,
   type ServerError,
   type ServerMessage,
   type ServerWelcome,
@@ -14,6 +15,10 @@ import { MAP_GRID_IRONREACH, MAP_IRONREACH } from "@conquest/map-engine";
 import { logger } from "@conquest/shared";
 import { RoomManager, type GameRoom } from "./room.js";
 import { SessionStore, type SessionRecord } from "./session.js";
+
+export function isActiveMatchPhase(phase: GamePhase): boolean {
+  return phase === "deployment" || phase === "attack" || phase === "fortify";
+}
 
 export interface ConquestServerOptions {
   port?: number;
@@ -171,7 +176,7 @@ export class ConquestServer {
     if (playerId && roomCode) {
       const room = this.roomManager.getRoom(roomCode);
       if (room) {
-        if (room.state.phase !== "lobby") {
+        if (isActiveMatchPhase(room.state.phase)) {
           this.sendError(
             ws,
             "ACTION_FAILED",
@@ -183,6 +188,9 @@ export class ConquestServer {
         if (sessionToken) {
           this.sessionStore.clearRoom(sessionToken);
         }
+        if (room.state.phase === "game_over" && room.connectedPlayersCount === 0) {
+          this.roomManager.removeRoom(room.roomCode);
+        }
       }
     }
     ws.data.roomCode = undefined;
@@ -193,7 +201,7 @@ export class ConquestServer {
     // If socket is already in an active match, reject immediately
     if (ws.data.roomCode && ws.data.playerId) {
       const currentRoom = this.roomManager.getRoom(ws.data.roomCode);
-      if (currentRoom && currentRoom.state.phase !== "lobby") {
+      if (currentRoom && isActiveMatchPhase(currentRoom.state.phase)) {
         this.sendError(
           ws,
           "ACTION_FAILED",
@@ -286,13 +294,20 @@ export class ConquestServer {
       return;
     }
 
-    // 5. Player is validated as joinable! Detach from any existing lobby room before attaching to new room
+    // 5. Player is validated as joinable! Detach from any existing lobby or game_over room before attaching to new room
     if (ws.data.roomCode && ws.data.playerId) {
       const currentRoom = this.roomManager.getRoom(ws.data.roomCode);
-      if (currentRoom && currentRoom.roomCode !== room.roomCode && currentRoom.state.phase === "lobby") {
+      if (
+        currentRoom &&
+        currentRoom.roomCode !== room.roomCode &&
+        (currentRoom.state.phase === "lobby" || currentRoom.state.phase === "game_over")
+      ) {
         currentRoom.disconnectPlayer(ws.data.playerId, "switching rooms");
         if (ws.data.sessionToken) {
           this.sessionStore.clearRoom(ws.data.sessionToken);
+        }
+        if (currentRoom.state.phase === "game_over" && currentRoom.connectedPlayersCount === 0) {
+          this.roomManager.removeRoom(currentRoom.roomCode);
         }
       }
       ws.data.roomCode = undefined;
@@ -321,7 +336,7 @@ export class ConquestServer {
   private handleCreateRoom(ws: ServerWebSocket<WSData>, msg: ClientCreateRoom) {
     if (ws.data.roomCode && ws.data.playerId) {
       const currentRoom = this.roomManager.getRoom(ws.data.roomCode);
-      if (currentRoom && currentRoom.state.phase !== "lobby") {
+      if (currentRoom && isActiveMatchPhase(currentRoom.state.phase)) {
         this.sendError(
           ws,
           "ACTION_FAILED",
@@ -329,10 +344,13 @@ export class ConquestServer {
         );
         return;
       }
-      if (currentRoom && currentRoom.state.phase === "lobby") {
+      if (currentRoom && (currentRoom.state.phase === "lobby" || currentRoom.state.phase === "game_over")) {
         currentRoom.disconnectPlayer(ws.data.playerId, "switching rooms");
         if (ws.data.sessionToken) {
           this.sessionStore.clearRoom(ws.data.sessionToken);
+        }
+        if (currentRoom.state.phase === "game_over" && currentRoom.connectedPlayersCount === 0) {
+          this.roomManager.removeRoom(currentRoom.roomCode);
         }
       }
       ws.data.roomCode = undefined;
@@ -379,7 +397,19 @@ export class ConquestServer {
 
     switch (msg.type) {
       case "client:ready":
+        if (room.state.phase !== "lobby") {
+          this.sendError(ws, "ACTION_FAILED", "Ready can only be set in lobby");
+          return;
+        }
         room.setReady(playerId, msg.ready);
+        break;
+
+      case "client:rematch":
+        if (room.state.phase !== "game_over") {
+          this.sendError(ws, "ACTION_FAILED", "Rematch can only be requested after game over");
+          return;
+        }
+        room.setRematchReady(playerId, msg.ready);
         break;
 
       case "client:deploy": {
@@ -452,8 +482,11 @@ export class ConquestServer {
       const room = this.roomManager.getRoom(roomCode);
       if (room) {
         room.disconnectPlayer(playerId, reason || "closed");
-        if (room.state.phase === "lobby" && sessionToken) {
+        if ((room.state.phase === "lobby" || room.state.phase === "game_over") && sessionToken) {
           this.sessionStore.clearRoom(sessionToken);
+        }
+        if (room.state.phase === "game_over" && room.connectedPlayersCount === 0) {
+          this.roomManager.removeRoom(room.roomCode);
         }
       }
     }
