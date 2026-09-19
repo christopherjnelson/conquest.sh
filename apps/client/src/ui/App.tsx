@@ -22,6 +22,9 @@ export interface AppProps {
   client: GameClient;
   onExit?: () => void;
   terminalDimensions?: { columns: number; rows: number };
+  initialSelectedTerritoryId?: string | null;
+  initialTargetTerritoryId?: string | null;
+  initialHoveredTerritoryId?: string | null;
 }
 
 export interface TerminalSizeWarningProps {
@@ -85,7 +88,14 @@ export function TerminalSizeWarning({
 }
 
 
-export function App({ client, onExit, terminalDimensions }: AppProps) {
+export function App({
+  client,
+  onExit,
+  terminalDimensions,
+  initialSelectedTerritoryId,
+  initialTargetTerritoryId,
+  initialHoveredTerritoryId,
+}: AppProps) {
   const [state, setState] = useState<GameState | null>(client.state);
   const [myPlayerId, setMyPlayerId] = useState<string | null>(client.myPlayerId);
   const [status, setStatus] = useState<ConnectionStatus>(client.status);
@@ -148,10 +158,16 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
   const layoutMode: LayoutMode = getLayoutMode(cols, rows);
   const isCompact = layoutMode === "compact";
 
-  // No territory selected by default
-  const [selectedTerritoryId, setSelectedTerritoryId] = useState<string | null>(null);
-  const [targetTerritoryId, setTargetTerritoryId] = useState<string | null>(null);
-  const [hoveredTerritoryId, setHoveredTerritoryId] = useState<string | null>(null);
+  // Territory selection, target, and hover state
+  const [selectedTerritoryId, setSelectedTerritoryId] = useState<string | null>(
+    initialSelectedTerritoryId ?? null
+  );
+  const [targetTerritoryId, setTargetTerritoryId] = useState<string | null>(
+    initialTargetTerritoryId ?? null
+  );
+  const [hoveredTerritoryId, setHoveredTerritoryId] = useState<string | null>(
+    initialHoveredTerritoryId ?? null
+  );
   const [chatOpen, setChatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(1);
 
@@ -474,7 +490,7 @@ export function App({ client, onExit, terminalDimensions }: AppProps) {
           gap={1}
         >
           {/* Top: Full-width MapCanvas */}
-          <box flexGrow={1} flexDirection="column" style={{ width: "100%", height: "100%" }}>
+          <box flexGrow={1} flexDirection="column" style={{ width: "100%" }}>
             <MapCanvas
               viewport="compact"
               terminalDimensions={dimensions}

@@ -1445,7 +1445,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     const wideStr = JSON.stringify(wideEl);
     expect(wideStr).toContain("The Ironreach");
-    expect(wideStr).toContain("20 Contested");
+    expect(wideStr).toContain("20 Territories");
     expect(wideStr).not.toContain("20 Realms");
   });
 

@@ -482,7 +482,7 @@ export function Sidebar({
             <box flexDirection="row" justifyContent="space-between">
               <text fg="#64748b">Territories</text>
               <text fg="#e2e8f0">
-                <b>20 Contested</b>
+                <b>20 Territories</b>
               </text>
             </box>
             <box flexDirection="row" justifyContent="space-between">
