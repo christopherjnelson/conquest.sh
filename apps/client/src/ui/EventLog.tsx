@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import type { GameEvent, Player } from "@conquest/protocol";
+import type { LayoutMode } from "@conquest/map-engine";
 import { MAP_GRID_IRONREACH, MAP_IRONREACH } from "@conquest/map-engine";
 
 export interface EventLogProps {
@@ -8,6 +9,7 @@ export interface EventLogProps {
   players: Player[];
   onToggleChat: () => void;
   onSendChat: (text: string) => void;
+  layoutMode?: LayoutMode;
 }
 
 export type EventTab = "All" | "Game" | "Chat" | "System";
@@ -159,6 +161,7 @@ export function EventLog({
   players,
   onToggleChat,
   onSendChat,
+  layoutMode,
 }: EventLogProps) {
   const [activeTab, setActiveTab] = useState<EventTab>("All");
 
@@ -204,7 +207,9 @@ export function EventLog({
       ? formattedItems
       : formattedItems.filter((item) => item.category === activeTab);
 
-  const displayedItems = filteredItems.slice(-5);
+  const logHeight = layoutMode === "compact" ? 4 : layoutMode === "standard" ? 6 : 8;
+  const sliceCount = layoutMode === "compact" ? 2 : layoutMode === "standard" ? 4 : 5;
+  const displayedItems = filteredItems.slice(-sliceCount);
 
   return (
     <box
@@ -217,7 +222,7 @@ export function EventLog({
       flexDirection="column"
       paddingLeft={1}
       paddingRight={1}
-      style={{ width: "100%", height: 8 }}
+      style={{ width: "100%", height: logHeight }}
     >
       {/* Title bar with tabs right aligned */}
       <box flexDirection="row" justifyContent="flex-end" marginBottom={0}>

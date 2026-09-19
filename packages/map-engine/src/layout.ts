@@ -7,6 +7,24 @@ export interface BoundingBox {
   height: number;
 }
 
+export type LayoutMode = "compact" | "standard" | "wide";
+
+/**
+ * Determines responsive UI layout mode based on terminal dimensions.
+ * - compact: columns < 130 or rows < 38
+ * - standard: columns < 180 or rows < 50
+ * - wide: columns >= 180 and rows >= 50
+ */
+export function getLayoutMode(cols: number, rows: number): LayoutMode {
+  if (cols < 130 || rows < 38) {
+    return "compact";
+  }
+  if (cols < 180 || rows < 50) {
+    return "standard";
+  }
+  return "wide";
+}
+
 export const NODE_WIDTH = 18;
 export const NODE_HEIGHT = 5;
 

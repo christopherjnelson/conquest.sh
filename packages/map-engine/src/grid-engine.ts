@@ -1,5 +1,10 @@
 import {
   MAP_GRID_IRONREACH,
+  MAP_GRID_IRONREACH_COMPACT,
+  MAP_GRID_IRONREACH_WIDE,
+  MICRO_TEMPLATE_COMPACT,
+  MICRO_TEMPLATE_WIDE,
+  deriveCoarseTemplateFromMicro,
   type GridMapDefinition,
   type GridTerritoryMetadata,
   type GridSeaRoute,
@@ -110,26 +115,49 @@ export function getTerritoryCells(
 }
 
 /**
- * Calculates the centroid (average x, y coordinate) of all cells belonging to a territory.
+ * Returns all microcell coordinates (x, y = my) belonging to a specific territory in microcell space.
+ */
+export function getTerritoryMicroCells(
+  territoryId: string,
+  map: GridMapDefinition = MAP_GRID_IRONREACH
+): Array<{ x: number; y: number }> {
+  const targetChar = map.territoryIdToChar[territoryId];
+  if (!targetChar) return [];
+  const microTpl = getMapMicroTemplate(map);
+  const cells: Array<{ x: number; y: number }> = [];
+  for (let my = 0; my < microTpl.length; my++) {
+    const row = microTpl[my];
+    for (let mx = 0; mx < row.length; mx++) {
+      if (row[mx] === targetChar) {
+        cells.push({ x: mx, y: my });
+      }
+    }
+  }
+  return cells;
+}
+
+/**
+ * Calculates the centroid (average x, y coordinate in terminal space) of all microcells
+ * belonging to a territory using the canonical microcell template.
  */
 export function getTerritoryCentroid(
   territoryId: string,
   map: GridMapDefinition = MAP_GRID_IRONREACH
 ): { x: number; y: number } {
-  const cells = getTerritoryCells(territoryId, map);
-  if (cells.length === 0) {
+  const microCells = getTerritoryMicroCells(territoryId, map);
+  if (microCells.length === 0) {
     const t = map.territories.find((item) => item.id === territoryId);
     return t ? { ...t.labelPos } : { x: 0, y: 0 };
   }
   let sumX = 0;
   let sumY = 0;
-  for (const cell of cells) {
+  for (const cell of microCells) {
     sumX += cell.x;
-    sumY += cell.y;
+    sumY += cell.y / 2;
   }
   return {
-    x: sumX / cells.length,
-    y: sumY / cells.length,
+    x: sumX / microCells.length,
+    y: sumY / microCells.length,
   };
 }
 
@@ -188,48 +216,63 @@ export function getNextTerritoryInDirection(
 }
 
 /**
- * Computes territory silhouette fill ratio: cells.length / (bbox.width * bbox.height).
+ * Computes territory silhouette fill ratio using canonical microcell geometry:
+ * microcellCount / (bbox.width * bbox.height).
  */
 export function getTerritoryFillRatio(
   territoryId: string,
   map: GridMapDefinition = MAP_GRID_IRONREACH
 ): number {
-  const cells = getTerritoryCells(territoryId, map);
-  if (cells.length === 0) return 0;
+  const targetChar = map.territoryIdToChar[territoryId];
+  if (!targetChar) return 0;
+  const microTpl = getMapMicroTemplate(map);
+
+  let count = 0;
   let minX = Infinity;
   let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const c of cells) {
-    if (c.x < minX) minX = c.x;
-    if (c.x > maxX) maxX = c.x;
-    if (c.y < minY) minY = c.y;
-    if (c.y > maxY) maxY = c.y;
+  let minMy = Infinity;
+  let maxMy = -Infinity;
+
+  for (let my = 0; my < microTpl.length; my++) {
+    const row = microTpl[my];
+    for (let mx = 0; mx < row.length; mx++) {
+      if (row[mx] === targetChar) {
+        count++;
+        if (mx < minX) minX = mx;
+        if (mx > maxX) maxX = mx;
+        if (my < minMy) minMy = my;
+        if (my > maxMy) maxMy = my;
+      }
+    }
   }
+
+  if (count === 0) return 0;
   const width = maxX - minX + 1;
-  const height = maxY - minY + 1;
-  return cells.length / (width * height);
+  const height = maxMy - minMy + 1;
+  return count / (width * height);
 }
 
 /**
- * Finds the bounding box of all non-water cells in the map.
+ * Finds the bounding box of all non-water cells in the map using canonical microcell geography.
+ * Coordinates are in terminal character cell units.
  */
 export function getGeographyBoundingBox(
   map: GridMapDefinition = MAP_GRID_IRONREACH
 ): { minX: number; maxX: number; minY: number; maxY: number; width: number; height: number } {
+  const microTpl = getMapMicroTemplate(map);
   let minX = Infinity;
   let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
+  let minMy = Infinity;
+  let maxMy = -Infinity;
 
-  for (let y = 0; y < map.template.length; y++) {
-    const row = map.template[y];
-    for (let x = 0; x < row.length; x++) {
-      if (row[x] !== ".") {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
+  for (let my = 0; my < microTpl.length; my++) {
+    const row = microTpl[my];
+    for (let mx = 0; mx < row.length; mx++) {
+      if (row[mx] !== ".") {
+        if (mx < minX) minX = mx;
+        if (mx > maxX) maxX = mx;
+        if (my < minMy) minMy = my;
+        if (my > maxMy) maxMy = my;
       }
     }
   }
@@ -237,6 +280,9 @@ export function getGeographyBoundingBox(
   if (minX === Infinity) {
     return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
   }
+
+  const minY = Math.floor(minMy / 2);
+  const maxY = Math.floor(maxMy / 2);
 
   return {
     minX,
@@ -248,8 +294,193 @@ export function getGeographyBoundingBox(
   };
 }
 
+const microcellCache = new WeakMap<GridMapDefinition, string[]>();
+
+/**
+ * Legacy heuristic fallback for custom or third-party maps lacking authored microcell templates.
+ * All canonical Ironreach maps supply authored `map.microTemplate`.
+ * @deprecated Use authored canonical `map.microTemplate` instead.
+ */
+export function legacyHeuristicMicrocellTemplateFallback(map: GridMapDefinition = MAP_GRID_IRONREACH): string[] {
+  const h = map.template.length;
+  const w = map.template[0].length;
+  const microRows: string[][] = Array.from({ length: h * 2 }, () =>
+    Array(w).fill(".")
+  );
+
+  // Helper to check if coordinate is near any territory label/unit text
+  const isProtectedCell = (x: number, y: number) => {
+    for (const t of map.territories) {
+      if (
+        (y === t.labelPos.y || y === t.labelPos.y + 1) &&
+        x >= t.labelPos.x - 1 &&
+        x <= t.labelPos.x + 15
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (let y = 0; y < h; y++) {
+    const row = map.template[y];
+    const topMy = y * 2;
+    const botMy = y * 2 + 1;
+
+    for (let x = 0; x < w; x++) {
+      const c = row[x];
+      const isLand = c !== ".";
+
+      if (isLand) {
+        let top = c;
+        let bot = c;
+
+        if (!isProtectedCell(x, y)) {
+          const north = y > 0 ? map.template[y - 1][x] : ".";
+          const south = y < h - 1 ? map.template[y + 1][x] : ".";
+          const west = x > 0 ? row[x - 1] : ".";
+          const east = x < w - 1 ? row[x + 1] : ".";
+
+          // Northwest outer corner smoothing
+          if (north === "." && west === "." && east === c && south === c) {
+            top = ".";
+          }
+          // Northeast outer corner smoothing
+          else if (north === "." && east === "." && west === c && south === c) {
+            top = ".";
+          }
+          // Southwest outer corner smoothing
+          else if (south === "." && west === "." && east === c && north === c) {
+            bot = ".";
+          }
+          // Southeast outer corner smoothing
+          else if (south === "." && east === "." && west === c && north === c) {
+            bot = ".";
+          }
+        }
+
+        microRows[topMy][x] = top;
+        microRows[botMy][x] = bot;
+      } else {
+        // Ocean cell: smooth concave bays where land surrounds on two cardinal directions
+        let top = ".";
+        let bot = ".";
+
+        const north = y > 0 ? map.template[y - 1][x] : ".";
+        const south = y < h - 1 ? map.template[y + 1][x] : ".";
+        const west = x > 0 ? row[x - 1] : ".";
+        const east = x < w - 1 ? row[x + 1] : ".";
+
+        if (north !== "." && west !== "." && north === west) {
+          top = north;
+        } else if (north !== "." && east !== "." && north === east) {
+          top = north;
+        } else if (south !== "." && west !== "." && south === west) {
+          bot = south;
+        } else if (south !== "." && east !== "." && south === east) {
+          bot = south;
+        }
+
+        microRows[topMy][x] = top;
+        microRows[botMy][x] = bot;
+      }
+    }
+  }
+
+  return microRows.map((r) => r.join(""));
+}
+
+/**
+ * @deprecated Renamed to `legacyHeuristicMicrocellTemplateFallback`. Retained for backwards compatibility.
+ */
+export const buildMicrocellTemplate = legacyHeuristicMicrocellTemplateFallback;
+
+/**
+ * Returns cached or generated microcell template for a map definition.
+ * Primary source of truth is authored canonical `map.microTemplate`.
+ */
+export function getMapMicroTemplate(map: GridMapDefinition = MAP_GRID_IRONREACH): string[] {
+  if (map.microTemplate && map.microTemplate.length > 0) return map.microTemplate;
+  let cached = microcellCache.get(map);
+  if (!cached) {
+    cached = legacyHeuristicMicrocellTemplateFallback(map);
+    microcellCache.set(map, cached);
+  }
+  return cached;
+}
+
+/**
+ * Returns territory ID at microcell coordinates (mx, my) or null if water or out of bounds.
+ */
+export function getMicroTerritoryAt(
+  mx: number,
+  my: number,
+  map: GridMapDefinition = MAP_GRID_IRONREACH
+): string | null {
+  const microTpl = getMapMicroTemplate(map);
+  if (my < 0 || my >= microTpl.length || mx < 0 || mx >= microTpl[0].length) {
+    return null;
+  }
+  const char = microTpl[my][mx];
+  return map.charToTerritoryId[char] ?? null;
+}
+
+/**
+ * Hit-testing helper mapping terminal character cell (x, y) to its top and bottom microcells.
+ * Evaluates top microcell (x, 2y) and bottom microcell (x, 2y + 1):
+ * - If both same -> that territory
+ * - If one land and one water -> the land territory
+ * - If two different land territories -> resolves by local territory majority in the surrounding
+ *   microcell neighborhood (with centroid distance as geometric tiebreaker) instead of blindly
+ *   defaulting to the top microcell.
+ */
+export function getTerritoryAtCell(
+  x: number,
+  y: number,
+  map: GridMapDefinition = MAP_GRID_IRONREACH
+): string | null {
+  const topT = getMicroTerritoryAt(x, 2 * y, map);
+  const botT = getMicroTerritoryAt(x, 2 * y + 1, map);
+
+  if (topT === botT) return topT;
+  if (topT && !botT) return topT;
+  if (!topT && botT) return botT;
+  if (!topT && !botT) return null;
+
+  // Ambiguous boundary cell: both topT and botT are valid distinct land territories.
+  // Evaluate the local microcell neighborhood (3x4 microcells) to determine majority.
+  let scoreTop = 0;
+  let scoreBot = 0;
+
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 2; dy++) {
+      // Skip the two microcells inside the current terminal character cell
+      if (dx === 0 && (dy === 0 || dy === 1)) continue;
+      const neighborT = getMicroTerritoryAt(x + dx, 2 * y + dy, map);
+      if (neighborT === topT) scoreTop++;
+      if (neighborT === botT) scoreBot++;
+    }
+  }
+
+  if (scoreTop > scoreBot) return topT;
+  if (scoreBot > scoreTop) return botT;
+
+  // Geometric tiebreaker: select whichever candidate centroid is closer to (x, y)
+  const topCentroid = getTerritoryCentroid(topT!, map);
+  const botCentroid = getTerritoryCentroid(botT!, map);
+  const distTop = Math.hypot(x - topCentroid.x, (y - topCentroid.y) * 2.0);
+  const distBot = Math.hypot(x - botCentroid.x, (y - botCentroid.y) * 2.0);
+
+  return distBot < distTop ? botT : topT;
+}
+
 export {
   MAP_GRID_IRONREACH,
+  MAP_GRID_IRONREACH_COMPACT,
+  MAP_GRID_IRONREACH_WIDE,
+  MICRO_TEMPLATE_COMPACT,
+  MICRO_TEMPLATE_WIDE,
+  deriveCoarseTemplateFromMicro,
   type GridMapDefinition,
   type GridTerritoryMetadata,
   type GridSeaRoute,

@@ -28,9 +28,16 @@ import defaultMap, {
   getNextTerritoryInDirection,
   getTerritoryAt,
   getTerritoryCells,
+  getTerritoryMicroCells,
   getTerritoryCentroid,
   getTerritoryFillRatio,
   isBorderCell,
+  getLayoutMode,
+  buildMicrocellTemplate,
+  getMapMicroTemplate,
+  getMicroTerritoryAt,
+  getTerritoryAtCell,
+  deriveCoarseTemplateFromMicro,
 } from "../packages/map-engine/src/index.js";
 
 describe("grid-map: 2D Ironreach territory grid engine", () => {
@@ -363,15 +370,15 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
     }
   });
 
-  it("calculates territory centroids accurately from land cells", () => {
+  it("calculates territory centroids accurately from canonical microcell geometry", () => {
     for (const map of [MAP_GRID_IRONREACH_COMPACT, MAP_GRID_IRONREACH_WIDE]) {
       for (const t of map.territories) {
         const centroid = getTerritoryCentroid(t.id, map);
-        const cells = getTerritoryCells(t.id, map);
-        expect(cells.length).toBeGreaterThanOrEqual(30);
+        const microCells = getTerritoryMicroCells(t.id, map);
+        expect(microCells.length).toBeGreaterThanOrEqual(60);
 
-        const expectedX = cells.reduce((sum, c) => sum + c.x, 0) / cells.length;
-        const expectedY = cells.reduce((sum, c) => sum + c.y, 0) / cells.length;
+        const expectedX = microCells.reduce((sum, c) => sum + c.x, 0) / microCells.length;
+        const expectedY = microCells.reduce((sum, c) => sum + c.y / 2, 0) / microCells.length;
 
         expect(centroid.x).toBeCloseTo(expectedX, 4);
         expect(centroid.y).toBeCloseTo(expectedY, 4);
@@ -516,5 +523,149 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
     expect(getMapForTerminalDimensions(185, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
     // 200x30: wide cols but short rows -> paneHeight = 13 -> contentHeight = 11 < 36 -> compact
     expect(getMapForTerminalDimensions(200, 30)).toBe(MAP_GRID_IRONREACH_COMPACT);
+  });
+
+  it("evaluates getLayoutMode with canonical thresholds for compact, standard, and wide", () => {
+    // Compact: cols < 130 or rows < 38
+    expect(getLayoutMode(105, 34)).toBe("compact");
+    expect(getLayoutMode(120, 40)).toBe("compact");
+    expect(getLayoutMode(129, 50)).toBe("compact");
+    expect(getLayoutMode(200, 30)).toBe("compact");
+    expect(getLayoutMode(200, 37)).toBe("compact");
+
+    // Standard: cols 130..179 and rows >= 38, or cols >= 180 and rows 38..49
+    expect(getLayoutMode(130, 38)).toBe("standard");
+    expect(getLayoutMode(140, 45)).toBe("standard");
+    expect(getLayoutMode(179, 45)).toBe("standard");
+    expect(getLayoutMode(185, 45)).toBe("standard");
+
+    // Wide: cols >= 180 and rows >= 50
+    expect(getLayoutMode(180, 50)).toBe("wide");
+    expect(getLayoutMode(200, 55)).toBe("wide");
+    expect(getLayoutMode(240, 60)).toBe("wide");
+  });
+
+  it("builds 2x vertical resolution microcell templates with sub-pixel coastlines", () => {
+    const wideMicro = getMapMicroTemplate(MAP_GRID_IRONREACH_WIDE);
+    expect(wideMicro.length).toBe(72); // 36 * 2
+    for (const row of wideMicro) {
+      expect(row.length).toBe(136);
+    }
+
+    const compactMicro = getMapMicroTemplate(MAP_GRID_IRONREACH_COMPACT);
+    expect(compactMicro.length).toBe(60); // 30 * 2
+    for (const row of compactMicro) {
+      expect(row.length).toBe(104);
+    }
+
+    // Every territory label position is mapped in microcell space
+    for (const t of MAP_GRID_IRONREACH_WIDE.territories) {
+      const topT = getMicroTerritoryAt(t.labelPos.x, t.labelPos.y * 2, MAP_GRID_IRONREACH_WIDE);
+      const botT = getMicroTerritoryAt(t.labelPos.x, t.labelPos.y * 2 + 1, MAP_GRID_IRONREACH_WIDE);
+      expect(topT).toBe(t.id);
+      expect(botT).toBe(t.id);
+    }
+
+    // Water out of bounds and open sea
+    expect(getMicroTerritoryAt(0, 0, MAP_GRID_IRONREACH_WIDE)).toBeNull();
+    expect(getMicroTerritoryAt(-1, 0, MAP_GRID_IRONREACH_WIDE)).toBeNull();
+    expect(getMicroTerritoryAt(0, 999, MAP_GRID_IRONREACH_WIDE)).toBeNull();
+  });
+
+  it("verifies getTerritoryAtCell hit-testing across cells and boundaries", () => {
+    // Label centroids resolve accurately
+    for (const t of MAP_GRID_IRONREACH_WIDE.territories) {
+      const tid = getTerritoryAtCell(t.labelPos.x, t.labelPos.y, MAP_GRID_IRONREACH_WIDE);
+      expect(tid).toBe(t.id);
+    }
+
+    // Open water cell resolves to null
+    expect(getTerritoryAtCell(0, 0, MAP_GRID_IRONREACH_WIDE)).toBeNull();
+
+    // Ocean labels decoration presence
+    expect(MAP_GRID_IRONREACH_WIDE.decorations.oceanLabels).toBeDefined();
+    expect(MAP_GRID_IRONREACH_WIDE.decorations.oceanLabels!.length).toBeGreaterThanOrEqual(3);
+    const wideGreySea = MAP_GRID_IRONREACH_WIDE.decorations.oceanLabels!.find((l) =>
+      l.text.includes("THE GREY SEA")
+    );
+    expect(wideGreySea).toBeDefined();
+
+    expect(MAP_GRID_IRONREACH_COMPACT.decorations.oceanLabels).toBeDefined();
+    const compactGreySea = MAP_GRID_IRONREACH_COMPACT.decorations.oceanLabels!.find((l) =>
+      l.text.includes("THE GREY SEA")
+    );
+    expect(compactGreySea).toBeDefined();
+  });
+
+  it("verifies canonical microcell templates contain genuine sub-pixel diagonal transitions impossible in coarse grids", () => {
+    // Both wide and compact micro templates must have authored microTemplate arrays
+    expect(MAP_GRID_IRONREACH_WIDE.microTemplate).toBeDefined();
+    expect(MAP_GRID_IRONREACH_COMPACT.microTemplate).toBeDefined();
+
+    // Count transitions where top half-block and bottom half-block differ within the same terminal character cell
+    // (i.e. y is cell row, cell character is made of microRow 2*y and microRow 2*y+1)
+    let wideDiagonalTransitions = 0;
+    for (let y = 0; y < MAP_GRID_IRONREACH_WIDE.height; y++) {
+      const topRow = MAP_GRID_IRONREACH_WIDE.microTemplate![y * 2];
+      const botRow = MAP_GRID_IRONREACH_WIDE.microTemplate![y * 2 + 1];
+      for (let x = 0; x < MAP_GRID_IRONREACH_WIDE.width; x++) {
+        const topC = topRow[x];
+        const botC = botRow[x];
+        if (topC !== botC) {
+          wideDiagonalTransitions++;
+        }
+      }
+    }
+
+    let compactDiagonalTransitions = 0;
+    for (let y = 0; y < MAP_GRID_IRONREACH_COMPACT.height; y++) {
+      const topRow = MAP_GRID_IRONREACH_COMPACT.microTemplate![y * 2];
+      const botRow = MAP_GRID_IRONREACH_COMPACT.microTemplate![y * 2 + 1];
+      for (let x = 0; x < MAP_GRID_IRONREACH_COMPACT.width; x++) {
+        const topC = topRow[x];
+        const botC = botRow[x];
+        if (topC !== botC) {
+          compactDiagonalTransitions++;
+        }
+      }
+    }
+
+    // Coarse-smoothing produces very few vertical half-block transitions.
+    // Authored microcell templates contain hundreds of hand-crafted sub-pixel transitions.
+    expect(wideDiagonalTransitions).toBeGreaterThan(200);
+    expect(compactDiagonalTransitions).toBeGreaterThan(200);
+
+    // Also verify deriveCoarseTemplateFromMicro derives the coarse template deterministically
+    const derivedWide = deriveCoarseTemplateFromMicro(MAP_GRID_IRONREACH_WIDE.microTemplate!);
+    expect(derivedWide).toEqual(MAP_GRID_IRONREACH_WIDE.template);
+
+    const derivedCompact = deriveCoarseTemplateFromMicro(MAP_GRID_IRONREACH_COMPACT.microTemplate!);
+    expect(derivedCompact).toEqual(MAP_GRID_IRONREACH_COMPACT.template);
+  });
+
+  it("resolves ambiguous half-cell hit testing using local neighborhood majority instead of always top microcell", () => {
+    // Cell (40, 2) on wide map: top microcell is C1, bottom is A1.
+    // Local neighborhood is dominated by A1, so getTerritoryAtCell resolves to A1 (botT), not C1.
+    const cell40_2_top = getMicroTerritoryAt(40, 4, MAP_GRID_IRONREACH_WIDE);
+    const cell40_2_bot = getMicroTerritoryAt(40, 5, MAP_GRID_IRONREACH_WIDE);
+    expect(cell40_2_top).toBe("C1");
+    expect(cell40_2_bot).toBe("A1");
+    expect(getTerritoryAtCell(40, 2, MAP_GRID_IRONREACH_WIDE)).toBe("A1");
+
+    // Cell (21, 3) on wide map: top microcell is A1, bottom is A2.
+    // Local neighborhood resolves to A2 (botT), not A1.
+    const cell21_3_top = getMicroTerritoryAt(21, 6, MAP_GRID_IRONREACH_WIDE);
+    const cell21_3_bot = getMicroTerritoryAt(21, 7, MAP_GRID_IRONREACH_WIDE);
+    expect(cell21_3_top).toBe("A1");
+    expect(cell21_3_bot).toBe("A2");
+    expect(getTerritoryAtCell(21, 3, MAP_GRID_IRONREACH_WIDE)).toBe("A2");
+
+    // Cell (115, 20) on wide map: top microcell is F2, bottom is F1.
+    // Local neighborhood resolves to F1 (botT).
+    const cell115_20_top = getMicroTerritoryAt(115, 40, MAP_GRID_IRONREACH_WIDE);
+    const cell115_20_bot = getMicroTerritoryAt(115, 41, MAP_GRID_IRONREACH_WIDE);
+    expect(cell115_20_top).toBe("F2");
+    expect(cell115_20_bot).toBe("F1");
+    expect(getTerritoryAtCell(115, 20, MAP_GRID_IRONREACH_WIDE)).toBe("F1");
   });
 });
