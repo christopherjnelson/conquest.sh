@@ -77,11 +77,18 @@ export const ClientLeaveRoomSchema = z.object({
 });
 export type ClientLeaveRoom = z.infer<typeof ClientLeaveRoomSchema>;
 
+export const ClientRematchSchema = z.object({
+  type: z.literal("client:rematch"),
+  ready: z.boolean(),
+});
+export type ClientRematch = z.infer<typeof ClientRematchSchema>;
+
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   ClientJoinSchema,
   ClientCreateRoomSchema,
   ClientLeaveRoomSchema,
   ClientReadySchema,
+  ClientRematchSchema,
   ClientDeploySchema,
   ClientAttackSchema,
   ClientFortifySchema,

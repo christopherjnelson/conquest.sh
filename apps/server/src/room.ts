@@ -38,6 +38,7 @@ export interface GameRoomOptions {
   visibility?: RoomVisibility;
   kind?: RoomKind;
   createdAt?: number;
+  onDeserted?: (roomCode: string) => void;
 }
 
 export interface RoomPlayerSummary {
@@ -52,13 +53,15 @@ export interface RoomPlayerSummary {
 export class GameRoom {
   public readonly roomCode: string;
   public readonly displayName: string;
-  public readonly gameId: string;
+  public gameId: string;
+  public matchNumber: number = 1;
   public readonly maxPlayers: number;
   public readonly map: MapDefinition;
   public readonly autoStart: boolean;
   public readonly visibility: RoomVisibility;
   public readonly kind: RoomKind;
   public readonly createdAt: number;
+  public onDeserted?: (roomCode: string) => void;
 
   public state: GameState;
   private playerSockets = new Map<string, RoomSocket>();
@@ -76,6 +79,7 @@ export class GameRoom {
     this.autoStart = options.autoStart ?? (this.kind === "quick");
     this.visibility = options.visibility ?? "public";
     this.createdAt = options.createdAt ?? Date.now();
+    this.onDeserted = options.onDeserted;
 
     const initialSectors: Record<string, Sector> = {};
     for (const s of this.map.sectors) {
@@ -94,6 +98,10 @@ export class GameRoom {
       pendingReinforcements: 0,
       hasConqueredThisTurn: false,
       winnerId: null,
+      result: null,
+      matchNumber: 1,
+      startedAt: this.createdAt,
+      endedAt: null,
       history: [],
     };
   }
@@ -172,6 +180,7 @@ export class GameRoom {
       connected: true,
       isAlive: true,
       ready: false,
+      rematchReady: false,
     };
 
     this.state.players.push(player);
@@ -208,22 +217,125 @@ export class GameRoom {
    * If readiness changes and game does not start, broadcast updated lobby state.
    */
   setReady(playerId: string, ready: boolean): boolean {
+    if (this.state.phase !== "lobby") return false;
     const player = this.getPlayer(playerId);
     if (!player) return false;
 
     player.ready = ready;
 
-    if (this.state.phase === "lobby") {
-      const connectedPlayers = this.state.players.filter((p) => p.connected);
-      const allReady = connectedPlayers.length >= 2 && connectedPlayers.every((p) => p.ready);
-      if (allReady) {
-        this.startGame();
-        return true;
-      }
-      // Broadcast updated lobby snapshot so all players see readiness changes
-      this.broadcastSnapshot();
+    const connectedPlayers = this.state.players.filter((p) => p.connected);
+    const allReady = connectedPlayers.length >= 2 && connectedPlayers.every((p) => p.ready);
+    if (allReady) {
+      this.startGame();
+      return true;
+    }
+    // Broadcast updated lobby snapshot so all players see readiness changes
+    this.broadcastSnapshot();
+
+    return true;
+  }
+
+  /**
+   * Toggle rematch readiness for a player during game_over phase.
+   * Rematch starts when at least 2 players are connected and all connected players agree.
+   */
+  setRematchReady(playerId: string, ready: boolean): boolean {
+    if (this.state.phase !== "game_over") return false;
+    const player = this.getPlayer(playerId);
+    if (!player) return false;
+
+    player.rematchReady = ready;
+
+    const connectedPlayers = this.state.players.filter((p) => p.connected);
+    const readyCount = connectedPlayers.filter((p) => p.rematchReady).length;
+    const requiredCount = connectedPlayers.length;
+
+    const event: GameEvent = {
+      type: "rematch_ready_changed",
+      playerId,
+      rematchReady: ready,
+      readyCount,
+      requiredCount,
+      timestamp: Date.now(),
+    };
+    this.state.history.push(event);
+    this.broadcastEvent(event, this.state);
+    this.broadcastSnapshot();
+
+    const allRematchReady =
+      connectedPlayers.length >= 2 &&
+      connectedPlayers.every((p) => p.rematchReady === true);
+
+    if (allRematchReady) {
+      this.startRematch();
     }
 
+    return true;
+  }
+
+  /**
+   * Start a rematch authoritative state transition.
+   * Increments matchNumber, rotates starting player, redistributes territories,
+   * generates fresh gameId, resets player statuses and history.
+   */
+  startRematch(): boolean {
+    if (this.state.phase !== "game_over") return false;
+    const connectedPlayers = this.state.players.filter((p) => p.connected);
+    if (connectedPlayers.length < 2) return false;
+
+    // Drop disconnected players from registration
+    for (const p of this.state.players) {
+      if (!p.connected) {
+        this.playerSockets.delete(p.id);
+        this.playerTokens.delete(p.id);
+      }
+    }
+
+    this.matchNumber += 1;
+    this.gameId = generateId("game");
+
+    const participatingPlayers: Player[] = connectedPlayers.map((p, index) => {
+      const colorDef = getPlayerColor(index);
+      return {
+        ...p,
+        colorIndex: index,
+        colorHex: colorDef.hex,
+        isAlive: true,
+        ready: false,
+        rematchReady: false,
+      };
+    });
+
+    const initialState = createInitialGameState(
+      this.gameId,
+      this.roomCode,
+      participatingPlayers,
+      this.map,
+      3,
+      undefined,
+      this.matchNumber
+    );
+
+    const activePlayer = initialState.players[initialState.activePlayerIndex];
+    const rematchEvent: GameEvent = {
+      type: "rematch_started",
+      gameId: this.gameId,
+      matchNumber: this.matchNumber,
+      startingPlayerId: activePlayer.id,
+      timestamp: initialState.startedAt ?? Date.now(),
+    };
+
+    initialState.history.unshift(rematchEvent);
+    this.state = initialState;
+
+    for (const event of this.state.history) {
+      this.broadcastEvent(event, this.state);
+    }
+    this.broadcastSnapshot();
+
+    logger.info(
+      `Rematch #${this.matchNumber} started in room ${this.roomCode} with ${participatingPlayers.length} players. Active player: ${activePlayer.name}`
+    );
     return true;
   }
 
@@ -236,12 +348,15 @@ export class GameRoom {
     const activePlayers = this.state.players.filter((p) => p.connected);
     if (activePlayers.length < 2) return false;
 
+    this.matchNumber = 1;
     const initialState = createInitialGameState(
       this.gameId,
       this.roomCode,
       activePlayers,
       this.map,
-      3
+      3,
+      undefined,
+      1
     );
 
     this.state = initialState;
@@ -316,6 +431,35 @@ export class GameRoom {
       return;
     }
 
+    if (this.state.phase === "game_over") {
+      player.connected = false;
+      player.rematchReady = false;
+      this.playerSockets.delete(playerId);
+
+      const event: GameEvent = {
+        type: "player_left",
+        playerId,
+        reason: reason ?? "left finished room",
+        timestamp: Date.now(),
+      };
+      this.state.history.push(event);
+
+      this.broadcastEvent(event, this.state);
+      this.broadcastSnapshot();
+
+      logger.info(`Player ${player.name} (${playerId}) left finished room ${this.roomCode}`);
+
+      const connected = this.state.players.filter((p) => p.connected);
+      if (connected.length >= 2 && connected.every((p) => p.rematchReady)) {
+        this.startRematch();
+      }
+
+      if (connected.length === 0) {
+        this.onDeserted?.(this.roomCode);
+      }
+      return;
+    }
+
     // During an active game, retain disconnected player for reconnect
     player.connected = false;
     this.playerSockets.delete(playerId);
@@ -346,6 +490,9 @@ export class GameRoom {
     territoryId: string,
     count: number
   ): ActionResult<{ remainingReinforcements: number }> {
+    if (this.state.phase === "game_over") {
+      return { ok: false, error: "Game is over" };
+    }
     const result = deployUnits(this.state, playerId, territoryId, count);
     if (result.ok) {
       this.state = result.state;
@@ -371,6 +518,9 @@ export class GameRoom {
     defenderLosses: number;
     conquered: boolean;
   }> {
+    if (this.state.phase === "game_over") {
+      return { ok: false, error: "Game is over" };
+    }
     const result = attackTerritory(this.state, playerId, sourceId, targetId, units);
     if (result.ok) {
       this.state = result.state;
@@ -390,6 +540,9 @@ export class GameRoom {
     targetId: string,
     units: number
   ): ActionResult<void> {
+    if (this.state.phase === "game_over") {
+      return { ok: false, error: "Game is over" };
+    }
     const result = fortifyUnits(this.state, playerId, sourceId, targetId, units);
     if (result.ok) {
       this.state = result.state;
@@ -404,6 +557,9 @@ export class GameRoom {
    * Authoritative skip phase action.
    */
   skipPhase(playerId: string): ActionResult<void> {
+    if (this.state.phase === "game_over") {
+      return { ok: false, error: "Game is over" };
+    }
     const result = skipPhase(this.state, playerId);
     if (result.ok) {
       this.state = result.state;
@@ -418,6 +574,9 @@ export class GameRoom {
    * Authoritative end turn action.
    */
   endTurn(playerId: string): ActionResult<void> {
+    if (this.state.phase === "game_over") {
+      return { ok: false, error: "Game is over" };
+    }
     const result = endTurn(this.state, playerId);
     if (result.ok) {
       this.state = result.state;
@@ -567,6 +726,7 @@ export class RoomManager {
     }
     const room = new GameRoom({
       map: this.defaultMap,
+      onDeserted: (c) => this.removeRoom(c),
       ...options,
       roomCode: code,
     });
@@ -593,6 +753,7 @@ export class RoomManager {
       autoStart: false,
       maxPlayers: options?.maxPlayers ?? 4,
       map: options?.map ?? this.defaultMap,
+      onDeserted: (c) => this.removeRoom(c),
     });
     this.rooms.set(code, room);
     return room;
@@ -607,6 +768,7 @@ export class RoomManager {
         map: options?.map ?? this.defaultMap,
         maxPlayers: options?.maxPlayers ?? this.defaultMaxPlayers,
         autoStart: options?.autoStart ?? true,
+        onDeserted: (c) => this.removeRoom(c),
         ...options,
       });
       this.rooms.set(code, room);
@@ -641,6 +803,7 @@ export class RoomManager {
       autoStart: true,
       maxPlayers: 2,
       map: this.defaultMap,
+      onDeserted: (c) => this.removeRoom(c),
     });
     this.rooms.set(code, room);
     return room;

@@ -985,6 +985,47 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       });
     });
 
+    it("renders full finished rooms as nonjoinable", async () => {
+      const { RoomBrowser } = await import("../apps/client/src/ui/RoomBrowser.js");
+      let joinedRoom: string | null = null;
+      const client: any = {
+        wsUrl: "ws://localhost:4000",
+        fetchRooms: async () => [{
+          roomCode: "M9LK",
+          displayName: "Northern Front",
+          playersCount: 4,
+          maxPlayers: 4,
+          phase: "game_over",
+          visibility: "public",
+          kind: "custom",
+          mapId: "ironreach",
+          mapName: "Ironreach Grid",
+          turnNumber: 12,
+          createdAt: Date.now() - 30000,
+        }],
+      };
+      const setup = await testRender(
+        React.createElement(RoomBrowser, {
+          client,
+          onJoinRoom: (roomCode: string) => { joinedRoom = roomCode; },
+          onBack: () => {},
+          terminalDimensions: { columns: 120, rows: 40 },
+        }),
+        { width: 120, height: 40 }
+      );
+      await act(async () => { await setup.renderOnce(); });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+      await act(async () => { await setup.renderOnce(); });
+
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("Northern Front");
+      expect(frame).toContain("4 / 4");
+      expect(frame).toContain("Finished");
+      await act(async () => { setup.mockInput.pressKey("enter"); });
+      expect(joinedRoom).toBeNull();
+      await act(async () => { setup.renderer.destroy(); });
+    });
+
     it("renders CreateGameScreen form controls", async () => {
       const { CreateGameScreen } = await import("../apps/client/src/ui/CreateGameScreen.js");
 

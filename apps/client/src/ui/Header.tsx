@@ -11,6 +11,7 @@ export interface HeaderProps {
   pendingReinforcements?: number;
   connectionStatus: ConnectionStatus;
   isMyTurn: boolean;
+  isEliminated?: boolean;
   layoutMode?: LayoutMode;
 }
 
@@ -22,6 +23,7 @@ export function Header({
   pendingReinforcements = 0,
   connectionStatus,
   isMyTurn,
+  isEliminated = false,
   layoutMode,
 }: HeaderProps) {
   const isLobby = phase === "lobby";
@@ -79,8 +81,8 @@ export function Header({
               ROOM: <span fg="#00d2ff"><b>{roomCode ?? "None"}</b></span>
             </text>
             <text fg="#334155">│</text>
-            <text fg="#00ff66">
-              <b>{phase.toUpperCase()}</b>
+            <text fg={isEliminated ? "#ef4444" : "#00ff66"}>
+              <b>{isEliminated ? "SPECTATING" : phase.toUpperCase()}</b>
             </text>
             <text fg="#334155">│</text>
             <text>
@@ -144,8 +146,8 @@ export function Header({
               ROOM: <span fg="#00d2ff"><b>{roomCode ?? "None"}</b></span>
             </text>
             <text fg="#334155">│</text>
-            <text fg="#00ff66">
-              <b>{phase.toUpperCase()}</b>
+            <text fg={isEliminated ? "#ef4444" : "#00ff66"}>
+              <b>{isEliminated ? "SPECTATING" : phase.toUpperCase()}</b>
             </text>
           </box>
 
@@ -207,8 +209,8 @@ export function Header({
 
             <text fg="#334155">│</text>
 
-            <text fg="#22d3ee">
-              <b>CONQUER   NEGOTIATE   SURVIVE</b>
+            <text fg={isEliminated ? "#ef4444" : "#22d3ee"}>
+              <b>{isEliminated ? "SPECTATING (ELIMINATED)" : "CONQUER   NEGOTIATE   SURVIVE"}</b>
             </text>
           </box>
 

@@ -1,9 +1,17 @@
 import type { GameEvent, GamePhase, GameState, Player, TerritoryState } from "@conquest/protocol";
 import { resolveCombat, type RandomNumberGenerator } from "./combat.js";
+import { evaluatePlayerEliminations, evaluateVictory, finalizeMatch } from "./victory.js";
 
 export type ActionResult<T = unknown> =
   | { ok: true; state: GameState; events: GameEvent[]; data?: T }
   | { ok: false; error: string };
+
+/**
+ * Returns true if the phase represents an active gameplay phase (deployment, attack, or fortify).
+ */
+export function isActiveMatchPhase(phase: GamePhase): boolean {
+  return phase === "deployment" || phase === "attack" || phase === "fortify";
+}
 
 /**
  * Calculate reinforcements for a player at the start of their turn.
@@ -34,9 +42,17 @@ export function deployUnits(
   territoryId: string,
   count: number
 ): ActionResult<{ remainingReinforcements: number }> {
+  if (state.phase === "game_over") {
+    return { ok: false, error: "Cannot deploy when game is over" };
+  }
+
   const activePlayer = state.players[state.activePlayerIndex];
   if (!activePlayer || activePlayer.id !== playerId) {
     return { ok: false, error: "Not your turn" };
+  }
+
+  if (!activePlayer.isAlive) {
+    return { ok: false, error: "Eliminated players cannot deploy units" };
   }
 
   if (state.phase !== "deployment") {
@@ -117,9 +133,17 @@ export function attackTerritory(
   defenderLosses: number;
   conquered: boolean;
 }> {
+  if (state.phase === "game_over") {
+    return { ok: false, error: "Cannot attack when game is over" };
+  }
+
   const activePlayer = state.players[state.activePlayerIndex];
   if (!activePlayer || activePlayer.id !== playerId) {
     return { ok: false, error: "Not your turn" };
+  }
+
+  if (!activePlayer.isAlive) {
+    return { ok: false, error: "Eliminated players cannot attack" };
   }
 
   if (state.phase !== "attack") {
@@ -201,57 +225,37 @@ export function attackTerritory(
     },
   };
 
-  let nextPlayers = [...state.players];
-  let winnerId = state.winnerId;
-  let nextPhase: GamePhase = state.phase;
-
-  if (conquered) {
-    // Check if defender is eliminated
-    const defenderTerritories = Object.values(nextTerritories).filter(
-      (t) => t.ownerId === originalDefenderId
-    );
-    if (defenderTerritories.length === 0) {
-      nextPlayers = nextPlayers.map((p) =>
-        p.id === originalDefenderId ? { ...p, isAlive: false } : p
-      );
-      events.push({
-        type: "player_eliminated",
-        playerId: originalDefenderId,
-        eliminatedBy: playerId,
-        timestamp: now,
-      });
-    }
-
-    // Check if attacker has won (controls all territories)
-    const allControlledByAttacker = Object.values(nextTerritories).every(
-      (t) => t.ownerId === playerId
-    );
-    if (allControlledByAttacker) {
-      winnerId = playerId;
-      nextPhase = "game_over";
-      const winner = nextPlayers.find((p) => p.id === playerId);
-      events.push({
-        type: "game_won",
-        winnerId: playerId,
-        winnerName: winner?.name ?? "Player",
-        timestamp: now,
-      });
-    }
-  }
-
-  const nextState: GameState = {
+  let candidateState: GameState = {
     ...state,
     territories: nextTerritories,
-    players: nextPlayers,
-    winnerId,
-    phase: nextPhase,
     hasConqueredThisTurn: state.hasConqueredThisTurn || conquered,
     history: [...state.history, ...events],
   };
 
+  if (conquered) {
+    // 1. Evaluate player elimination
+    const elimRes = evaluatePlayerEliminations(candidateState, originalDefenderId, playerId, now);
+    candidateState = {
+      ...candidateState,
+      players: elimRes.nextPlayers,
+    };
+    if (elimRes.eliminationEvent) {
+      events.push(elimRes.eliminationEvent);
+      candidateState.history = [...candidateState.history, elimRes.eliminationEvent];
+    }
+
+    // 2. Evaluate victory
+    const victoryRes = evaluateVictory(candidateState, playerId);
+    if (victoryRes.isVictory && victoryRes.winnerId) {
+      const finalRes = finalizeMatch(candidateState, victoryRes.winnerId, victoryRes.reason ?? "conquest", now);
+      candidateState = finalRes.state;
+      events.push(...finalRes.events);
+    }
+  }
+
   return {
     ok: true,
-    state: nextState,
+    state: candidateState,
     events,
     data: {
       attackerRolls: combat.attackerRolls,
@@ -308,9 +312,17 @@ export function fortifyUnits(
   targetTerritoryId: string,
   units: number
 ): ActionResult<void> {
+  if (state.phase === "game_over") {
+    return { ok: false, error: "Cannot fortify when game is over" };
+  }
+
   const activePlayer = state.players[state.activePlayerIndex];
   if (!activePlayer || activePlayer.id !== playerId) {
     return { ok: false, error: "Not your turn" };
+  }
+
+  if (!activePlayer.isAlive) {
+    return { ok: false, error: "Eliminated players cannot fortify" };
   }
 
   if (state.phase !== "fortify") {
@@ -355,7 +367,6 @@ export function fortifyUnits(
   const stateAfterFortify: GameState = {
     ...state,
     territories: nextTerritories,
-    history: [...state.history, fortifyEvent],
   };
 
   // Fortifying automatically completes the turn!
@@ -366,9 +377,17 @@ export function fortifyUnits(
  * Skip the current phase (Attack -> Fortify, or Fortify -> End Turn).
  */
 export function skipPhase(state: GameState, playerId: string): ActionResult<void> {
+  if (state.phase === "game_over") {
+    return { ok: false, error: "Cannot skip phase when game is over" };
+  }
+
   const activePlayer = state.players[state.activePlayerIndex];
   if (!activePlayer || activePlayer.id !== playerId) {
     return { ok: false, error: "Not your turn" };
+  }
+
+  if (!activePlayer.isAlive) {
+    return { ok: false, error: "Eliminated players cannot skip phase" };
   }
 
   const now = Date.now();
@@ -401,15 +420,28 @@ export function skipPhase(state: GameState, playerId: string): ActionResult<void
 
 /**
  * End the current player's turn and advance to the next alive player.
+ * Authoritatively requires fortify phase.
  */
 export function endTurn(
   state: GameState,
   playerId: string,
   priorEvents: GameEvent[] = []
 ): ActionResult<void> {
+  if (state.phase === "game_over") {
+    return { ok: false, error: "Cannot end turn when game is over" };
+  }
+
+  if (state.phase !== "fortify") {
+    return { ok: false, error: `Can only end turn during fortify phase (currently in ${state.phase})` };
+  }
+
   const activePlayer = state.players[state.activePlayerIndex];
   if (!activePlayer || activePlayer.id !== playerId) {
     return { ok: false, error: "Not your turn" };
+  }
+
+  if (!activePlayer.isAlive) {
+    return { ok: false, error: "Eliminated players cannot end turn" };
   }
 
   // Find next living player

@@ -8,7 +8,20 @@ import {
   getGeographyBoundingBox,
   getTerritoryAt,
 } from "../packages/map-engine/src/index.js";
-import type { GameEvent, Player } from "../packages/protocol/src/index.js";
+import { createInitialGameState, finalizeMatch } from "../packages/game-core/src/index.js";
+import type { GameEvent, GameState, Player } from "../packages/protocol/src/index.js";
+
+function createFinishedGameState(): GameState {
+  const players: Player[] = [
+    { id: "p1", name: "Alice", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
+    { id: "p2", name: "Bob", colorIndex: 1, colorHex: "#ff4444", connected: true, isAlive: true, ready: true },
+  ];
+  const state = createInitialGameState("finished-game", "DONE", players, MAP_GRID_IRONREACH, 3);
+  for (const territory of Object.values(state.territories)) {
+    territory.ownerId = "p1";
+  }
+  return finalizeMatch(state, "p1", "conquest", 60000).state;
+}
 
 describe("ui: EventLog historical military chronicles", () => {
   const testPlayers: Player[] = [
@@ -484,6 +497,123 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     await act(async () => {
       setupLarge.renderer.destroy();
     });
+  });
+
+  it("renders Results before the 85x34 tactical-map size warning for a finished game", async () => {
+    // @ts-ignore
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+    const state = createFinishedGameState();
+    const client: any = {
+      state,
+      myPlayerId: "p1",
+      status: "connected",
+      roomCode: state.roomCode,
+      onSnapshot: () => () => {},
+      onEvent: () => () => {},
+      onStatusChange: () => () => {},
+      onError: () => () => {},
+      requestRematch: () => {},
+      sendChat: () => {},
+    };
+
+    const setup = await testRender(
+      React.createElement(App, {
+        client,
+        terminalDimensions: { columns: 85, rows: 34 },
+      }),
+      { width: 85, height: 34 }
+    );
+    await act(async () => { await setup.renderOnce(); });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("VICTORY ACHIEVED");
+    expect(frame).toContain("FINAL STANDINGS");
+    expect(frame).not.toContain("TERMINAL WINDOW TOO SMALL");
+    await act(async () => { setup.renderer.destroy(); });
+  });
+
+  it("routes finished-match H and Q actions correctly from interactive and direct-entry shells", async () => {
+    // @ts-ignore
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { ClientShell } = await import("../apps/client/src/ui/ClientShell.js");
+
+    const makeClient = () => {
+      const state = createFinishedGameState();
+      const client: any = {
+        state,
+        myPlayerId: "p1",
+        status: "connected",
+        roomCode: state.roomCode,
+        playerName: "Alice",
+        serverName: "Test Server",
+        wsUrl: "ws://localhost:4000",
+        getCachedSession: () => null,
+        onSnapshot: () => () => {},
+        onStatusChange: () => () => {},
+        onError: () => () => {},
+        onEvent: () => () => {},
+        leaveRoomCalls: 0,
+        leaveRoom() { this.leaveRoomCalls += 1; },
+        quickMatch: () => {},
+        requestRematch: () => {},
+        sendChat: () => {},
+      };
+      return client;
+    };
+
+    const renderShell = async (client: any, directEntry: boolean, onExit: () => void) => {
+      const setup = await testRender(
+        React.createElement(ClientShell, {
+          client,
+          ...(directEntry ? { initialRoomCode: "DONE" } : {}),
+          onExit,
+          terminalDimensions: { columns: 120, rows: 40 },
+        }),
+        { width: 120, height: 40 }
+      );
+      await act(async () => { await setup.renderOnce(); });
+      return setup;
+    };
+
+    for (const directEntry of [false, true]) {
+      const homeClient = makeClient();
+      let homeExitCalls = 0;
+      const homeSetup = await renderShell(homeClient, directEntry, () => { homeExitCalls += 1; });
+      if (!directEntry) {
+        await act(async () => { homeSetup.mockInput.pressKey("1"); });
+        await act(async () => { await homeSetup.renderOnce(); });
+      }
+      expect(homeSetup.captureCharFrame()).toContain("VICTORY ACHIEVED");
+      await act(async () => { homeSetup.mockInput.pressKey("h"); });
+      await act(async () => { await homeSetup.renderOnce(); });
+      expect(homeClient.leaveRoomCalls).toBe(1);
+      expect(homeExitCalls).toBe(0);
+      expect(homeSetup.captureCharFrame()).toContain("CONQUEST.SH");
+      await act(async () => { homeSetup.renderer.destroy(); });
+
+      const quitClient = makeClient();
+      let quitExitCalls = 0;
+      const quitSetup = await renderShell(quitClient, directEntry, () => { quitExitCalls += 1; });
+      if (!directEntry) {
+        await act(async () => { quitSetup.mockInput.pressKey("1"); });
+        await act(async () => { await quitSetup.renderOnce(); });
+      }
+      expect(quitSetup.captureCharFrame()).toContain("VICTORY ACHIEVED");
+      await act(async () => { quitSetup.mockInput.pressKey("q"); });
+      await act(async () => { await quitSetup.renderOnce(); });
+      expect(quitExitCalls).toBe(1);
+      expect(quitClient.leaveRoomCalls).toBe(0);
+      await act(async () => { quitSetup.renderer.destroy(); });
+    }
   });
 
   it("mouseEventToMapCell accurately extracts target coordinates and computes map relative offsets", async () => {
@@ -1675,5 +1805,3 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     expect(wideStr).toContain("╔═╗╔═╗╔╗╔╔═╗╦ ╦╔═╗╔═╗╔╦╗   ╔═╗╦ ╦");
   });
 });
-
-

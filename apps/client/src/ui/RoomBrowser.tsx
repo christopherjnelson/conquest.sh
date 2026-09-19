@@ -177,7 +177,10 @@ export function RoomBrowser({ client, onJoinRoom, onBack }: RoomBrowserProps) {
 
               let statusText = "Waiting";
               let statusColor = "#00ff66";
-              if (isFull) {
+              if (room.phase === "game_over") {
+                statusText = "Finished";
+                statusColor = "#a78bfa";
+              } else if (isFull) {
                 statusText = "Full";
                 statusColor = "#f59e0b";
               } else if (isInProgress) {

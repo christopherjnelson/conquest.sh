@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import type { RoomVisibility } from "@conquest/protocol";
+import { isActiveMatchPhase } from "@conquest/game-core";
 import { GameClient, type ConnectionStatus, type SessionData } from "../network/client.js";
 import { HomeScreen } from "./HomeScreen.js";
 import { RoomBrowser } from "./RoomBrowser.js";
@@ -211,6 +212,13 @@ export function ClientShell({
       return (
         <App
           client={client}
+          onReturnHome={() => {
+            client.leaveRoom();
+            setCachedSession(client.getCachedSession());
+            setErrorMessage(null);
+            setScreen("home");
+          }}
+          onQuit={onExit}
           onExit={() => {
             if (isDirectEntry) {
               onExit?.();
@@ -218,11 +226,11 @@ export function ClientShell({
             }
             // Once a match is actively underway, prefer Q quitting the client/preserving reconnect
             // rather than silently abandoning the match and switching rooms.
-            if (client.state && client.state.phase !== "lobby") {
+            if (client.state && isActiveMatchPhase(client.state.phase)) {
               onExit?.();
               return;
             }
-            // In lobby phase, returning to Home actually detaches/removes player from that lobby
+            // In lobby or game_over phase, exiting returns cleanly to Home
             client.leaveRoom();
             setCachedSession(client.getCachedSession());
             setErrorMessage(null);

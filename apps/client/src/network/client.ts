@@ -13,6 +13,7 @@ import {
   type ClientMessage,
   type ClientPing,
   type ClientReady,
+  type ClientRematch,
   type ClientSkipPhase,
   type GameEvent,
   type GameState,
@@ -511,6 +512,18 @@ export class GameClient {
       text: trimmed,
     };
     this.send(msg);
+  }
+
+  public rematch(ready: boolean = true): void {
+    const msg: ClientRematch = {
+      type: "client:rematch",
+      ready,
+    };
+    this.send(msg);
+  }
+
+  public requestRematch(ready: boolean = true): void {
+    this.rematch(ready);
   }
 
   public ping(timestamp: number = Date.now()): void {

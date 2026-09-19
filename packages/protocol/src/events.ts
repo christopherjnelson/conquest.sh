@@ -11,8 +11,35 @@ export const PlayerSchema = z.object({
   connected: z.boolean(),
   isAlive: z.boolean(),
   ready: z.boolean().default(false),
+  rematchReady: z.boolean().optional(),
 });
 export type Player = z.infer<typeof PlayerSchema>;
+
+export const VictoryReasonSchema = z.enum(["conquest"]);
+export type VictoryReason = z.infer<typeof VictoryReasonSchema>;
+
+export const PlayerMatchResultSchema = z.object({
+  playerId: z.string(),
+  playerName: z.string(),
+  placement: z.number().int().min(1),
+  finalTerritories: z.number().int().min(0),
+  finalArmies: z.number().int().min(0),
+  eliminated: z.boolean(),
+  eliminatedBy: z.string().optional(),
+});
+export type PlayerMatchResult = z.infer<typeof PlayerMatchResultSchema>;
+
+export const MatchResultSchema = z.object({
+  winnerId: z.string(),
+  winnerName: z.string(),
+  reason: VictoryReasonSchema,
+  turnNumber: z.number().int().min(1),
+  startedAt: z.number(),
+  endedAt: z.number(),
+  durationMs: z.number(),
+  players: z.array(PlayerMatchResultSchema),
+});
+export type MatchResult = z.infer<typeof MatchResultSchema>;
 
 export const TerritoryRenderSchema = z.object({
   width: z.number().optional(),
@@ -134,6 +161,21 @@ export const GameEventSchema = z.discriminatedUnion("type", [
     text: z.string(),
     timestamp: z.number(),
   }),
+  z.object({
+    type: z.literal("rematch_ready_changed"),
+    playerId: z.string(),
+    rematchReady: z.boolean(),
+    readyCount: z.number(),
+    requiredCount: z.number(),
+    timestamp: z.number(),
+  }),
+  z.object({
+    type: z.literal("rematch_started"),
+    gameId: z.string(),
+    matchNumber: z.number(),
+    startingPlayerId: z.string(),
+    timestamp: z.number(),
+  }),
 ]);
 export type GameEvent = z.infer<typeof GameEventSchema>;
 
@@ -149,6 +191,10 @@ export const GameStateSchema = z.object({
   pendingReinforcements: z.number(),
   hasConqueredThisTurn: z.boolean(),
   winnerId: z.string().nullable(),
+  result: MatchResultSchema.nullable().default(null),
+  matchNumber: z.number().int().min(1).default(1),
+  startedAt: z.number().optional(),
+  endedAt: z.number().nullable().optional(),
   history: z.array(GameEventSchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;
