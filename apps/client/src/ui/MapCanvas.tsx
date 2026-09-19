@@ -45,35 +45,58 @@ interface SpanRun {
   bold?: boolean;
 }
 
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace("#", "");
+  if (clean.length === 3) {
+    return [
+      parseInt(clean[0] + clean[0], 16),
+      parseInt(clean[1] + clean[1], 16),
+      parseInt(clean[2] + clean[2], 16),
+    ];
+  }
+  if (clean.length >= 6) {
+    return [
+      parseInt(clean.slice(0, 2), 16),
+      parseInt(clean.slice(2, 4), 16),
+      parseInt(clean.slice(4, 6), 16),
+    ];
+  }
+  return [100, 116, 139];
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  const toHex = (v: number) => clamp(v).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function mixColors(c1: string, c2: string, weight1: number): string {
+  const rgb1 = hexToRgb(c1);
+  const rgb2 = hexToRgb(c2);
+  const w1 = Math.max(0, Math.min(1, weight1));
+  const w2 = 1 - w1;
+  return rgbToHex(
+    rgb1[0] * w1 + rgb2[0] * w2,
+    rgb1[1] * w1 + rgb2[1] * w2,
+    rgb1[2] * w1 + rgb2[2] * w2
+  );
+}
+
 // Background tint based on owner/region color
-function getDarkTint(color: string): string {
-  const lower = color.toLowerCase();
-  if (lower === "#00ff66" || lower === "#22c55e" || lower.includes("green")) {
-    return "#072114";
-  }
-  if (lower === "#ffaa00" || lower === "#eab308" || lower.includes("amber") || lower.includes("gold")) {
-    return "#241805";
-  }
-  if (lower === "#00d2ff" || lower === "#38bdf8" || lower === "#00ffff" || lower.includes("cyan") || lower.includes("blue")) {
-    return "#071f2e";
-  }
-  if (lower === "#ff4444" || lower === "#ef4444" || lower.includes("red")) {
-    return "#260b0f";
-  }
-  if (lower === "#9966ff" || lower === "#a855f7" || lower.includes("purple") || lower.includes("violet")) {
-    return "#1b0b2e";
-  }
-  return "#0e1726";
+function getDarkTint(color: string, tid?: string | null): string {
+  const isOdd = tid ? (tid.charCodeAt(1) || 0) % 2 === 1 : false;
+  const weight = isOdd ? 0.28 : 0.20;
+  return mixColors(color, "#080f1a", weight);
 }
 
 function getHoverTint(color: string): string {
-  const lower = color.toLowerCase();
-  if (lower.includes("green")) return "#0e3a24";
-  if (lower.includes("amber") || lower.includes("gold") || lower === "#ffaa00") return "#382509";
-  if (lower.includes("cyan") || lower.includes("blue") || lower === "#00d2ff") return "#0e314a";
-  if (lower.includes("red") || lower === "#ff4444") return "#3d131a";
-  if (lower.includes("purple") || lower === "#9966ff") return "#2c144a";
-  return "#1e293b";
+  return mixColors(color, "#080f1a", 0.45);
+}
+
+function getPoliticalBorderTint(color: string, tid?: string | null): string {
+  const isOdd = tid ? (tid.charCodeAt(1) || 0) % 2 === 1 : false;
+  const weight = isOdd ? 0.65 : 0.55;
+  return mixColors(color, "#080f1a", weight);
 }
 
 function buildSeaRoutesGrid(mapDef: GridMapDefinition) {
@@ -260,7 +283,7 @@ export function MapCanvas({
     const tState =
       territories[t.id] ??
       Object.values(territories).find(
-        (s) => s.name.toLowerCase() === t.name.toLowerCase()
+        (s) => s.name?.toLowerCase() === t.name.toLowerCase()
       );
     const units = tState?.units ?? 0;
     const isLobby = phase === "lobby";
@@ -355,7 +378,7 @@ export function MapCanvas({
           const tState =
             territories[cellTid] ??
             Object.values(territories).find(
-              (s) => s.name.toLowerCase() === territory?.name.toLowerCase()
+              (s) => s.name?.toLowerCase() === territory?.name.toLowerCase()
             );
           const isLobby = phase === "lobby";
           const rawOwnerId = tState?.ownerId;
@@ -381,7 +404,7 @@ export function MapCanvas({
             ? hoverBg
             : isLobby || !hasOwner
             ? "#0f172a"
-            : getDarkTint(ownerColor);
+            : getDarkTint(ownerColor, cellTid);
         }
 
         cell = {
@@ -418,16 +441,16 @@ export function MapCanvas({
           };
         }
       } else {
-        // 3. High-resolution half-block terrain rendering (2 microcells per character row)
+        // 3. High-resolution terrain & political boundary rendering
         const getMicroStyle = (tid: string | null, isTop: boolean) => {
           if (!tid) {
-            return { color: "#080f1a", isPerimeter: false, isOwner: false };
+            return { color: "#080f1a", isPerimeter: false, isPoliticalBorder: false, isOwner: false };
           }
           const territory = activeMap.territories.find((t) => t.id === tid);
           const tState =
             territories[tid] ??
             Object.values(territories).find(
-              (s) => s.name.toLowerCase() === territory?.name.toLowerCase()
+              (s) => s.name?.toLowerCase() === territory?.name.toLowerCase()
             );
           const isLobby = phase === "lobby";
           const rawOwnerId = tState?.ownerId;
@@ -449,12 +472,18 @@ export function MapCanvas({
           const wT = getMicroTerritoryAt(x - 1, my, activeMap);
           const eT = getMicroTerritoryAt(x + 1, my, activeMap);
           const isCoast = nT === null || sT === null || wT === null || eT === null;
-          const isPerimeter = isCoast || nT !== tid || sT !== tid || wT !== tid || eT !== tid;
+          const isPoliticalBorder =
+            (nT !== null && nT !== tid) ||
+            (sT !== null && sT !== tid) ||
+            (wT !== null && wT !== tid) ||
+            (eT !== null && eT !== tid);
+          const isPerimeter = isCoast || isPoliticalBorder;
 
           if (isSelected) {
             return {
               color: isPerimeter ? "#00ffff" : "#0c2b3d",
               isPerimeter,
+              isPoliticalBorder,
               isOwner: true,
             };
           }
@@ -464,6 +493,7 @@ export function MapCanvas({
                 ? (isEnemy ? "#ff4444" : "#00ff66")
                 : (isEnemy ? "#280a0e" : "#082115"),
               isPerimeter,
+              isPoliticalBorder,
               isOwner: true,
             };
           }
@@ -472,21 +502,28 @@ export function MapCanvas({
             return {
               color: isPerimeter ? "#ffffff" : hoverBg,
               isPerimeter,
+              isPoliticalBorder,
               isOwner: true,
             };
           }
 
           if (isLobby || !hasOwner) {
             return {
-              color: isCoast ? "#475569" : "#0f172a",
+              color: isCoast ? "#475569" : isPoliticalBorder ? "#1e293b" : "#0f172a",
               isPerimeter,
+              isPoliticalBorder,
               isOwner: false,
             };
           }
 
           return {
-            color: isCoast ? ownerColor : getDarkTint(ownerColor),
+            color: isCoast
+              ? ownerColor
+              : isPoliticalBorder
+              ? getPoliticalBorderTint(ownerColor, tid)
+              : getDarkTint(ownerColor, tid),
             isPerimeter,
+            isPoliticalBorder,
             isOwner: true,
           };
         };
@@ -494,50 +531,75 @@ export function MapCanvas({
         const topStyle = getMicroStyle(topTid, true);
         const bottomStyle = getMicroStyle(bottomTid, false);
 
-        if (topStyle.color === bottomStyle.color) {
-          // Solid microcell fill
-          const isLobby = phase === "lobby";
-          const hasOwner = Boolean(
-            cellTid &&
-              territories[cellTid]?.ownerId &&
-              !isLobby
-          );
-          const owner =
-            hasOwner && cellTid
-              ? players.find((p) => p.id === territories[cellTid]?.ownerId)
-              : undefined;
-          const ownerColor = owner?.colorHex ?? "#00d2ff";
-
-          const isSelected =
-            Boolean(selectedTerritoryId && (selectedTerritoryId === topTid || selectedTerritoryId === bottomTid));
-          const isTarget =
-            Boolean(targetTerritoryId && (targetTerritoryId === topTid || targetTerritoryId === bottomTid));
-
-          let fg = isLobby || !hasOwner ? "#475569" : ownerColor;
-          let bg = topStyle.color;
-          let bold = isSelected || isTarget;
-
-          if (isSelected) {
-            fg = "#00ffff";
-            bg = "#0c2b3d";
-          } else if (isTarget) {
-            fg = "#ff4444";
-          }
-
-          cell = {
-            char: " ",
-            fg,
-            bg,
-            bold,
-          };
-        } else {
-          // Half-block microcell boundary (▀)
+        if (topTid !== bottomTid) {
+          // Half-block microcell boundary between two different territories (or coastline)
           cell = {
             char: "▀",
             fg: topStyle.color,
             bg: bottomStyle.color,
             bold: topStyle.isPerimeter || bottomStyle.isPerimeter,
           };
+        } else {
+          // Both microcells belong to the same territory (cellTid = topTid)
+          const tid = topTid;
+          const isLobby = phase === "lobby";
+          const hasOwner = Boolean(
+            tid &&
+              territories[tid]?.ownerId &&
+              !isLobby
+          );
+          const owner =
+            hasOwner && tid
+              ? players.find((p) => p.id === territories[tid]?.ownerId)
+              : undefined;
+          const ownerColor = owner?.colorHex ?? "#00d2ff";
+
+          const isSelected = selectedTerritoryId === tid;
+          const isTarget = targetTerritoryId === tid;
+          const isEnemy = Boolean(hasOwner && territories[tid!]?.ownerId && myPlayerId && territories[tid!]?.ownerId !== myPlayerId);
+
+          // Check if horizontally adjacent to another land territory
+          const eastTop = getMicroTerritoryAt(x + 1, 2 * y, activeMap);
+          const eastBot = getMicroTerritoryAt(x + 1, 2 * y + 1, activeMap);
+          const westTop = getMicroTerritoryAt(x - 1, 2 * y, activeMap);
+          const westBot = getMicroTerritoryAt(x - 1, 2 * y + 1, activeMap);
+
+          const isEastLandBorder = (eastTop !== null && eastTop !== tid) || (eastBot !== null && eastBot !== tid);
+          const isWestLandBorder = (westTop !== null && westTop !== tid) || (westBot !== null && westBot !== tid);
+
+          if (isSelected && (isEastLandBorder || isWestLandBorder || topStyle.isPerimeter)) {
+            // Selected perimeter: strongest neon
+            cell = {
+              char: isWestLandBorder ? "▌" : isEastLandBorder ? "▐" : "█",
+              fg: "#00ffff",
+              bg: topStyle.color,
+              bold: true,
+            };
+          } else if (isTarget && (isEastLandBorder || isWestLandBorder || topStyle.isPerimeter)) {
+            // Target perimeter: strong red/green
+            cell = {
+              char: isWestLandBorder ? "▌" : isEastLandBorder ? "▐" : "█",
+              fg: isEnemy ? "#ff4444" : "#00ff66",
+              bg: topStyle.color,
+              bold: true,
+            };
+          } else if (isEastLandBorder || isWestLandBorder) {
+            // Political boundary: subtle but visible separator between adjacent territories
+            cell = {
+              char: "·",
+              fg: isLobby || !hasOwner ? "#64748b" : getPoliticalBorderTint(ownerColor, tid),
+              bg: topStyle.color,
+              bold: true,
+            };
+          } else {
+            // Quiet interior land
+            cell = {
+              char: " ",
+              fg: isLobby || !hasOwner ? "#475569" : ownerColor,
+              bg: topStyle.color,
+              bold: false,
+            };
+          }
         }
       }
 

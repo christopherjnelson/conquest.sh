@@ -1,5 +1,10 @@
 import {
   MAP_GRID_IRONREACH,
+  MAP_GRID_IRONREACH_COMPACT,
+  MAP_GRID_IRONREACH_WIDE,
+  MICRO_TEMPLATE_COMPACT,
+  MICRO_TEMPLATE_WIDE,
+  deriveCoarseTemplateFromMicro,
   type GridMapDefinition,
   type GridTerritoryMetadata,
   type GridSeaRoute,
@@ -347,7 +352,7 @@ export function buildMicrocellTemplate(map: GridMapDefinition = MAP_GRID_IRONREA
  * Returns cached or generated microcell template for a map definition.
  */
 export function getMapMicroTemplate(map: GridMapDefinition = MAP_GRID_IRONREACH): string[] {
-  if (map.microTemplate) return map.microTemplate;
+  if (map.microTemplate && map.microTemplate.length > 0) return map.microTemplate;
   let cached = microcellCache.get(map);
   if (!cached) {
     cached = buildMicrocellTemplate(map);
@@ -364,12 +369,10 @@ export function getMicroTerritoryAt(
   my: number,
   map: GridMapDefinition = MAP_GRID_IRONREACH
 ): string | null {
-  const microH = map.template.length * 2;
-  const microW = map.template[0].length;
-  if (my < 0 || my >= microH || mx < 0 || mx >= microW) {
+  const microTpl = getMapMicroTemplate(map);
+  if (my < 0 || my >= microTpl.length || mx < 0 || mx >= microTpl[0].length) {
     return null;
   }
-  const microTpl = getMapMicroTemplate(map);
   const char = microTpl[my][mx];
   return map.charToTerritoryId[char] ?? null;
 }
@@ -397,6 +400,11 @@ export function getTerritoryAtCell(
 
 export {
   MAP_GRID_IRONREACH,
+  MAP_GRID_IRONREACH_COMPACT,
+  MAP_GRID_IRONREACH_WIDE,
+  MICRO_TEMPLATE_COMPACT,
+  MICRO_TEMPLATE_WIDE,
+  deriveCoarseTemplateFromMicro,
   type GridMapDefinition,
   type GridTerritoryMetadata,
   type GridSeaRoute,

@@ -1534,6 +1534,146 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
       setup.renderer.destroy();
     });
   });
+
+  it("MapCanvas visibly renders political borders between adjacent territories owned by the same player", async () => {
+    // @ts-ignore
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
+
+    // Both A1 and A3 owned by Alice (p1), B1 owned by Bob (p2)
+    const territories = {
+      A1: { id: "A1", ownerId: "p1", units: 4 },
+      A2: { id: "A2", ownerId: "p1", units: 2 },
+      A3: { id: "A3", ownerId: "p1", units: 5 },
+      B1: { id: "B1", ownerId: "p2", units: 3 },
+    };
+
+    const setup = await testRender(
+      React.createElement(MapCanvas, {
+        territories,
+        players: testPlayers,
+        myPlayerId: "p1",
+        phase: "deployment",
+        selectedTerritoryId: null,
+        targetTerritoryId: null,
+        onSelectTerritory: () => {},
+        onSelectTarget: () => {},
+        onDeselect: () => {},
+      }),
+      { width: 140, height: 40 }
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    // Verify half-block characters exist for vertical/diagonal borders & coastlines
+    expect(frame).toContain("▀");
+    // Verify political boundary separator glyph "·" exists between same-owner territories
+    expect(frame).toContain("·");
+    // Verify both territory labels are visible
+    expect(frame).toContain("A1 HIGHWATCH");
+    expect(frame).toContain("A3 STONEVEIL");
+
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  });
+
+  it("MapCanvas selection perimeter renders distinct boundary markers and hover updates without erasing borders", async () => {
+    // @ts-ignore
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
+
+    const territories = {
+      A1: { id: "A1", ownerId: "p1", units: 4 },
+      A3: { id: "A3", ownerId: "p1", units: 5 },
+    };
+
+    const setup = await testRender(
+      React.createElement(MapCanvas, {
+        territories,
+        players: testPlayers,
+        myPlayerId: "p1",
+        phase: "deployment",
+        selectedTerritoryId: "A1",
+        hoveredTerritoryId: "A3",
+        targetTerritoryId: null,
+        onSelectTerritory: () => {},
+        onSelectTarget: () => {},
+        onDeselect: () => {},
+      }),
+      { width: 140, height: 40 }
+    );
+
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    // Selection perimeter renders boundary block markers (▌, ▐, █, or ▀)
+    const hasSelectionMarkers = frame.includes("▌") || frame.includes("▐") || frame.includes("█");
+    expect(hasSelectionMarkers).toBe(true);
+
+    // Selected territory and hovered territory are both rendered
+    expect(frame).toContain("A1 HIGHWATCH");
+    expect(frame).toContain("A3 STONEVEIL");
+
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  });
+
+  it("Header in standard mode renders clean height-3 bar without 3-line ASCII logo, while wide mode renders height-5 banner", async () => {
+    const { Header } = await import("../apps/client/src/ui/Header.js");
+
+    const standardHeader: any = Header({
+      roomCode: "TEST",
+      turnNumber: 3,
+      activePlayer: testPlayers[0],
+      phase: "attack",
+      pendingReinforcements: 2,
+      connectionStatus: "connected",
+      isMyTurn: true,
+      layoutMode: "standard",
+    });
+
+    const standardMainBox = standardHeader.props.children[1];
+    expect(standardMainBox.props.style.height).toBe(3);
+
+    const standardStr = JSON.stringify(standardHeader);
+    expect(standardStr).toContain("CONQUEST.SH");
+    expect(standardStr).toContain("CONQUER • NEGOTIATE • SURVIVE");
+    // Must NOT contain the 3-line ASCII banner glyphs
+    expect(standardStr).not.toContain("╔═╗");
+    expect(standardStr).not.toContain("╚═╝");
+
+    const wideHeader: any = Header({
+      roomCode: "TEST",
+      turnNumber: 3,
+      activePlayer: testPlayers[0],
+      phase: "attack",
+      pendingReinforcements: 2,
+      connectionStatus: "connected",
+      isMyTurn: true,
+      layoutMode: "wide",
+    });
+
+    const wideMainBox = wideHeader.props.children[1];
+    expect(wideMainBox.props.style.height).toBe(5);
+
+    const wideStr = JSON.stringify(wideHeader);
+    expect(wideStr).toContain("╔═╗╔═╗╔╗╔╔═╗╦ ╦╔═╗╔═╗╔╦╗   ╔═╗╦ ╦");
+  });
 });
 
 

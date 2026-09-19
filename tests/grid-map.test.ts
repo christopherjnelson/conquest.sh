@@ -36,6 +36,7 @@ import defaultMap, {
   getMapMicroTemplate,
   getMicroTerritoryAt,
   getTerritoryAtCell,
+  deriveCoarseTemplateFromMicro,
 } from "../packages/map-engine/src/index.js";
 
 describe("grid-map: 2D Ironreach territory grid engine", () => {
@@ -593,5 +594,51 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
       l.text.includes("THE GREY SEA")
     );
     expect(compactGreySea).toBeDefined();
+  });
+
+  it("verifies canonical microcell templates contain genuine sub-pixel diagonal transitions impossible in coarse grids", () => {
+    // Both wide and compact micro templates must have authored microTemplate arrays
+    expect(MAP_GRID_IRONREACH_WIDE.microTemplate).toBeDefined();
+    expect(MAP_GRID_IRONREACH_COMPACT.microTemplate).toBeDefined();
+
+    // Count transitions where top half-block and bottom half-block differ within the same terminal character cell
+    // (i.e. y is cell row, cell character is made of microRow 2*y and microRow 2*y+1)
+    let wideDiagonalTransitions = 0;
+    for (let y = 0; y < MAP_GRID_IRONREACH_WIDE.height; y++) {
+      const topRow = MAP_GRID_IRONREACH_WIDE.microTemplate![y * 2];
+      const botRow = MAP_GRID_IRONREACH_WIDE.microTemplate![y * 2 + 1];
+      for (let x = 0; x < MAP_GRID_IRONREACH_WIDE.width; x++) {
+        const topC = topRow[x];
+        const botC = botRow[x];
+        if (topC !== botC) {
+          wideDiagonalTransitions++;
+        }
+      }
+    }
+
+    let compactDiagonalTransitions = 0;
+    for (let y = 0; y < MAP_GRID_IRONREACH_COMPACT.height; y++) {
+      const topRow = MAP_GRID_IRONREACH_COMPACT.microTemplate![y * 2];
+      const botRow = MAP_GRID_IRONREACH_COMPACT.microTemplate![y * 2 + 1];
+      for (let x = 0; x < MAP_GRID_IRONREACH_COMPACT.width; x++) {
+        const topC = topRow[x];
+        const botC = botRow[x];
+        if (topC !== botC) {
+          compactDiagonalTransitions++;
+        }
+      }
+    }
+
+    // Coarse-smoothing produces very few vertical half-block transitions.
+    // Authored microcell templates contain hundreds of hand-crafted sub-pixel transitions.
+    expect(wideDiagonalTransitions).toBeGreaterThan(200);
+    expect(compactDiagonalTransitions).toBeGreaterThan(200);
+
+    // Also verify deriveCoarseTemplateFromMicro derives the coarse template deterministically
+    const derivedWide = deriveCoarseTemplateFromMicro(MAP_GRID_IRONREACH_WIDE.microTemplate!);
+    expect(derivedWide).toEqual(MAP_GRID_IRONREACH_WIDE.template);
+
+    const derivedCompact = deriveCoarseTemplateFromMicro(MAP_GRID_IRONREACH_COMPACT.microTemplate!);
+    expect(derivedCompact).toEqual(MAP_GRID_IRONREACH_COMPACT.template);
   });
 });

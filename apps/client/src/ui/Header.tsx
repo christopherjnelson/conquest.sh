@@ -26,6 +26,8 @@ export function Header({
 }: HeaderProps) {
   const isLobby = phase === "lobby";
   const isCompact = layoutMode === "compact";
+  const isStandard = layoutMode === "standard";
+  const isWide = layoutMode === "wide" || (!isCompact && !isStandard);
 
   return (
     <box flexDirection="column" style={{ width: "100%" }} marginBottom={0}>
@@ -93,6 +95,67 @@ export function Header({
             </text>
           ) : (
             <box flexDirection="row" alignItems="center" gap={1}>
+              <text fg="#64748b">
+                Turn <span fg="#00d2ff"><b>{turnNumber}</b></span>
+              </text>
+              <text fg="#334155">│</text>
+              <text>
+                Active: {activePlayer ? (
+                  <>
+                    <span fg={activePlayer.colorHex}>● </span>
+                    <span fg={activePlayer.colorHex}><b>{activePlayer.name}</b></span>
+                    {isMyTurn && <span fg="#00ff66"> (You)</span>}
+                  </>
+                ) : (
+                  <span fg="#94a3b8">None</span>
+                )}
+              </text>
+              <text fg="#334155">│</text>
+              <text fg="#38bdf8">
+                ♟ <b>{pendingReinforcements}</b>
+              </text>
+            </box>
+          )}
+        </box>
+      ) : isStandard ? (
+        <box
+          flexDirection="row"
+          justifyContent="space-between"
+          alignItems="center"
+          border
+          borderStyle="single"
+          borderColor="#00d2ff"
+          backgroundColor="#080f1a"
+          paddingLeft={1}
+          paddingRight={2}
+          style={{ height: 3 }}
+        >
+          {/* Left: Branding & Slogan */}
+          <box flexDirection="row" alignItems="center" gap={1}>
+            <text fg="#00ffff">
+              <b>CONQUEST.SH</b>
+            </text>
+            <text fg="#334155">│</text>
+            <text fg="#22d3ee">
+              <b>CONQUER • NEGOTIATE • SURVIVE</b>
+            </text>
+            <text fg="#334155">│</text>
+            <text fg="#64748b">
+              ROOM: <span fg="#00d2ff"><b>{roomCode ?? "None"}</b></span>
+            </text>
+            <text fg="#334155">│</text>
+            <text fg="#00ff66">
+              <b>{phase.toUpperCase()}</b>
+            </text>
+          </box>
+
+          {/* Right: Turn / Active / Reinforcements */}
+          {isLobby ? (
+            <text fg="#f59e0b">
+              <b>Lobby: Waiting for players...</b>
+            </text>
+          ) : (
+            <box flexDirection="row" alignItems="center" gap={2}>
               <text fg="#64748b">
                 Turn <span fg="#00d2ff"><b>{turnNumber}</b></span>
               </text>

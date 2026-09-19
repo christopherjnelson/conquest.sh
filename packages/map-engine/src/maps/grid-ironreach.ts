@@ -51,7 +51,7 @@ export interface GridMapDefinition extends MapDefinition {
   height: number;
   recommendedPlayers: { min: number; max: number };
   template: string[];
-  microTemplate?: string[];
+  microTemplate: string[];
   charToTerritoryId: Record<string, string>;
   territoryIdToChar: Record<string, string>;
   territories: GridTerritoryMetadata[];
@@ -140,86 +140,179 @@ export const GRID_SECTORS: Sector[] = [
   },
 ];
 
-/**
- * 2D ASCII Compact Grid Map Template for Ironreach.
- * Dimensions: 104 columns wide x 30 rows high.
- */
-export const GRID_TEMPLATE_COMPACT: string[] = [
-  ".......BBBBBB........AAAAA................GGGGGG........................................................", // 0
-  "......BBBBBBBBB....AAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGG...IIIIIIIIII.......................................", // 1
-  ".....BBBBBBBBBBBAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIII....................................", // 2
-  "....BBBBBBBBBBBBAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIII..................................", // 3
-  "....BBBBBBBBBBBBAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIII..................................", // 4
-  "....BBBBBBBBBBBAAAAAAAAAAAAAGGGGGGGGGGGHHHHHHGGGGGIIIIIIIIIIIIIIIIIII...................................", // 5
-  ".....BBBBBBBBCCCCCCCCCCCCCCC.HHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIJJJJJJ...............................", // 6
-  "......BBBBBBCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJ...............................", // 7
-  "..........CCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJ.............................", // 8
-  "...........CCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJ.............................", // 9
-  ".............CCCCCCCCCCCCC...HHHHHHHHHHHHHHHHH...JJJJJJJJJJJJJJJJJJJJJJ.................................", // 10
-  "...............CCCCCCCCC........HHHHHHHHHHHHH......JJJJJJJJJJJJJJ.......................................", // 11
-  "........................................................................................................", // 12
-  "..............DDDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFFF...........................SSSSSSSSSSS.......", // 13
-  "..............DDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFF..............RRRRRRRRRRSSSSSSSSSSSSSS.....", // 14
-  "......KKKKK...DDDDDDDDDDEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFF...........RRRRRRRRRRRRSSSSSSSSSSSSSSS....", // 15
-  ".....KKKKKKKKLLDDDDDDDLLLLLEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFF............RRRRRRRRRRRRRSSSSSSSSSSSSSSS....", // 16
-  "...KKKKKKKKKKKLLLLLLLLLLLLLLEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF..............RRRRRRRRRRRRSSSSSSSSSSSSSSS.....", // 17
-  "...KKKKKKKKKKKLLLLLLLLLLLLLEEEEEEOOOOOOOOOOOOOOOOOOOOOOOOO................RRRRRRRRRRSSSSSSSSSSSSSS......", // 18
-  "....KKKKKKKKKKLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOO....................RRRRRRRRRRSSSSSSSSSSSS........", // 19
-  ".....KKKKKK...LLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQ............RRRRRRRRRSSSSSSSSSS..........", // 20
-  ".....MMMMMMMMMMLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQ...........RRRRRRRTTTTTTTTTTTTT.........", // 21
-  "....MMMMMMMMMMMNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQ............TTTTTTTTTTTTTTTTTTT........", // 22
-  "....MMMMMMMMMMNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQQ...........TTTTTTTTTTTTTTTTTTTTT.......", // 23
-  ".....MMMMMMMMMNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQQQ.............TTTTTTTTTTTTTTTTTTTT.......", // 24
-  ".....MMMMMMMM.NNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQ...............TTTTTTTTTTTTTTTTTT........", // 25
-  "....MMMM.......NNNNNNPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQ...................TTTTTTTTTTTTTT..........", // 26
-  "....MM................PPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQ.........................TTTTTTTTT.............", // 27
-  ".........................PPPPPPPPPPPPPPP................................................................", // 28
-  "............................PPPPPPPPP...................................................................", // 29
-];
 
 /**
- * 2D ASCII Wide Grid Map Template for Ironreach.
- * Dimensions: 136 columns wide x 36 rows high.
+ * Derives a legacy coarse 2D character template (height/2) from the canonical microcell raster.
  */
-export const GRID_TEMPLATE_WIDE: string[] = [
-  "..........BBBBBBB...........AAAAAA.....................GGGGGGGG.........................................................................", // 0
+export function deriveCoarseTemplateFromMicro(microTemplate: string[]): string[] {
+  const height = Math.floor(microTemplate.length / 2);
+  const width = microTemplate[0].length;
+  const coarseRows: string[] = [];
+
+  for (let y = 0; y < height; y++) {
+    let row = "";
+    const top = microTemplate[2 * y];
+    const bot = microTemplate[2 * y + 1];
+    for (let x = 0; x < width; x++) {
+      const tc = top[x];
+      const bc = bot[x];
+      if (tc === bc) {
+        row += tc;
+      } else if (tc !== "." && bc === ".") {
+        row += tc;
+      } else if (tc === "." && bc !== ".") {
+        row += bc;
+      } else {
+        row += tc;
+      }
+    }
+    coarseRows.push(row);
+  }
+
+  return coarseRows;
+}
+
+export const MICRO_TEMPLATE_COMPACT: string[] = [
+  "........BBBB..........AAA..................GGGG.........................................................", // 0
+  "......BBBBBBBB......AAAAAAA..............GGGGGGGG.......................................................", // 1
+  ".......BBBBBBB......AAAAAAAAAGGGGGGGGGGGGGGGGGGGGGG.....IIIIIIII........................................", // 2
+  ".....BBBBBBBBBBA..AAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGG.GIIIIIIIIIII......................................", // 3
+  "......BBBBBBBBBBAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIII.....................................", // 4
+  "....BBBBBBBBBBBBBAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIII...................................", // 5
+  ".....BBBBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIII...................................", // 6
+  "....BBBBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIII..................................", // 7
+  "....BBBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIII..................................", // 8
+  "....BBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIII..................................", // 9
+  "....BBBBBBBBBAAAAAAAAAAAAAAAGGGGGGGGGGGHHHHHHGGGGGGGGGGIIIIIIIIIIIIIII..................................", // 10
+  ".....BBBBBBBBAAAAAAAAAAAAAAAGGGGGGGGGGGHHHHHHGGGGGIIIIIIIIIIIIIIIIIII...................................", // 11
+  "....BBBBBBBBBCCCCCCCCCCCCCCC.HHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIJJJJJ................................", // 12
+  "......BBBBBBBCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIJJJJJJ...............................", // 13
+  ".....BBBBBBBCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJ...............................", // 14
+  ".......BBBBBCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJ..............................", // 15
+  "..........CCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJ..............................", // 16
+  "..........CCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJ.............................", // 17
+  "..........CCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJ.............................", // 18
+  "............CCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJ..............................", // 19
+  "............CCCCCCCCCCCCCCC.HHHHHHHHHHHHHHHHHHH.JJJJJJJJJJJJJJJJJJJJJJJJ................................", // 20
+  "..............CCCCCCCCCCC.....HHHHHHHHHHHHHHH.....JJJJJJJJJJJJJJJJJJJJJ.................................", // 21
+  "..............CCCCCCCCCCC......HHHHHHHHHHHHHHH....JJJJJJJJJJJJJJJJ......................................", // 22
+  "................CCCCCCC..........HHHHHHHHHHH........JJJJJJJJJJJJ........................................", // 23
+  "........................................................................................................", // 24
+  "........................................................................................................", // 25
+  "...............DDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFF.............................SSSSSSSSS........", // 26
+  "..............DDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFF.........................SSSSSSSSSSSSS......", // 27
+  "..............DDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFF................RRRRRRRRRSSSSSSSSSSSSS......", // 28
+  "..............DDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFF............RRRRRRRRRRSSSSSSSSSSSSSSSS....", // 29
+  ".......KKK....DDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFF............RRRRRRRRRSSSSSSSSSSSSSSSS.....", // 30
+  ".....KKKKKKL..DDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF..........RRRRRRRRRRSSSSSSSSSSSSSSSSSS....", // 31
+  "......KKKKKKLLLDDDDDDDLLLLLEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF............RRRRRRRRSSSSSSSSSSSSSSSSSSS....", // 32
+  "....KKKKKKKKKLLDDDDDDDLLLLLEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF............RRRRRRRRSSSSSSSSSSSSSSSSSSSS....", // 33
+  "....KKKKKKKKKLLLLLLLLLLLLLLLEEEEEEEEEOOOOFFFFFFFFFFFFFFFFFF.............RRRRRRRSSSSSSSSSSSSSSSSSSSSS....", // 34
+  "...KKKKKKKKKLLLLLLLLLLLLLLLLEEEEEEEEOOOOOFFFFFFFFFFFFFFFFF...............RRRRRRRRRRRSSSSSSSSSSSSSSS.....", // 35
+  "...KKKKKKKKLLLLLLLLLLLLLLLLEEEEEEEEOOOOOOOOOOOOOOOOOOOOOOO...............RRRRRRRRRRRSSSSSSSSSSSSSSS.....", // 36
+  "....KKKKKKLLLLLLLLLLLLLLLLLEEEEEEEOOOOOOOOOOOOOOOOOOOOOOOO................RRRRRRRRRRSSSSSSSSSSSSS.......", // 37
+  "...KKKKKKLLLLLLLLLLLLLLLLLLOOOEEEOOOOOOOOOOOOOOOOOOOOOO...................RRRRRRRRRRSSSSSSSSSSSSS.......", // 38
+  ".....KKKLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOO.....................RRRRRRRRRSSSSSSSSSSS.........", // 39
+  "....KKKKKKKK..LLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQ............RRRRRRRRRRSSSSSSSSSSS.........", // 40
+  ".....KKKKKK...LLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQ...........RRRRRRRRRSSSSSSSSSS..........", // 41
+  ".....MMMMMMMMMMLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQ............RRRRRRRTTTTTTTTTTTT..........", // 42
+  "....MMMMMMMMMMMLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQ...........RRRRRRTTTTTTTTTTTTTT........", // 43
+  ".....MMMMMMMMMMMMNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQ.............TTTTTTTTTTTTTTTTTT.........", // 44
+  "....MMMMMMMMMMMMMMNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQ...........TTTTTTTTTTTTTTTTTTTTT.......", // 45
+  "....MMMMMMMMMMMMMNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQ...........TTTTTTTTTTTTTTTTTTTT........", // 46
+  ".....MMMMMMMMMMMNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQ............TTTTTTTTTTTTTTTTTTTTT.......", // 47
+  "....MMMMMMMMMMMNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQ...........TTTTTTTTTTTTTTTTTTTTT.......", // 48
+  ".....MMMMMMMMMMNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOPQQQQQQQQQQQQQQQQQ..............TTTTTTTTTTTTTTTTTTT.......", // 49
+  ".....MMMMMMMMMNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQ.............TTTTTTTTTTTTTTTTTTTT.......", // 50
+  "....MMMMMMMM...NNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQ................TTTTTTTTTTTTTTTTT........", // 51
+  ".....MMMM.....NNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQ.................TTTTTTTTTTTTTTTT.........", // 52
+  "....MMM.........NNNNNPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQ.....................TTTTTTTTTTTT...........", // 53
+  "....MMM..............PPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQ.......................TTTTTTTTTTT............", // 54
+  ".......................PPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQ...........................TTTTTTT..............", // 55
+  "........................PPPPPPPPPPPPPPPPP..........................................TTTT.................", // 56
+  "..........................PPPPPPPPPPPPP............................................TTTT.................", // 57
+  "...........................PPPPPPPPPPP..................................................................", // 58
+  ".............................PPPPPPP....................................................................", // 59
+];
+
+export const MICRO_TEMPLATE_WIDE: string[] = [
+  "...........BBBBB.............AAAA.......................GGGGGG..........................................................................", // 0
   "..........BBBBBBB...........AAAAAA.....................GGGGGGGG.........................................................................", // 1
-  "........BBBBBBBBBBBB.....AAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG....IIIIIIIIIIIII...................................................", // 2
-  ".......BBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIII...............................................", // 3
-  "......BBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIII............................................", // 4
-  "......BBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIIII............................................", // 5
-  "......BBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGHHHHHHHHGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 6
-  "......BBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGHHHHHHHHGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 7
-  ".......BBBBBBBBBBCCCCCCCCCCCCCCCCCCCC.HHHHHHHHHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIIIIIIJJJJJJJJ........................................", // 8
-  "........BBBBBBBBCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ........................................", // 9
-  "..............CCCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ.....................................", // 10
-  "...............CCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ.....................................", // 11
-  ".................CCCCCCCCCCCCCCCCC....HHHHHHHHHHHHHHHHHHHHHHH....JJJJJJJJJJJJJJJJJJJJJJJJJJJJ...........................................", // 12
-  ".................CCCCCCCCCCCCCCCCC....HHHHHHHHHHHHHHHHHHHHHHH....JJJJJJJJJJJJJJJJJJJJJJJJJJJJ...........................................", // 13
-  "....................CCCCCCCCCCCC..........HHHHHHHHHHHHHHHHH........JJJJJJJJJJJJJJJJJJ...................................................", // 14
-  "..................................DDDD..................................................................................................", // 15
-  "...................DDDDDDDDDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFFFFFFFFFF..........................................SSSSSSSSSSS......", // 16
-  "...................DDDDDDDDDDDDDDD.EEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFF...........................RRRRRRRRRRRRSSSSSSSSSSSSSSSSSS..", // 17
-  "........KKKKKKK....DDDDDDDDDDDDD.EEEEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS", // 18
-  ".......KKKKKKKKK...DDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS", // 19
-  "......KKKKKKKKKKKLLLLLLLDDDDDDDDDLLLLLEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFFF.........................RRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS", // 20
-  "....KKKKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFF............................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS", // 21
-  "....KKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLLLEEEEEEEEOOOOOOOOOOOOOOOOOO.FFFFFFFFFFFF..........................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS..", // 22
-  "......KKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLLEEEEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO..........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSSS...", // 23
-  ".......KKKKKKKKKKLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOO.QQQQQQQQQQQQQ........................RRRRRRRRRRRSSSSSSSSSSSSSS........", // 24
-  ".......KKKKKKKKLLLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQ........................RRRRRRRRRRRSSSSSSSSSSSSS.........", // 25
-  ".......MMMMMMMMMMMLLLLLLLLLLLLLLNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO.QQQQQQQQQQQQQQQ........................RRRRRRRRRTTTTTTTTTTTTTTTTT.......", // 26
-  "......MMMMMMMMMMMMMMNNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTTT......", // 27
-  "......MMMMMMMMMMMMMNNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQ........................TTTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 28
-  ".......MMMMMMMMMMMMNNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQQQ.........................TTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 29
-  ".......MMMMMMMMMM..NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 30
-  ".......MMMMMMMMMM..NNNNNNNNNNNNNNN.PPPPPPPPPPPPPPPPPPP.......QQQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 31
-  "......MMMMM.........NNNNNNNNNNNNN...PPPPPPPPPPPPPP............QQQQQQQQQQQQQQQQQ.............................TTTTTTTTTTTTTTTTTT..........", // 32
-  "......MM..............NNNNNNNNNN.....PPPPPPPPPPPP...............QQQQQQQQQQQQQ...................................TTTTTTTTTTTT............", // 33
-  "........................NNNNN..........PPPPPPPP...................QQQQQQQQ...........................................TTTTTTTTT..........", // 34
-  ".........................................PPPP...........................................................................................", // 35
+  "..........BBBBBBB...........AAAAAA.....................GGGGGGGG.........................................................................", // 2
+  ".........BBBBBBBBB.........AAAAAAAA...................GGGGGGGGGG........................................................................", // 3
+  ".........BBBBBBBBBB.......AAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGG......IIIIIIIIIII....................................................", // 4
+  ".......BBBBBBBBBBBBBA...AAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGG..IIIIIIIIIIIIIII..................................................", // 5
+  "........BBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIII................................................", // 6
+  "......BBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIII..............................................", // 7
+  ".......BBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 8
+  "......BBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIIII............................................", // 9
+  "......BBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII............................................", // 10
+  "......BBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIII............................................", // 11
+  "......BBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGHHHHHHHHGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIII............................................", // 12
+  "......BBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGHHHHHHHHGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIII.............................................", // 13
+  "......BBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGHHHHHHHHGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 14
+  ".......BBBBBBBBBBAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGHHHHHHHHGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 15
+  "......BBBBBBBBBBBCCCCCCCCCCCCCCCCCCCC.HHHHHHHHHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIIIIIIJJJJJJJ.........................................", // 16
+  "........BBBBBBBBBCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIIIIIIJJJJJJJJ........................................", // 17
+  ".......BBBBBBBBBCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJ........................................", // 18
+  ".........BBBBBBBCCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ.......................................", // 19
+  "..............CCCCCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ......................................", // 20
+  "..............CCCCCCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ.....................................", // 21
+  "..............CCCCCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ.....................................", // 22
+  "................CCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ......................................", // 23
+  "................CCCCCCCCCCCCCCCCCCC..HHHHHHHHHHHHHHHHHHHHHHHHH..JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ..........................................", // 24
+  ".................CCCCCCCCCCCCCCCCC....HHHHHHHHHHHHHHHHHHHHHHH....JJJJJJJJJJJJJJJJJJJJJJJJJJJJ...........................................", // 25
+  ".................CCCCCCCCCCCCCCCCC....HHHHHHHHHHHHHHHHHHHHHHH....HJJJJJJJJJJJJJJJJJJJJJJJJJJJ...........................................", // 26
+  "..................CCCCCCCCCCCCCCC......HHHHHHHHHHHHHHHHHHHHH......HJJJJJJJJJJJJJJJJJJJJJJJJJ............................................", // 27
+  "...................CCCCCCCCCCCCCC........HHHHHHHHHHHHHHHHHHH......JJJJJJJJJJJJJJJJJJJJ..................................................", // 28
+  ".....................CCCCCCCCCC............HHHHHHHHHHHHHHH..........JJJJJJJJJJJJJJJJ....................................................", // 29
+  "...................................DD...................................................................................................", // 30
+  "..................................DDDD..................................................................................................", // 31
+  "....................DDDDDDDDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFFFFFFFFF............................................SSSSSSSSS.......", // 32
+  "...................DDDDDDDDDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFFFFFFFFFF.........................................SSSSSSSSSSSSS.....", // 33
+  "...................DDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFFF............................RRRRRRRRRRRRSSSSSSSSSSSSSSSS...", // 34
+  "...................DDDDDDDDDDDDDDD.EEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFF..........................RRRRRRRRRRRRSSSSSSSSSSSSSSSSSSS.", // 35
+  ".........KKKKK.....DDDDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS.", // 36
+  ".......KKKKKKKKK...DDDDDDDDDDDDD.DDDDEEEEEEEEEEEEEEEEEEE.EEFFFFFFFFFFFFFFFFFFFFF.......................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS", // 37
+  "........KKKKKKK....DDDDDDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSSSSS", // 38
+  "......KKKKKKKKKKK..DDDDDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEE.EEFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSSSSSS", // 39
+  ".......KKKKKKKKKKKKLLLLLDDDDDDDDDLLLLLEEEEEEEEEEEEEEEEEE.EFFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRSSSSSSSSSSSSSSSSSSSSS", // 40
+  ".....KKKKKKKKKKKKKLLLLLLDDDDDDDDDLLLLLEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFFF.........................RRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS", // 41
+  ".....KKKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFF...........................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS", // 42
+  "....KKKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLLEEEEEEEEEEEEEEEEEFF.FFFFFFFFFFFFFFFFF............................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS", // 43
+  "....KKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLLLEEEEEEEEEOOOOOOOOOOOOOOOOOFFFFFFFFFFFFF..........................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSS.", // 44
+  ".....KKKKKKKKKLLLLLLLLLLLLLLLLLLLLLLLLEEEEEEEEOOOOOOOOOOOOOOOOOO.FFFFFFFFFFFF..........................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSS...", // 45
+  ".....KKKKKKKKLLLLLLLLLLLLLLLLLLLLLLLLLLEEEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO..........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS..", // 46
+  ".......KKKKKLLLLLLLLLLLLLLLLLLLLLLLLLLLEEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO..........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSS....", // 47
+  "......KKKKKLLLLLLLLLLLLLLLLLLLLLLLLLLOEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQ.........................RRRRRRRRRRRSSSSSSSSSSSSSSS.......", // 48
+  ".......KKKKKKKKKKLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOO.OQQQQQQQQQQQQ........................RRRRRRRRRRRSSSSSSSSSSSSS.........", // 49
+  ".......KKKKKKKKLLLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQ........................RRRRRRRRRRRSSSSSSSSSSSSSS........", // 50
+  ".......KKKKKKKKLLLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQ........................RRRRRRRRRRRSSSSSSSSSSSSS.........", // 51
+  ".......MMMMMMMMMMMLLLLLLLLLLLLLLNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQ........................RRRRRRRRRTTTTTTTTTTTTTTTT........", // 52
+  "......MMMMMMMMMMMMLLLLLLLLLLLLLLNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO.QQQQQQQQQQQQQQQ.........................RRRRRRRRTTTTTTTTTTTTTTTTTT......", // 53
+  ".......MMMMMMMMMMMMMMNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOO..QQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT.......", // 54
+  "......MMMMMMMMMMMMMMMMNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQQ........................TTTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 55
+  "......MMMMMMMMMMMMMMMMMNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO..QQQQQQQQQQQQQQQ.........................TTTTTTTTTTTTTTTTTTTTTTTTTT......", // 56
+  ".......MMMMMMMMMMMMMMMNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQ........................TTTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 57
+  "......MMMMMMMMMMMMMMMNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQQ........................TTTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 58
+  ".......MMMMMMMMMMMMMNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOO..QQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 59
+  ".......MMMMMMMMMMM.NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQQQQ.........................TTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 60
+  ".......MMMMMMMMMM..NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 61
+  ".......MMMMMMMMMM..NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPP.....QQQQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 62
+  "......MMMMMMMMMM....NNNNNNNNNNNNNN.PPPPPPPPPPPPPPPPPP.........QQQQQQQQQQQQQQQQQ............................TTTTTTTTTTTTTTTTTTTTTTT......", // 63
+  ".......MMMMM.......NNNNNNNNNNNNNNN.PPPPPPPPPPPPPPPP..........QQQQQQQQQQQQQQQQQQQ...........................TTTTTTTTTTTTTTTTTTTT.........", // 64
+  "......MMMM...........NNNNNNNNNNN.....PPPPPPPPPPPPQ.............QQQQQQQQQQQQQQQ...............................TTTTTTTTTTTTTTTT...........", // 65
+  "......MMM............NNNNNNNNNNNN...PPPPPPPPPPPQQQ.............QQQQQQQQQQQQQQQ.................................TTTTTTTTTTTTTT...........", // 66
+  ".......................NNNNNNNN.......PPPPPPPPQQQ................QQQQQQQQQQQ.....................................TTTTTTTTTTT............", // 67
+  ".......................NNNNNNN........PPPPPPPPPP.................QQQQQQQQQQ.........................................TTTTTTTTTT..........", // 68
+  ".........................NNN............PPPPPP.....................QQQQQQ.............................................TTTTTTTT..........", // 69
+  "........................................PPPPPP..........................................................................................", // 70
+  "..........................................PP............................................................................................", // 71
 ];
 
+
+export const GRID_TEMPLATE_COMPACT: string[] = deriveCoarseTemplateFromMicro(MICRO_TEMPLATE_COMPACT);
+export const GRID_TEMPLATE_WIDE: string[] = deriveCoarseTemplateFromMicro(MICRO_TEMPLATE_WIDE);
 export const GRID_TEMPLATE = GRID_TEMPLATE_WIDE;
 
 export const GRID_TERRITORIES_COMPACT: GridTerritoryMetadata[] = [
@@ -655,11 +748,10 @@ export const GRID_SEA_ROUTES_COMPACT: GridSeaRoute[] = [
     from: "C4",
     to: "F1",
     path: [
-      { x: 64, y: 10 },
-      { x: 66, y: 11 },
-      { x: 69, y: 12 },
-      { x: 72, y: 13 },
-      { x: 75, y: 14 },
+      { x: 65, y: 11 },
+      { x: 68, y: 12 },
+      { x: 71, y: 13 },
+      { x: 74, y: 14 },
     ],
   },
   // E3 <-> F1 (Mist Strait)
@@ -669,9 +761,9 @@ export const GRID_SEA_ROUTES_COMPACT: GridSeaRoute[] = [
     path: [
       { x: 62, y: 20 },
       { x: 65, y: 20 },
-      { x: 69, y: 19 },
-      { x: 72, y: 18 },
-      { x: 75, y: 18 },
+      { x: 68, y: 19 },
+      { x: 71, y: 19 },
+      { x: 73, y: 18 },
     ],
   },
 ];
@@ -820,6 +912,7 @@ export const MAP_GRID_IRONREACH_COMPACT: GridMapDefinition = {
   recommendedPlayers: { min: 2, max: 6 },
   width: GRID_CANVAS_COMPACT_WIDTH,
   height: GRID_CANVAS_COMPACT_HEIGHT,
+  microTemplate: MICRO_TEMPLATE_COMPACT,
   template: GRID_TEMPLATE_COMPACT,
   charToTerritoryId: CHAR_TO_TERRITORY_ID,
   territoryIdToChar: TERRITORY_ID_TO_CHAR,
@@ -837,6 +930,7 @@ export const MAP_GRID_IRONREACH_WIDE: GridMapDefinition = {
   recommendedPlayers: { min: 2, max: 6 },
   width: GRID_CANVAS_WIDE_WIDTH,
   height: GRID_CANVAS_WIDE_HEIGHT,
+  microTemplate: MICRO_TEMPLATE_WIDE,
   template: GRID_TEMPLATE_WIDE,
   charToTerritoryId: CHAR_TO_TERRITORY_ID,
   territoryIdToChar: TERRITORY_ID_TO_CHAR,
