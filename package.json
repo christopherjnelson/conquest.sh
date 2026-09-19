@@ -11,6 +11,8 @@
     "server": "bun run apps/server/src/index.ts",
     "client": "bun run apps/client/src/index.ts",
     "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run test && bun run typecheck",
     "build": "bun run --filter '*' build"
   },
   "devDependencies": {

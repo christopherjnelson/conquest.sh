@@ -1,0 +1,11 @@
+node_modules
+.git
+.github
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+.conquest-session.json
+tests
+*.png
+*.log

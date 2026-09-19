@@ -86,4 +86,13 @@ export class SessionStore {
       this.db.query("UPDATE sessions SET last_seen_at = ? WHERE token = ?").run(now, token);
     }
   }
+
+  clearRoom(token: string) {
+    const now = Date.now();
+    this.db.query("UPDATE sessions SET room_code = NULL, last_seen_at = ? WHERE token = ?").run(now, token);
+  }
+
+  delete(token: string) {
+    this.db.query("DELETE FROM sessions WHERE token = ?").run(token);
+  }
 }

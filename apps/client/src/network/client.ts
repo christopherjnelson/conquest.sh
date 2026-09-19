@@ -1,17 +1,25 @@
-import type {
-  ClientAttack,
-  ClientChat,
-  ClientDeploy,
-  ClientEndTurn,
-  ClientFortify,
-  ClientJoin,
-  ClientMessage,
-  ClientPing,
-  ClientReady,
-  ClientSkipPhase,
-  GameEvent,
-  GameState,
-  ServerMessage,
+import {
+  ServerInfoSchema,
+  RoomSummarySchema,
+  RoomSummariesSchema,
+  type ClientAttack,
+  type ClientChat,
+  type ClientCreateRoom,
+  type ClientDeploy,
+  type ClientEndTurn,
+  type ClientFortify,
+  type ClientJoin,
+  type ClientLeaveRoom,
+  type ClientMessage,
+  type ClientPing,
+  type ClientReady,
+  type ClientSkipPhase,
+  type GameEvent,
+  type GameState,
+  type RoomSummary,
+  type RoomVisibility,
+  type ServerInfo,
+  type ServerMessage,
 } from "@conquest/protocol";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -59,7 +67,14 @@ export class GameClient {
   private snapshotListeners = new Set<(state: GameState, myPlayerId: string) => void>();
   private eventListeners = new Set<(event: GameEvent) => void>();
   private statusListeners = new Set<(status: ConnectionStatus, error?: string) => void>();
-  private errorListeners = new Set<(msg: string) => void>();
+  private errorListeners = new Set<(msg: string, code?: string) => void>();
+
+  public get httpUrl(): string {
+    if (this.wsUrl.startsWith("wss://")) {
+      return this.wsUrl.replace("wss://", "https://");
+    }
+    return this.wsUrl.replace("ws://", "http://");
+  }
 
   constructor(options: GameClientOptions = {}) {
     this.options = options;
@@ -340,7 +355,12 @@ export class GameClient {
         }
 
         case "server:error": {
-          this.notifyError(msg.message);
+          if (["JOIN_FAILED", "ROOM_NOT_FOUND", "ROOM_FULL", "GAME_ALREADY_STARTED", "INVALID_ROOM_CODE"].includes(msg.code)) {
+            this.roomCode = null;
+            this.explicitRoomCode = undefined;
+            this.state = null;
+          }
+          this.notifyError(msg.message, msg.code);
           break;
         }
 
@@ -370,8 +390,12 @@ export class GameClient {
     const previousName = this.playerName;
     this.playerName = name;
     if (roomCode) {
-      this.explicitRoomCode = roomCode;
-      this.roomCode = roomCode;
+      const normalizedCode = roomCode.trim().toUpperCase();
+      this.explicitRoomCode = normalizedCode;
+      this.roomCode = normalizedCode;
+    } else if (this.explicitRoomCode) {
+      this.explicitRoomCode = this.explicitRoomCode.trim().toUpperCase();
+      this.roomCode = this.explicitRoomCode;
     }
 
     if (!this.options.sessionFilePath && (!previousName || previousName !== name)) {
@@ -522,11 +546,77 @@ export class GameClient {
     };
   }
 
-  public onError(cb: (msg: string) => void): () => void {
+  public onError(cb: (msg: string, code?: string) => void): () => void {
     this.errorListeners.add(cb);
     return () => {
       this.errorListeners.delete(cb);
     };
+  }
+
+  public createRoom(
+    options: {
+      playerName?: string;
+      displayName?: string;
+      roomName?: string;
+      visibility?: RoomVisibility;
+      maxPlayers?: number;
+    } = {}
+  ): void {
+    if (options.playerName) {
+      this.playerName = options.playerName;
+    }
+    const msg: ClientCreateRoom = {
+      type: "client:create_room",
+      playerName: this.playerName,
+      displayName: options.displayName ?? options.roomName,
+      visibility: options.visibility ?? "public",
+      maxPlayers: options.maxPlayers ?? 4,
+      sessionToken: this.sessionToken ?? undefined,
+    };
+    this.send(msg);
+  }
+
+  public quickMatch(playerName?: string): void {
+    if (playerName) {
+      this.playerName = playerName;
+    }
+    this.explicitRoomCode = undefined;
+    this.join(this.playerName);
+  }
+
+  public leaveRoom(): void {
+    if (this.roomCode) {
+      const msg: ClientLeaveRoom = {
+        type: "client:leave_room",
+      };
+      this.send(msg);
+    }
+    this.roomCode = null;
+    this.explicitRoomCode = undefined;
+    this.state = null;
+    this.clearSession();
+  }
+
+  public async fetchServerInfo(): Promise<ServerInfo> {
+    const res = await fetch(`${this.httpUrl}/api/server`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch server info: HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    return ServerInfoSchema.parse(data);
+  }
+
+  public async fetchRooms(): Promise<RoomSummary[]> {
+    const res = await fetch(`${this.httpUrl}/api/rooms`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch rooms: HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    return RoomSummariesSchema.parse(data);
+  }
+
+  public getCachedSession(): SessionData | null {
+    return this.loadSession();
   }
 
   private notifySnapshot(state: GameState, myPlayerId: string): void {
@@ -559,10 +649,10 @@ export class GameClient {
     }
   }
 
-  private notifyError(msg: string): void {
+  private notifyError(msg: string, code?: string): void {
     for (const listener of this.errorListeners) {
       try {
-        listener(msg);
+        listener(msg, code);
       } catch (err) {
         console.error("Error in error listener:", err);
       }

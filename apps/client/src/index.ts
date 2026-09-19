@@ -3,17 +3,22 @@ import { createRoot } from "@opentui/react";
 import React from "react";
 import { GameClient } from "./network/client.js";
 import { App } from "./ui/App.js";
+import { ClientShell } from "./ui/ClientShell.js";
+
+export * from "./ui/ClientShell.js";
 
 const RESERVED_FLAGS = new Set([
   "--server",
   "--name",
   "--room",
+  "--quick",
   "--new",
   "--help",
   "--host",
   "-s",
   "-n",
   "-r",
+  "-q",
   "-h",
 ]);
 
@@ -21,12 +26,14 @@ export function parseArgs(rawArgs: string[] = process.argv.slice(2), exitOnHelp 
   server: string;
   name: string;
   room?: string;
+  quick: boolean;
   forceNew: boolean;
 } {
   const args = rawArgs;
-  let server = "localhost:4000";
+  let server = process.env.CONQUEST_SERVER || "localhost:4000";
   let name = `Agent-${Math.floor(Math.random() * 1000)}`;
   let room: string | undefined = undefined;
+  let quick = false;
   let forceNew = false;
   let nameSetByName = false;
   let nameSetByPositionalOrTypo = false;
@@ -61,11 +68,16 @@ export function parseArgs(rawArgs: string[] = process.argv.slice(2), exitOnHelp 
         nameSetByName = true;
       }
     } else if (arg === "--room" || arg === "-r") {
-      room = args[++i] || undefined;
+      const val = args[++i];
+      room = val ? val.trim().toUpperCase() : undefined;
     } else if (arg.startsWith("--room=")) {
-      room = arg.slice("--room=".length) || undefined;
+      const val = arg.slice("--room=".length);
+      room = val ? val.trim().toUpperCase() : undefined;
     } else if (arg.startsWith("-r=")) {
-      room = arg.slice("-r=".length) || undefined;
+      const val = arg.slice("-r=".length);
+      room = val ? val.trim().toUpperCase() : undefined;
+    } else if (arg === "--quick" || arg === "-q") {
+      quick = true;
     } else if (arg === "--new") {
       forceNew = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -89,7 +101,7 @@ export function parseArgs(rawArgs: string[] = process.argv.slice(2), exitOnHelp 
 
   if (showHelp) {
     console.log(`
-CONQUEST.SH - Cyberpunk Terminal Strategy Game
+CONQUEST.SH — A Terminal Strategy Game
 
 Playing as: ${name}
 
@@ -97,9 +109,10 @@ Usage:
   ./conquest.sh [options] [player-name]
 
 Options:
-  --server, --host, -s <host:port>   Server address (default: localhost:4000)
+  --server, --host, -s <host:port>   Server address (default: CONQUEST_SERVER or localhost:4000)
   --name, -n <player-name>           Player handle (default: Agent-XXX)
-  --room, -r <room-code>             Room code to join or create
+  --room, -r <room-code>             Directly join room by code
+  --quick, -q                        Immediately enter Quick Match
   --new                              Force new session (disregard cached credentials)
   --help, -h                         Show this manual
 `);
@@ -108,11 +121,11 @@ Options:
     }
   }
 
-  return { server, name, room, forceNew };
+  return { server, name, room, quick, forceNew };
 }
 
 async function main() {
-  const { server, name, room, forceNew } = parseArgs();
+  const { server, name, room, quick, forceNew } = parseArgs();
 
   console.log(`Playing as: ${name}`);
 
@@ -153,13 +166,24 @@ async function main() {
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
 
-  // Render OpenTUI React Tree
-  root.render(React.createElement(App, { client, onExit: cleanup }));
+  // Render OpenTUI React Tree with ClientShell
+  root.render(
+    React.createElement(ClientShell, {
+      client,
+      initialRoomCode: room,
+      initialQuick: quick,
+      onExit: cleanup,
+    })
+  );
 
-  // Initiate connection and join
+  // Initiate connection
   try {
     await client.connect();
-    client.join(name, room);
+    if (quick) {
+      client.quickMatch(name);
+    } else if (room) {
+      client.join(name, room);
+    }
   } catch {
     // If connection initially fails, auto-reconnect logic in GameClient will handle retries
   }

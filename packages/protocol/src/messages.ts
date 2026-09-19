@@ -1,14 +1,25 @@
 import { z } from "zod";
 import { GameEventSchema, GameStateSchema } from "./events.js";
+import { RoomVisibilitySchema, RoomCodeSchema } from "./api.js";
 
 // Client -> Server Messages
 export const ClientJoinSchema = z.object({
   type: z.literal("client:join"),
   name: z.string().min(1).max(24),
-  roomCode: z.string().optional(),
+  roomCode: RoomCodeSchema.optional(),
   sessionToken: z.string().optional(),
 });
 export type ClientJoin = z.infer<typeof ClientJoinSchema>;
+
+export const ClientCreateRoomSchema = z.object({
+  type: z.literal("client:create_room"),
+  playerName: z.string().min(1).max(24),
+  sessionToken: z.string().optional(),
+  displayName: z.string().min(1).max(40).optional(),
+  visibility: RoomVisibilitySchema.default("public"),
+  maxPlayers: z.number().int().min(2).max(6).default(4),
+});
+export type ClientCreateRoom = z.infer<typeof ClientCreateRoomSchema>;
 
 export const ClientReadySchema = z.object({
   type: z.literal("client:ready"),
@@ -61,8 +72,15 @@ export const ClientPingSchema = z.object({
 });
 export type ClientPing = z.infer<typeof ClientPingSchema>;
 
+export const ClientLeaveRoomSchema = z.object({
+  type: z.literal("client:leave_room"),
+});
+export type ClientLeaveRoom = z.infer<typeof ClientLeaveRoomSchema>;
+
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   ClientJoinSchema,
+  ClientCreateRoomSchema,
+  ClientLeaveRoomSchema,
   ClientReadySchema,
   ClientDeploySchema,
   ClientAttackSchema,
