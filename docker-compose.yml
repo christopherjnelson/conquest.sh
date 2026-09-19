@@ -1,0 +1,26 @@
+services:
+  conquest-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: conquest-server:latest
+    container_name: conquest-server
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - CONQUEST_PORT=4000
+      - CONQUEST_SERVER_NAME=Conquest Realm
+      - CONQUEST_DB_PATH=/data/conquest.sqlite
+      - CONQUEST_MAX_PLAYERS=4
+    volumes:
+      - conquest-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e 'fetch(\"http://localhost:4000/health\").then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  conquest-data:

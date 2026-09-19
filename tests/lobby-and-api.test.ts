@@ -1,0 +1,588 @@
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { ConquestServer } from "../apps/server/src/server.js";
+import { GameClient } from "../apps/client/src/network/client.js";
+import {
+  ServerInfoSchema,
+  type ServerError,
+  type ServerSnapshot,
+} from "@conquest/protocol";
+import { MAP_GRID_IRONREACH } from "@conquest/map-engine";
+
+describe("Lobby, Discovery API & Custom Rooms", () => {
+  let server: ConquestServer;
+  let port: number;
+
+  const sessionFile1 = path.resolve(process.cwd(), ".conquest-test-lobby-1.json");
+  const sessionFile2 = path.resolve(process.cwd(), ".conquest-test-lobby-2.json");
+  const sessionFile3 = path.resolve(process.cwd(), ".conquest-test-lobby-3.json");
+
+  const cleanupSessionFiles = () => {
+    try {
+      if (fs.existsSync(sessionFile1)) fs.unlinkSync(sessionFile1);
+      if (fs.existsSync(sessionFile2)) fs.unlinkSync(sessionFile2);
+      if (fs.existsSync(sessionFile3)) fs.unlinkSync(sessionFile3);
+    } catch {
+      // ignore
+    }
+  };
+
+  beforeAll(() => {
+    cleanupSessionFiles();
+    server = new ConquestServer({
+      port: 0,
+      serverName: "Apex-Ironreach-Prime",
+      defaultMap: MAP_GRID_IRONREACH,
+      maxPlayersPerRoom: 4,
+    });
+    server.start();
+    port = server.port;
+  });
+
+  afterAll(() => {
+    server.stop();
+    cleanupSessionFiles();
+  });
+
+  describe("HTTP API endpoints", () => {
+    it("GET /health returns server health and counts", async () => {
+      const res = await fetch(`http://localhost:${port}/health`);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as any;
+      expect(data.status).toBe("ok");
+      expect(data.serverName).toBe("Apex-Ironreach-Prime");
+      expect(typeof data.roomsCount).toBe("number");
+      expect(typeof data.playersCount).toBe("number");
+    });
+
+    it("GET /api/server returns valid ServerInfo schema", async () => {
+      const res = await fetch(`http://localhost:${port}/api/server`);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      const parsed = ServerInfoSchema.safeParse(data);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.serverName).toBe("Apex-Ironreach-Prime");
+        expect(parsed.data.defaultMap).toBe("The Ironreach");
+        expect(parsed.data.roomsCount).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    it("GET /api/rooms and /rooms return empty array initially", async () => {
+      const res1 = await fetch(`http://localhost:${port}/api/rooms`);
+      expect(res1.status).toBe(200);
+      const rooms1 = await res1.json();
+      expect(Array.isArray(rooms1)).toBe(true);
+
+      const res2 = await fetch(`http://localhost:${port}/rooms`);
+      expect(res2.status).toBe(200);
+      const rooms2 = await res2.json();
+      expect(Array.isArray(rooms2)).toBe(true);
+    });
+  });
+
+  describe("Room Creation, Visibility & Joining", () => {
+    it("joining a non-existent room code returns ROOM_NOT_FOUND without creating a room", async () => {
+      const client = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+
+      await client.connect();
+
+      let receivedMsg: string | null = null;
+      let receivedCode: string | null = null;
+      client.onError((msg, code) => {
+        receivedMsg = msg;
+        receivedCode = code ?? null;
+      });
+
+      // Join a random 4-letter non-existent room
+      client.join("GhostRider", "ZZZZ");
+
+      // Wait a moment for the server to reply with error
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(String(receivedCode)).toBe("ROOM_NOT_FOUND");
+      expect(String(receivedMsg)).toContain("ZZZZ");
+
+      // Check that no room was created
+      const roomsRes = await fetch(`http://localhost:${port}/api/rooms`);
+      const rooms = (await roomsRes.json()) as any[];
+      expect(rooms.some((r) => r.roomCode === "ZZZZ")).toBe(false);
+
+      client.disconnect();
+    });
+
+    it("creates a public custom room that appears in /api/rooms", async () => {
+      const client = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+
+      await client.connect();
+
+      client.createRoom({
+        playerName: "CommanderAlpha",
+        roomName: "Fortress Valhalla",
+        visibility: "public",
+        maxPlayers: 3,
+      });
+
+      const snapshot = await client.waitForSnapshot((s) => s.phase === "lobby");
+      expect(snapshot).toBeDefined();
+      expect(client.roomCode).toBeDefined();
+      const code = client.roomCode!;
+
+      // Verify it appears in /api/rooms
+      const roomsRes = await fetch(`http://localhost:${port}/api/rooms`);
+      const rooms = (await roomsRes.json()) as any[];
+      const found = rooms.find((r) => r.roomCode === code);
+      expect(found).toBeDefined();
+      expect(found.displayName).toBe("Fortress Valhalla");
+      expect(found.maxPlayers).toBe(3);
+      expect(found.visibility).toBe("public");
+      expect(found.kind).toBe("custom");
+      expect(found.playersCount).toBe(1);
+
+      client.disconnect();
+    });
+
+    it("creates an unlisted room that does NOT appear in /api/rooms but can be joined by code", async () => {
+      const creator = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile2,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+
+      await creator.connect();
+
+      creator.createRoom({
+        playerName: "ShadowLead",
+        roomName: "Secret Bunker",
+        visibility: "unlisted",
+        maxPlayers: 2,
+      });
+
+      await creator.waitForSnapshot((s) => s.phase === "lobby");
+      const secretCode = creator.roomCode!;
+      expect(secretCode).toBeDefined();
+
+      // Verify it does NOT appear in /api/rooms
+      const roomsRes = await fetch(`http://localhost:${port}/api/rooms`);
+      const rooms = (await roomsRes.json()) as any[];
+      const secretRoomInPublic = rooms.find((r) => r.roomCode === secretCode);
+      expect(secretRoomInPublic).toBeUndefined();
+
+      // Joiner should be able to join using the code
+      const joiner = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile3,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+
+      await joiner.connect();
+      joiner.join("OperativeTwo", secretCode);
+
+      const joinerSnapshot = await joiner.waitForSnapshot((s) => s.phase === "lobby");
+      expect(joinerSnapshot).toBeDefined();
+      expect(joinerSnapshot.players.length).toBe(2);
+      expect(joinerSnapshot.players.some((p) => p.name === "ShadowLead")).toBe(true);
+      expect(joinerSnapshot.players.some((p) => p.name === "OperativeTwo")).toBe(true);
+
+      creator.disconnect();
+      joiner.disconnect();
+    });
+
+    it("custom room does not auto-start when players reach max until players ready up", async () => {
+      cleanupSessionFiles();
+
+      const p1 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p1.connect();
+      p1.createRoom({
+        playerName: "PlayerOne",
+        roomName: "Dueling Grounds",
+        visibility: "public",
+        maxPlayers: 2,
+      });
+      await p1.waitForSnapshot((s) => s.phase === "lobby");
+      const roomCode = p1.roomCode!;
+
+      const p2 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile2,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p2.connect();
+      p2.join("PlayerTwo", roomCode);
+      await p2.waitForSnapshot((s) => s.phase === "lobby" && s.players.length === 2);
+
+      // Even though 2/2 players joined, phase must STILL be "lobby"
+      await new Promise((r) => setTimeout(r, 200));
+      expect(p1.state?.phase).toBe("lobby");
+      expect(p2.state?.phase).toBe("lobby");
+
+      // Player 1 readies up
+      p1.ready(true);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(p1.state?.phase).toBe("lobby");
+
+      // Player 2 readies up -> NOW it transitions to deployment/game start
+      p2.ready(true);
+      const gameStarted = await p1.waitForSnapshot((s) => s.phase === "deployment");
+      expect(gameStarted.phase).toBe("deployment");
+
+      p1.disconnect();
+      p2.disconnect();
+    });
+
+    it("quick match does NOT place players into open custom rooms", async () => {
+      cleanupSessionFiles();
+
+      // Create an open custom room with 4 slots
+      const customClient = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await customClient.connect();
+      customClient.createRoom({
+        playerName: "CustomHost",
+        roomName: "Custom Hangout",
+        visibility: "public",
+        maxPlayers: 4,
+      });
+      await customClient.waitForSnapshot((s) => s.phase === "lobby");
+      const customCode = customClient.roomCode!;
+
+      // Now client 2 performs quick match (no roomCode specified)
+      const quickClient = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile2,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await quickClient.connect();
+      quickClient.quickMatch("QuickPlayer");
+
+      await quickClient.waitForSnapshot((s) => s.phase === "lobby" || s.phase === "deployment");
+
+      // Quick match room must be different from custom room!
+      expect(quickClient.roomCode).not.toBe(customCode);
+
+      customClient.disconnect();
+      quickClient.disconnect();
+    });
+  });
+
+  describe("Client HTTP & Utility Methods", () => {
+    it("GameClient.fetchServerInfo() and fetchRooms() work over HTTP", async () => {
+      const client = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+
+      const serverInfo = await client.fetchServerInfo();
+      expect(serverInfo.serverName).toBe("Apex-Ironreach-Prime");
+      expect(serverInfo.defaultMap).toBe("The Ironreach");
+
+      const rooms = await client.fetchRooms();
+      expect(Array.isArray(rooms)).toBe(true);
+    });
+
+    it("GameClient.getCachedSession() reads stored session tokens", async () => {
+      const testSessionPath = path.resolve(process.cwd(), ".conquest-test-cache-probe.json");
+      fs.writeFileSync(
+        testSessionPath,
+        JSON.stringify({
+          token: "token-abc-123",
+          roomCode: "TEST",
+          playerId: "p1",
+          playerName: "Prober",
+        }),
+        "utf-8"
+      );
+
+      const client = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: testSessionPath,
+        forceNewSession: false,
+        autoReconnect: false,
+      });
+
+      const cached = client.getCachedSession();
+      expect(cached).not.toBeNull();
+      expect(cached?.token).toBe("token-abc-123");
+      expect(cached?.roomCode).toBe("TEST");
+      expect(cached?.playerName).toBe("Prober");
+
+      try {
+        fs.unlinkSync(testSessionPath);
+      } catch {
+        // ignore
+      }
+    });
+  });
+
+  describe("TUI Front Door Components", () => {
+    let React: any;
+    let act: any;
+    let testRender: any;
+
+    beforeAll(async () => {
+      // @ts-ignore
+      React = (await import("../apps/client/node_modules/react/index.js")).default;
+      // @ts-ignore
+      act = (await import("../apps/client/node_modules/react/index.js")).act;
+      // @ts-ignore
+      testRender = (await import("../apps/client/node_modules/@opentui/react/test-utils.js")).testRender;
+    });
+
+    it("renders HomeScreen menu options and header", async () => {
+      const { HomeScreen } = await import("../apps/client/src/ui/HomeScreen.js");
+
+      let actionTriggered = false;
+
+      const setup = await testRender(
+        React.createElement(HomeScreen, {
+          serverName: "Apex-Ironreach-Prime",
+          serverHost: `localhost:${port}`,
+          connectionStatus: "connected",
+          playerName: "CommanderVanguard",
+          cachedSession: {
+            sessionToken: "sess_123",
+            playerId: "usr_123",
+            playerName: "CommanderVanguard",
+            roomCode: "R9XK",
+          },
+          onQuickMatch: () => { actionTriggered = true; },
+          onBrowseGames: () => {},
+          onCreateGame: () => {},
+          onJoinByCode: () => {},
+          onResumeGame: () => {},
+          onServerInfo: () => {},
+          onQuit: () => {},
+          terminalDimensions: { columns: 120, rows: 40 },
+        }),
+        { width: 120, height: 40 }
+      );
+
+      await act(async () => {
+        await setup.renderOnce();
+      });
+
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("CONQUEST.SH");
+      expect(frame).toContain("RESUME [R9XK]");
+      expect(frame).toContain("QUICK MATCH");
+      expect(frame).toContain("BROWSE GAMES");
+      expect(frame).toContain("CREATE GAME");
+      expect(frame).toContain("JOIN BY CODE");
+      expect(frame).toContain("Apex-Ironreach-Prime");
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    });
+
+    it("renders RoomBrowser in empty and populated states", async () => {
+      const { RoomBrowser } = await import("../apps/client/src/ui/RoomBrowser.js");
+
+      // 1. Empty state
+      const mockClientEmpty: any = {
+        wsUrl: "ws://localhost:4000",
+        fetchRooms: async () => [],
+      };
+
+      const setupEmpty = await testRender(
+        React.createElement(RoomBrowser, {
+          client: mockClientEmpty,
+          onJoinRoom: () => {},
+          onBack: () => {},
+          terminalDimensions: { columns: 120, rows: 40 },
+        }),
+        { width: 120, height: 40 }
+      );
+
+      await act(async () => {
+        await setupEmpty.renderOnce();
+      });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
+      await act(async () => {
+        await setupEmpty.renderOnce();
+      });
+
+      const frameEmpty = setupEmpty.captureCharFrame();
+      expect(frameEmpty).toContain("PUBLIC GAMES");
+      expect(frameEmpty).toContain("No public rooms found.");
+      await act(async () => {
+        setupEmpty.renderer.destroy();
+      });
+
+      // 2. Populated state
+      const mockClientPopulated: any = {
+        wsUrl: "ws://localhost:4000",
+        fetchRooms: async () => [
+          {
+            roomCode: "M9LK",
+            displayName: "Northern Front",
+            playersCount: 3,
+            maxPlayers: 4,
+            phase: "lobby",
+            visibility: "public",
+            kind: "custom",
+            mapId: "ironreach",
+            mapName: "Ironreach Grid",
+            turnNumber: 0,
+            createdAt: Date.now() - 30000,
+          },
+        ],
+      };
+
+      const setupPopulated = await testRender(
+        React.createElement(RoomBrowser, {
+          client: mockClientPopulated,
+          onJoinRoom: () => {},
+          onBack: () => {},
+          terminalDimensions: { columns: 120, rows: 40 },
+        }),
+        { width: 120, height: 40 }
+      );
+
+      await act(async () => {
+        await setupPopulated.renderOnce();
+      });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
+      await act(async () => {
+        await setupPopulated.renderOnce();
+      });
+
+      const framePopulated = setupPopulated.captureCharFrame();
+      expect(framePopulated).toContain("Northern Front");
+      expect(framePopulated).toContain("M9LK");
+      expect(framePopulated).toContain("3 / 4");
+      await act(async () => {
+        setupPopulated.renderer.destroy();
+      });
+    });
+
+    it("renders CreateGameScreen form controls", async () => {
+      const { CreateGameScreen } = await import("../apps/client/src/ui/CreateGameScreen.js");
+
+      const setup = await testRender(
+        React.createElement(CreateGameScreen, {
+          defaultName: "Conquest Campaign",
+          onCreate: () => {},
+          onBack: () => {},
+          terminalDimensions: { columns: 120, rows: 40 },
+        }),
+        { width: 120, height: 40 }
+      );
+
+      await act(async () => {
+        await setup.renderOnce();
+      });
+
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("HOST CUSTOM BATTLE");
+      expect(frame).toContain("GAME NAME");
+      expect(frame).toContain("MAXIMUM PLAYERS");
+      expect(frame).toContain("LOBBY VISIBILITY");
+      expect(frame).toContain("Create Game");
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    });
+
+    it("renders JoinRoomScreen with input and error notification", async () => {
+      const { JoinRoomScreen } = await import("../apps/client/src/ui/JoinRoomScreen.js");
+
+      const setup = await testRender(
+        React.createElement(JoinRoomScreen, {
+          errorMessage: "Room 'ZZZZ' does not exist or has closed.",
+          onJoin: () => {},
+          onBack: () => {},
+          terminalDimensions: { columns: 120, rows: 40 },
+        }),
+        { width: 120, height: 40 }
+      );
+
+      await act(async () => {
+        await setup.renderOnce();
+      });
+
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("JOIN BY ROOM CODE");
+      expect(frame).toContain("Enter 4-character room code");
+      expect(frame).toContain("Room 'ZZZZ' does not exist or has closed.");
+      expect(frame).toContain("Join Room");
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    });
+
+    it("renders ServerInfoScreen topology stats", async () => {
+      const { ServerInfoScreen } = await import("../apps/client/src/ui/ServerInfoScreen.js");
+
+      const mockClient: any = {
+        wsUrl: "ws://localhost:4000",
+        httpUrl: "http://localhost:4000",
+        fetchServerInfo: async () => ({
+          serverName: "Apex-Ironreach-Prime",
+          protocolVersion: "0.2.0",
+          roomsCount: 3,
+          playersCount: 7,
+          defaultMap: "The Ironreach",
+          maxPlayersPerRoom: 4,
+        }),
+      };
+
+      const setup = await testRender(
+        React.createElement(ServerInfoScreen, {
+          client: mockClient,
+          onBack: () => {},
+          terminalDimensions: { columns: 120, rows: 40 },
+        }),
+        { width: 120, height: 40 }
+      );
+
+      await act(async () => {
+        await setup.renderOnce();
+      });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
+      await act(async () => {
+        await setup.renderOnce();
+      });
+
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("Apex-Ironreach-Prime");
+      expect(frame).toContain("The Ironreach");
+      expect(frame).toContain("Active Rooms");
+      expect(frame).toContain("0.2.0");
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    });
+  });
+});

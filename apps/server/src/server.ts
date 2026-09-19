@@ -1,6 +1,7 @@
 import type { Server, ServerWebSocket } from "bun";
 import {
   ClientMessageSchema,
+  type ClientCreateRoom,
   type ClientJoin,
   type ClientMessage,
   type ServerError,
@@ -42,7 +43,7 @@ export class ConquestServer {
     this.sessionStore = options?.sessionStore ?? new SessionStore(options?.dbPath ?? ":memory:");
     this.roomManager = new RoomManager({
       defaultMap: options?.defaultMap ?? MAP_GRID_IRONREACH,
-      defaultMaxPlayers: options?.maxPlayersPerRoom ?? 2,
+      defaultMaxPlayers: options?.maxPlayersPerRoom ?? 4,
     });
   }
 
@@ -67,8 +68,19 @@ export class ConquestServer {
           });
         }
 
-        if (url.pathname === "/rooms") {
-          return Response.json(self.roomManager.getRoomsSummary());
+        if (url.pathname === "/api/server") {
+          return Response.json({
+            serverName: self.serverName,
+            protocolVersion: "0.2.0",
+            roomsCount: self.roomManager.getRoomsCount(),
+            playersCount: self.roomManager.getTotalPlayersCount(),
+            defaultMap: self.roomManager.defaultMap.name,
+            maxPlayersPerRoom: self.roomManager.defaultMaxPlayers,
+          });
+        }
+
+        if (url.pathname === "/api/rooms" || url.pathname === "/rooms") {
+          return Response.json(self.roomManager.getPublicRoomsSummary());
         }
 
         const upgraded = server.upgrade(req, {
@@ -139,6 +151,10 @@ export class ConquestServer {
         this.handleJoin(ws, msg);
         break;
 
+      case "client:create_room":
+        this.handleCreateRoom(ws, msg);
+        break;
+
       default:
         this.handleGameAction(ws, msg);
         break;
@@ -202,7 +218,11 @@ export class ConquestServer {
 
     // 3. New player or fresh room join
     if (msg.roomCode) {
-      room = this.roomManager.getOrCreateRoom(msg.roomCode);
+      room = this.roomManager.getRoom(msg.roomCode);
+      if (!room) {
+        this.sendError(ws, "ROOM_NOT_FOUND", `Room ${msg.roomCode.toUpperCase()} not found`);
+        return;
+      }
     } else {
       room = this.roomManager.getOrCreateQuickMatchRoom();
     }
@@ -224,6 +244,35 @@ export class ConquestServer {
 
     // Add player to room
     const addResult = room.addPlayer(newSession.playerId, msg.name, ws, newSession.token);
+    if (!addResult.ok) {
+      this.sendError(ws, "JOIN_FAILED", addResult.error ?? "Failed to join room");
+    }
+  }
+
+  private handleCreateRoom(ws: ServerWebSocket<WSData>, msg: ClientCreateRoom) {
+    const room = this.roomManager.createCustomRoom({
+      displayName: msg.displayName,
+      visibility: msg.visibility,
+      maxPlayers: msg.maxPlayers,
+    });
+
+    const newSession = this.sessionStore.create(msg.playerName, room.roomCode);
+    ws.data.sessionToken = newSession.token;
+    ws.data.playerId = newSession.playerId;
+    ws.data.roomCode = room.roomCode;
+
+    // Send welcome handshake first
+    const welcome: ServerWelcome = {
+      type: "server:welcome",
+      sessionToken: newSession.token,
+      playerId: newSession.playerId,
+      serverName: this.serverName,
+      roomCode: room.roomCode,
+    };
+    this.send(ws, welcome);
+
+    // Add player to room
+    const addResult = room.addPlayer(newSession.playerId, msg.playerName, ws, newSession.token);
     if (!addResult.ok) {
       this.sendError(ws, "JOIN_FAILED", addResult.error ?? "Failed to join room");
     }

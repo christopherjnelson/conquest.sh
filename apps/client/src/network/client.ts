@@ -1,6 +1,7 @@
 import type {
   ClientAttack,
   ClientChat,
+  ClientCreateRoom,
   ClientDeploy,
   ClientEndTurn,
   ClientFortify,
@@ -11,6 +12,9 @@ import type {
   ClientSkipPhase,
   GameEvent,
   GameState,
+  RoomSummary,
+  RoomVisibility,
+  ServerInfo,
   ServerMessage,
 } from "@conquest/protocol";
 import * as fs from "node:fs";
@@ -59,7 +63,14 @@ export class GameClient {
   private snapshotListeners = new Set<(state: GameState, myPlayerId: string) => void>();
   private eventListeners = new Set<(event: GameEvent) => void>();
   private statusListeners = new Set<(status: ConnectionStatus, error?: string) => void>();
-  private errorListeners = new Set<(msg: string) => void>();
+  private errorListeners = new Set<(msg: string, code?: string) => void>();
+
+  public get httpUrl(): string {
+    if (this.wsUrl.startsWith("wss://")) {
+      return this.wsUrl.replace("wss://", "https://");
+    }
+    return this.wsUrl.replace("ws://", "http://");
+  }
 
   constructor(options: GameClientOptions = {}) {
     this.options = options;
@@ -340,7 +351,7 @@ export class GameClient {
         }
 
         case "server:error": {
-          this.notifyError(msg.message);
+          this.notifyError(msg.message, msg.code);
           break;
         }
 
@@ -522,11 +533,62 @@ export class GameClient {
     };
   }
 
-  public onError(cb: (msg: string) => void): () => void {
+  public onError(cb: (msg: string, code?: string) => void): () => void {
     this.errorListeners.add(cb);
     return () => {
       this.errorListeners.delete(cb);
     };
+  }
+
+  public createRoom(
+    options: {
+      playerName?: string;
+      displayName?: string;
+      roomName?: string;
+      visibility?: RoomVisibility;
+      maxPlayers?: number;
+    } = {}
+  ): void {
+    if (options.playerName) {
+      this.playerName = options.playerName;
+    }
+    const msg: ClientCreateRoom = {
+      type: "client:create_room",
+      playerName: this.playerName,
+      displayName: options.displayName ?? options.roomName,
+      visibility: options.visibility ?? "public",
+      maxPlayers: options.maxPlayers ?? 4,
+      sessionToken: this.sessionToken ?? undefined,
+    };
+    this.send(msg);
+  }
+
+  public quickMatch(playerName?: string): void {
+    if (playerName) {
+      this.playerName = playerName;
+    }
+    this.explicitRoomCode = undefined;
+    this.join(this.playerName);
+  }
+
+  public async fetchServerInfo(): Promise<ServerInfo> {
+    const res = await fetch(`${this.httpUrl}/api/server`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch server info: HTTP ${res.status}`);
+    }
+    return (await res.json()) as ServerInfo;
+  }
+
+  public async fetchRooms(): Promise<RoomSummary[]> {
+    const res = await fetch(`${this.httpUrl}/api/rooms`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch rooms: HTTP ${res.status}`);
+    }
+    return (await res.json()) as RoomSummary[];
+  }
+
+  public getCachedSession(): SessionData | null {
+    return this.loadSession();
   }
 
   private notifySnapshot(state: GameState, myPlayerId: string): void {
@@ -559,10 +621,10 @@ export class GameClient {
     }
   }
 
-  private notifyError(msg: string): void {
+  private notifyError(msg: string, code?: string): void {
     for (const listener of this.errorListeners) {
       try {
-        listener(msg);
+        listener(msg, code);
       } catch (err) {
         console.error("Error in error listener:", err);
       }
