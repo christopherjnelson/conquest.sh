@@ -22,6 +22,7 @@ import { MatchResultsScreen } from "./MatchResultsScreen.js";
 export interface AppProps {
   client: GameClient;
   onExit?: () => void;
+  onQuit?: () => void;
   onReturnHome?: () => void;
   terminalDimensions?: { columns: number; rows: number };
   initialSelectedTerritoryId?: string | null;
@@ -93,6 +94,7 @@ export function TerminalSizeWarning({
 export function App({
   client,
   onExit,
+  onQuit,
   onReturnHome,
   terminalDimensions,
   initialSelectedTerritoryId,
@@ -328,6 +330,7 @@ export function App({
 
   // Keyboard navigation
   useKeyboard((key) => {
+    if (state?.phase === "game_over") return;
     // When window is too small, allow exiting with Q or overriding with [Ignore / Any Key]
     if (isTooSmall) {
       if (key.name === "q" || key.name === "Q") {
@@ -458,17 +461,6 @@ export function App({
     }
   });
 
-  if (isTooSmall) {
-    return (
-      <TerminalSizeWarning
-        columns={cols}
-        rows={rows}
-        onIgnore={() => setOverrideWarning(true)}
-        onExit={onExit}
-      />
-    );
-  }
-
   // When game is over, render the dedicated MatchResultsScreen
   if (state && state.phase === "game_over") {
     return (
@@ -476,13 +468,21 @@ export function App({
         state={state}
         myPlayerId={myPlayerId}
         onRematch={(ready) => client.requestRematch(ready)}
-        onReturnHome={onReturnHome ?? (() => {
-          client.leaveRoom();
-          onExit?.();
-        })}
-        onQuit={onExit}
+        onReturnHome={onReturnHome}
+        onQuit={onQuit ?? onExit}
         onSendChat={(text) => client.sendChat(text)}
         terminalDimensions={dimensions}
+      />
+    );
+  }
+
+  if (isTooSmall) {
+    return (
+      <TerminalSizeWarning
+        columns={cols}
+        rows={rows}
+        onIgnore={() => setOverrideWarning(true)}
+        onExit={onExit}
       />
     );
   }

@@ -97,6 +97,51 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       }
     });
 
+    it("records and broadcasts one canonical fortify turn event sequence", () => {
+      const room = new GameRoom({ roomCode: "HIST" });
+      const messagesA: ServerEvent[] = [];
+      const messagesB: ServerEvent[] = [];
+      const socketA = { send: (payload: string) => messagesA.push(JSON.parse(payload) as ServerEvent) };
+      const socketB = { send: (payload: string) => messagesB.push(JSON.parse(payload) as ServerEvent) };
+
+      room.addPlayer("p1", "Alice", socketA);
+      room.addPlayer("p2", "Bob", socketB);
+      room.startGame();
+      room.state.history = [];
+      messagesA.length = 0;
+      messagesB.length = 0;
+      room.state.phase = "fortify";
+      room.state.activePlayerIndex = 0;
+      room.state.territories.A1 = { ...room.state.territories.A1, ownerId: "p1", units: 3 };
+      room.state.territories.A2 = { ...room.state.territories.A2, ownerId: "p1", units: 1 };
+
+      const result = room.fortify("p1", "A1", "A2", 1);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.events.map((event) => event.type)).toEqual([
+          "units_fortified",
+          "turn_ended",
+          "phase_changed",
+        ]);
+      }
+      expect(room.state.history.map((event) => event.type)).toEqual([
+        "units_fortified",
+        "turn_ended",
+        "phase_changed",
+      ]);
+      expect(messagesA.map((message) => message.event.type)).toEqual([
+        "units_fortified",
+        "turn_ended",
+        "phase_changed",
+      ]);
+      expect(messagesB.map((message) => message.event.type)).toEqual([
+        "units_fortified",
+        "turn_ended",
+        "phase_changed",
+      ]);
+    });
+
     it("rejects all gameplay mutating actions when phase === 'game_over'", () => {
       const players = createTestPlayers(2);
       const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
@@ -464,8 +509,21 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       expect(overSnapshotB.result?.winnerId).toBe(aId);
       expect(overSnapshotA.result?.players[0].placement).toBe(1);
       expect(overSnapshotA.result?.players[1].placement).toBe(2);
+      expect(room.state.phase).toBe("game_over");
 
-      // 4. CommanderB votes for rematch
+      // 4. Post-game chat remains available until a rematch starts.
+      clientA.sendChat("Well fought!");
+      const chatEvB = await clientB.waitForEvent((e) => e.type === "chat_message");
+      expect(chatEvB.type).toBe("chat_message");
+      if (chatEvB.type === "chat_message") {
+        expect(chatEvB.text).toBe("Well fought!");
+      }
+      const historyChat = room.state.history.find(
+        (event) => event.type === "chat_message" && event.text === "Well fought!"
+      );
+      expect(historyChat).toBeDefined();
+
+      // 5. CommanderB votes for rematch
       clientB.requestRematch(true);
 
       const rematchReadyChangedA = await clientA.waitForEvent(
@@ -490,14 +548,6 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
         (s) => s.matchNumber === 2 && s.phase === "deployment"
       );
       expect(rematchSnapshotA.activePlayerIndex).toBe(1);
-
-      // 5. Post-game chat
-      clientA.sendChat("Well fought!");
-      const chatEvB = await clientB.waitForEvent((e) => e.type === "chat_message");
-      expect(chatEvB.type).toBe("chat_message");
-      if (chatEvB.type === "chat_message") {
-        expect(chatEvB.text).toBe("Well fought!");
-      }
 
       // Cleanup
       clientA.disconnect();
@@ -621,6 +671,93 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       expect(frame).toContain("VICTORY ACHIEVED");
       expect(frame).toContain("FINAL STANDINGS");
       expect(frame).toContain("REMATCH PROTOCOL");
+
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    });
+
+    it("keeps the compact chat input visible when opened", async () => {
+      // @ts-ignore
+      const React = (await import("../apps/client/node_modules/react/index.js")).default;
+      // @ts-ignore
+      const { act } = await import("../apps/client/node_modules/react/index.js");
+      // @ts-ignore
+      const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+      const { MatchResultsScreen } = await import("../apps/client/src/ui/MatchResultsScreen.js");
+
+      const players = createTestPlayers(2);
+      const state = createInitialGameState("game-1", "CHAT", players, MAP_GRID_IRONREACH, 3);
+      for (const territory of Object.values(state.territories)) {
+        territory.ownerId = "p1";
+      }
+      const finalRes = finalizeMatch(state, "p1", "conquest");
+      const setup = await testRender(
+        React.createElement(MatchResultsScreen, {
+          state: finalRes.state,
+          myPlayerId: "p1",
+          terminalDimensions: { columns: 85, rows: 34 },
+        }),
+        { width: 85, height: 34 }
+      );
+
+      await act(async () => {
+        setup.mockInput.pressKey("c");
+        await setup.renderOnce();
+      });
+
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("> █");
+      expect(frame).not.toContain("No post-game communications yet");
+
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    });
+
+    it("keeps all six commanders visible in the 85x34 compact results layout", async () => {
+      // @ts-ignore
+      const React = (await import("../apps/client/node_modules/react/index.js")).default;
+      // @ts-ignore
+      const { act } = await import("../apps/client/node_modules/react/index.js");
+      // @ts-ignore
+      const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+      const { MatchResultsScreen } = await import("../apps/client/src/ui/MatchResultsScreen.js");
+
+      const players = createTestPlayers(6);
+      const readyPlayerIds = new Set(["p1", "p3", "p5"]);
+      const state = createInitialGameState("game-1", "CMP6", players, MAP_GRID_IRONREACH, 3);
+      for (const player of state.players) {
+        player.rematchReady = readyPlayerIds.has(player.id);
+      }
+      for (const territory of Object.values(state.territories)) {
+        territory.ownerId = "p1";
+      }
+      const finalRes = finalizeMatch(state, "p1", "conquest");
+
+      const setup = await testRender(
+        React.createElement(MatchResultsScreen, {
+          state: finalRes.state,
+          myPlayerId: "p1",
+          terminalDimensions: { columns: 85, rows: 34 },
+        }),
+        { width: 85, height: 34 }
+      );
+
+      await act(async () => {
+        await setup.renderOnce();
+      });
+
+      const frame = setup.captureCharFrame();
+      for (const [index, player] of players.entries()) {
+        expect(frame).toContain(player.name);
+        expect(frame).toContain(`#${index + 1}`);
+        expect(frame).toMatch(
+          new RegExp(`${player.name}.*${readyPlayerIds.has(player.id) ? "✔ READY" : "· WAITING"}`)
+        );
+      }
+      expect(frame).toContain("REMATCH PROTOCOL 3/6");
+      expect(frame).toContain("CHAT [C]");
 
       await act(async () => {
         setup.renderer.destroy();

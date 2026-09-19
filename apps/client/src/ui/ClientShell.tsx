@@ -218,6 +218,7 @@ export function ClientShell({
             setErrorMessage(null);
             setScreen("home");
           }}
+          onQuit={onExit}
           onExit={() => {
             if (isDirectEntry) {
               onExit?.();

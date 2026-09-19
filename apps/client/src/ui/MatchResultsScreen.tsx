@@ -75,6 +75,12 @@ export function MatchResultsScreen({
     });
   }, [state, winnerId]);
 
+  // Compact mode keeps one line for every commander.  The card chrome takes
+  // two rows, so its height grows directly with the number of results instead
+  // of clipping the lower placements in larger matches.
+  const compactStandingsHeight = standings.length + 2;
+  const compactRematchHeight = connectedPlayers.length + 2;
+
   // Chat messages
   const chatMessages = useMemo(() => {
     return state.history.filter((e) => e.type === "chat_message");
@@ -212,17 +218,17 @@ export function MatchResultsScreen({
             flexDirection="column"
             paddingLeft={1}
             paddingRight={1}
-            style={{ height: isCompact ? 6 : 12, flexShrink: 0 }}
+            style={{ height: isCompact ? compactStandingsHeight : 12, flexShrink: 0 }}
           >
             {/* Table Header */}
-            <box flexDirection="row" justifyContent="space-between" marginBottom={0}>
-              <text fg="#64748b">
-                Rank  Commander
-              </text>
-              <text fg="#64748b">
-                {isCompact ? "Terrs  Armies  Status" : "Territories   Armies       Status"}
-              </text>
-            </box>
+            {!isCompact && (
+              <box flexDirection="row" justifyContent="space-between" marginBottom={0}>
+                <text fg="#64748b">
+                  Rank  Commander
+                </text>
+                <text fg="#64748b">Territories   Armies       Status</text>
+              </box>
+            )}
 
             {/* Rows */}
             {standings.map((p) => {
@@ -292,7 +298,7 @@ export function MatchResultsScreen({
             flexDirection="column"
             paddingLeft={1}
             paddingRight={1}
-            style={{ height: isCompact ? 4 : 6, flexShrink: 0 }}
+            style={{ height: isCompact ? 3 : 6, flexShrink: 0 }}
           >
             <box flexDirection="row" justifyContent="space-between">
               <text fg="#94a3b8">
@@ -302,14 +308,16 @@ export function MatchResultsScreen({
                 Match Number: <span fg="#00d2ff"><b>#{state.matchNumber ?? 1}</b></span>
               </text>
             </box>
-            <box flexDirection="row" justifyContent="space-between">
-              <text fg="#94a3b8">
-                Total Turns: <span fg="#f59e0b"><b>{state.turnNumber}</b></span>
-              </text>
-              <text fg="#94a3b8">
-                Campaign Duration: <span fg="#38bdf8"><b>{formatDuration(durationMs)}</b></span>
-              </text>
-            </box>
+            {!isCompact && (
+              <box flexDirection="row" justifyContent="space-between">
+                <text fg="#94a3b8">
+                  Total Turns: <span fg="#f59e0b"><b>{state.turnNumber}</b></span>
+                </text>
+                <text fg="#94a3b8">
+                  Campaign Duration: <span fg="#38bdf8"><b>{formatDuration(durationMs)}</b></span>
+                </text>
+              </box>
+            )}
             {!isCompact && (
               <box flexDirection="row" justifyContent="space-between">
                 <text fg="#94a3b8">
@@ -331,7 +339,7 @@ export function MatchResultsScreen({
         >
           {/* REMATCH PANEL */}
           <box
-            title="! REMATCH PROTOCOL"
+            title={isCompact ? `! REMATCH PROTOCOL ${readyCount}/${totalConnected}` : "! REMATCH PROTOCOL"}
             titleColor="#38bdf8"
             border
             borderStyle="single"
@@ -340,12 +348,14 @@ export function MatchResultsScreen({
             flexDirection="column"
             paddingLeft={1}
             paddingRight={1}
-            style={{ height: isCompact ? 7 : 9, flexShrink: 0 }}
+            style={{ height: isCompact ? compactRematchHeight : 9, flexShrink: 0 }}
             gap={0}
           >
-            <text fg="#94a3b8">
-              Rematch Readiness: <span fg={readyCount === totalConnected && totalConnected >= 2 ? "#00ff66" : "#f59e0b"}><b>{readyCount}/{totalConnected} Commanders Agreed</b></span>
-            </text>
+            {!isCompact && (
+              <text fg="#94a3b8">
+                Rematch Readiness: <span fg={readyCount === totalConnected && totalConnected >= 2 ? "#00ff66" : "#f59e0b"}><b>{readyCount}/{totalConnected} Commanders Agreed</b></span>
+              </text>
+            )}
 
             <box flexDirection="column" marginTop={isCompact ? 0 : 1} gap={0}>
               {connectedPlayers.map((p) => {
@@ -376,7 +386,7 @@ export function MatchResultsScreen({
 
           {/* POST-GAME CHAT CARD */}
           <box
-            title="! POST-GAME COUNCIL CHAT"
+            title={isCompact ? "! CHAT [C]" : "! POST-GAME COUNCIL CHAT"}
             titleColor="#e879f9"
             border
             borderStyle="single"
@@ -385,40 +395,50 @@ export function MatchResultsScreen({
             flexDirection="column"
             paddingLeft={1}
             paddingRight={1}
-            style={{ height: isCompact ? 6 : 9, flexShrink: 0 }}
+            style={{ height: isCompact ? 3 : 9, flexShrink: 0 }}
             gap={0}
           >
-            <box flexDirection="column" style={{ height: isCompact ? 3 : 5 }} overflow="hidden">
-              {chatMessages.length === 0 ? (
-                <text fg="#64748b">
-                  <i>No post-game communications yet. Press [C] to send GG!</i>
-                </text>
-              ) : (
-                chatMessages.slice(isCompact ? -2 : -4).map((c, i) => (
-                  <text key={i}>
-                    <span fg="#e879f9"><b>{c.type === "chat_message" ? c.senderName : "Anon"}: </b></span>
-                    <span fg="#f1f5f9">{c.type === "chat_message" ? c.text : ""}</span>
+            {!chatOpen && (
+              <box flexDirection="column" style={{ height: isCompact ? 1 : 5 }} overflow="hidden">
+                {chatMessages.length === 0 ? (
+                  <text fg="#64748b">
+                    <i>No post-game communications yet. Press [C] to send GG!</i>
                   </text>
-                ))
-              )}
-            </box>
+                ) : (
+                  chatMessages.slice(isCompact ? -2 : -4).map((c, i) => (
+                    <text key={i}>
+                      <span fg="#e879f9"><b>{c.type === "chat_message" ? c.senderName : "Anon"}: </b></span>
+                      <span fg="#f1f5f9">{c.type === "chat_message" ? c.text : ""}</span>
+                    </text>
+                  ))
+                )}
+              </box>
+            )}
 
             {chatOpen ? (
-              <box
-                border
-                borderStyle="single"
-                borderColor="#00ffff"
-                backgroundColor="#0f172a"
-                paddingLeft={1}
-                paddingRight={1}
-              >
+              isCompact ? (
                 <text fg="#00ffff">
                   <b>&gt; </b>
                   <span fg="#ffffff">{chatInput}</span>
                   <span fg="#00ffff">█</span>
                 </text>
-              </box>
-            ) : (
+              ) : (
+                <box
+                  border
+                  borderStyle="single"
+                  borderColor="#00ffff"
+                  backgroundColor="#0f172a"
+                  paddingLeft={1}
+                  paddingRight={1}
+                >
+                  <text fg="#00ffff">
+                    <b>&gt; </b>
+                    <span fg="#ffffff">{chatInput}</span>
+                    <span fg="#00ffff">█</span>
+                  </text>
+                </box>
+              )
+            ) : !isCompact && (
               <box marginTop={0}>
                 <text fg="#64748b">
                   Press <span fg="#e879f9"><b>[C]</b></span> to chat with commanders.

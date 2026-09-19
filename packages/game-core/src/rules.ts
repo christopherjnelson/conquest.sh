@@ -367,7 +367,6 @@ export function fortifyUnits(
   const stateAfterFortify: GameState = {
     ...state,
     territories: nextTerritories,
-    history: [...state.history, fortifyEvent],
   };
 
   // Fortifying automatically completes the turn!
