@@ -7,8 +7,13 @@ export type RoomVisibility = z.infer<typeof RoomVisibilitySchema>;
 export const RoomKindSchema = z.enum(["quick", "custom"]);
 export type RoomKind = z.infer<typeof RoomKindSchema>;
 
+export const RoomCodeSchema = z
+  .string()
+  .regex(/^[A-Z0-9]{4}$/, "Room code must be exactly 4 uppercase alphanumeric characters");
+export type RoomCode = z.infer<typeof RoomCodeSchema>;
+
 export const RoomSummarySchema = z.object({
-  roomCode: z.string(),
+  roomCode: RoomCodeSchema,
   displayName: z.string(),
   visibility: RoomVisibilitySchema,
   kind: RoomKindSchema,
@@ -31,3 +36,7 @@ export const ServerInfoSchema = z.object({
   maxPlayersPerRoom: z.number().int().min(2),
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
+
+export const RoomSummariesSchema = z.array(RoomSummarySchema);
+
+export { z };

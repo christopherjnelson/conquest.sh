@@ -287,6 +287,339 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       customClient.disconnect();
       quickClient.disconnect();
     });
+
+    it("GameRoom.setReady() broadcasts updated lobby state when readiness changes and the game does not start", async () => {
+      cleanupSessionFiles();
+
+      const p1 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p1.connect();
+      p1.createRoom({
+        playerName: "PlayerA",
+        roomName: "Ready Check Bastion",
+        visibility: "public",
+        maxPlayers: 2,
+      });
+      await p1.waitForSnapshot((s) => s.phase === "lobby");
+      const roomCode = p1.roomCode!;
+
+      const p2 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile2,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p2.connect();
+      p2.join("PlayerB", roomCode);
+      await p2.waitForSnapshot((s) => s.phase === "lobby" && s.players.length === 2);
+
+      // Player A marks ready=true (game does NOT start because Player B is not ready)
+      p1.ready(true);
+
+      // Player A sees their own ready state updated in lobby snapshot
+      const p1Snap = await p1.waitForSnapshot(
+        (s) => s.phase === "lobby" && s.players.some((p) => p.name === "PlayerA" && p.ready === true)
+      );
+      expect(p1Snap.phase).toBe("lobby");
+      expect(p1Snap.players.find((p) => p.name === "PlayerA")?.ready).toBe(true);
+
+      // Player B also sees Player A become ready before game starts
+      const p2Snap = await p2.waitForSnapshot(
+        (s) => s.phase === "lobby" && s.players.some((p) => p.name === "PlayerA" && p.ready === true)
+      );
+      expect(p2Snap.phase).toBe("lobby");
+      expect(p2Snap.players.find((p) => p.name === "PlayerA")?.ready).toBe(true);
+      expect(p2Snap.players.find((p) => p.name === "PlayerB")?.ready).toBe(false);
+
+      p1.disconnect();
+      p2.disconnect();
+    });
+
+    it("disconnecting from a 2/2 lobby frees seat, updates /api/rooms summary, and allows replacement player to join", async () => {
+      cleanupSessionFiles();
+
+      const p1 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p1.connect();
+      p1.createRoom({
+        playerName: "HostOne",
+        roomName: "Duel Ring",
+        visibility: "public",
+        maxPlayers: 2,
+      });
+      await p1.waitForSnapshot((s) => s.phase === "lobby");
+      const roomCode = p1.roomCode!;
+
+      const p2 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile2,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p2.connect();
+      p2.join("Leaver", roomCode);
+      await p2.waitForSnapshot((s) => s.phase === "lobby" && s.players.length === 2);
+
+      // Verify room summary shows 2/2 players
+      let rooms = await p1.fetchRooms();
+      let roomSummary = rooms.find((r) => r.roomCode === roomCode);
+      expect(roomSummary).toBeDefined();
+      expect(roomSummary?.playersCount).toBe(2);
+      expect(roomSummary?.maxPlayers).toBe(2);
+
+      // Player 2 disconnects from lobby
+      p2.disconnect();
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Public room summary now reports freed slot (1/2)
+      rooms = await p1.fetchRooms();
+      roomSummary = rooms.find((r) => r.roomCode === roomCode);
+      expect(roomSummary?.playersCount).toBe(1);
+
+      // Replacement player (p3) joins successfully without "Room is full" error
+      const p3 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile3,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p3.connect();
+      p3.join("Replacement", roomCode);
+      const p3Snap = await p3.waitForSnapshot((s) => s.phase === "lobby" && s.players.length === 2);
+      expect(p3Snap.phase).toBe("lobby");
+      expect(p3Snap.players.some((p) => p.name === "Replacement")).toBe(true);
+
+      p1.disconnect();
+      p3.disconnect();
+    });
+
+    it("custom game starts only with >=2 connected players all ready; disconnected lobby players receive no territory", async () => {
+      cleanupSessionFiles();
+
+      const p1 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p1.connect();
+      p1.createRoom({
+        playerName: "CommanderA",
+        roomName: "Three Player Ring",
+        visibility: "public",
+        maxPlayers: 3,
+      });
+      await p1.waitForSnapshot((s) => s.phase === "lobby");
+      const roomCode = p1.roomCode!;
+
+      const p2 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile2,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p2.connect();
+      p2.join("CommanderB", roomCode);
+      await p2.waitForSnapshot((s) => s.phase === "lobby" && s.players.length === 2);
+
+      const p3 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile3,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p3.connect();
+      p3.join("CommanderC", roomCode);
+      await p3.waitForSnapshot((s) => s.phase === "lobby" && s.players.length === 3);
+
+      // Player 3 disconnects before start
+      p3.disconnect();
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Player 1 and Player 2 ready up
+      p1.ready(true);
+      p2.ready(true);
+
+      // Game starts with exactly 2 active connected players
+      const gameStarted = await p1.waitForSnapshot((s) => s.phase === "deployment");
+      expect(gameStarted.phase).toBe("deployment");
+      expect(gameStarted.players.length).toBe(2);
+      expect(gameStarted.players.map((p) => p.name).sort()).toEqual(["CommanderA", "CommanderB"]);
+
+      // Verify disconnected CommanderC received NO territory
+      const allTerritories = Object.values(gameStarted.territories);
+      expect(allTerritories.length).toBe(20);
+      for (const t of allTerritories) {
+        expect(t.ownerId).not.toBe(p3.myPlayerId);
+        expect([p1.myPlayerId, p2.myPlayerId]).toContain(t.ownerId);
+      }
+
+      p1.disconnect();
+      p2.disconnect();
+    });
+
+    it("leaving/switching rooms lifecycle: lobby -> leaveRoom() -> Quick Match and Create Game", async () => {
+      cleanupSessionFiles();
+
+      const client = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await client.connect();
+
+      // 1. Join custom lobby
+      client.createRoom({
+        playerName: "SwitchUser",
+        roomName: "Temporary Lobby",
+        visibility: "public",
+        maxPlayers: 4,
+      });
+      await client.waitForSnapshot((s) => s.phase === "lobby");
+      const firstRoomCode = client.roomCode!;
+
+      // 2. Leave lobby back to Home
+      client.leaveRoom();
+      expect(client.roomCode).toBeNull();
+      expect(client.state).toBeNull();
+      expect(client.getCachedSession()).toBeNull();
+
+      // 3. Immediately Quick Match on the same socket
+      client.quickMatch();
+      await client.waitForSnapshot((s) => s.phase === "lobby" || s.phase === "deployment");
+      expect(client.roomCode).not.toBeNull();
+      expect(client.roomCode).not.toBe(firstRoomCode);
+
+      // Verify the old custom room had its seat freed
+      const rooms = await client.fetchRooms();
+      const oldRoom = rooms.find((r) => r.roomCode === firstRoomCode);
+      expect(oldRoom?.playersCount ?? 0).toBe(0);
+
+      // 4. Leave Quick Match and Create New Game
+      client.leaveRoom();
+      client.createRoom({
+        playerName: "SwitchUser",
+        roomName: "Fresh Realm",
+        visibility: "public",
+        maxPlayers: 2,
+      });
+      const createSnap = await client.waitForSnapshot(
+        (s) => s.phase === "lobby" && s.roomCode !== firstRoomCode
+      );
+      expect(createSnap.roomCode).toBe(client.roomCode!);
+
+      client.disconnect();
+    });
+
+    it("join transaction correctness: full rooms and in-progress games fail cleanly without caching credentials", async () => {
+      cleanupSessionFiles();
+
+      // Setup 2-player room
+      const p1 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile1,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p1.connect();
+      p1.createRoom({
+        playerName: "HostA",
+        roomName: "Full Duel",
+        visibility: "public",
+        maxPlayers: 2,
+      });
+      await p1.waitForSnapshot((s) => s.phase === "lobby");
+      const roomCode = p1.roomCode!;
+
+      const p2 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile2,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p2.connect();
+      p2.join("HostB", roomCode);
+      await p2.waitForSnapshot((s) => s.phase === "lobby" && s.players.length === 2);
+
+      // 1. Third player attempts to join full lobby
+      const p3 = new GameClient({
+        host: `localhost:${port}`,
+        sessionFilePath: sessionFile3,
+        forceNewSession: true,
+        autoReconnect: false,
+      });
+      await p3.connect();
+
+      let p3Error: { msg: string; code?: string } | null = null;
+      p3.onError((msg, code) => {
+        p3Error = { msg, code };
+      });
+
+      p3.join("Intruder", roomCode);
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(p3Error).not.toBeNull();
+      if (!p3Error) throw new Error("p3Error should not be null");
+      const err1: { msg: string; code?: string } = p3Error;
+      expect(err1.code).toBe("JOIN_FAILED");
+      expect(err1.msg).toContain("Room is full");
+      // Credentials must NOT be cached for that room
+      expect(p3.getCachedSession()).toBeNull();
+      expect(p3.roomCode).toBeNull();
+      expect(p3.state).toBeNull();
+
+      // 2. Start the game (now phase === "deployment")
+      p1.ready(true);
+      p2.ready(true);
+      await p1.waitForSnapshot((s) => s.phase === "deployment");
+
+      // 3. Third player attempts to join an in-progress game
+      let p3Error2: { msg: string; code?: string } | null = null;
+      p3.onError((msg, code) => {
+        p3Error2 = { msg, code };
+      });
+
+      p3.join("LateComer", roomCode);
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(p3Error2).not.toBeNull();
+      if (!p3Error2) throw new Error("p3Error2 should not be null");
+      const err2: { msg: string; code?: string } = p3Error2;
+      expect(err2.code).toBe("JOIN_FAILED");
+      expect(err2.msg).toContain("Game already in progress");
+      expect(p3.getCachedSession()).toBeNull();
+      expect(p3.roomCode).toBeNull();
+
+      p1.disconnect();
+      p2.disconnect();
+      p3.disconnect();
+    });
+
+    it("RoomCodeSchema strictly enforces exactly 4 uppercase alphanumeric characters", async () => {
+      const { RoomCodeSchema } = await import("@conquest/protocol");
+
+      // Valid codes
+      expect(RoomCodeSchema.safeParse("ABCD").success).toBe(true);
+      expect(RoomCodeSchema.safeParse("H7KL").success).toBe(true);
+      expect(RoomCodeSchema.safeParse("QM82").success).toBe(true);
+      expect(RoomCodeSchema.safeParse("1234").success).toBe(true);
+
+      // Invalid codes
+      expect(RoomCodeSchema.safeParse("abcd").success).toBe(false); // lowercase
+      expect(RoomCodeSchema.safeParse("ABC").success).toBe(false); // 3 chars
+      expect(RoomCodeSchema.safeParse("ABCDE").success).toBe(false); // 5 chars
+      expect(RoomCodeSchema.safeParse("AB-C").success).toBe(false); // symbol
+      expect(RoomCodeSchema.safeParse("").success).toBe(false); // empty
+    });
   });
 
   describe("Client HTTP & Utility Methods", () => {

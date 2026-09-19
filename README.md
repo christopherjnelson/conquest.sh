@@ -21,23 +21,23 @@ Inspired by classic grand strategy territory-control loops, reimagined as a term
 - **Server-Authoritative Multiplayer**: All dice rolls, reinforcements, combat resolutions, and state transitions are verified and resolved authoritatively on the server. Clients emit typed intents; the server broadcasts canonical state snapshots.
 - **Canonical Microcell Realm Map**: Built on sub-pixel half-block raster rendering (`▀`, `▄`, `▌`, `▐`, `█`, `·`) producing organic coastlines, staggered boundaries, and high-contrast territorial silhouettes that occupy the full tactical viewport.
 - **Responsive Terminal Presentation**:
-  - **Wide Mode** ($\ge 185 \times 48$): Full 3-line ASCII banner, expansive tactical map, and deep 4-card strategic sidebar.
-  - **Standard Mode** ($130\text{--}184 \times 38\text{--}47$): Compact branding bar maximizing vertical space for the map and sidebar.
+  - **Wide Mode** ($\ge 180$ cols and $\ge 50$ rows): Full 3-line ASCII banner, expansive tactical map, and deep 4-card strategic sidebar.
+  - **Standard Mode** ($130\text{--}179$ cols and $38\text{--}49$ rows): Compact branding bar maximizing vertical space for the map and sidebar.
   - **Compact Mode** ($< 130$ cols or $< 38$ rows): Full-width map canvas paired with an integrated bottom tactical inspector strip.
 - **Multiplayer Front Door**:
   - **Quick Match**: Immediate matchmaking into available public lobbies.
   - **Public Room Browser**: Interactive list of active open games with live player counts and status.
   - **Custom Game Creation**: Host public or unlisted matches with custom room names and player capacities (2–6 players).
-  - **Join by Code**: Direct entry for private or unlisted matches using 4-character room codes.
+  - **Join by Code**: Direct entry for private or unlisted matches using exactly 4-character uppercase alphanumeric room codes.
   - **Session Resume**: Automatic detection of cached sessions with instant reconnection to ongoing matches.
 - **Dual Mouse & Keyboard Controls**: Click territories and action buttons directly with the mouse (with full hover inspector preview), or navigate spatially with geometric cardinal arrow keys, `Tab` cycling, and hotkeys.
 - **The Ironreach Realm**: 20 canonical territories partitioned across 6 strategic regions:
   - 🌲 **Verdant Fringe** (+2 bonus armies): *Highwatch (A1), Whispering Woods (A2), Stoneveil (A3)*
-  - 🌾 **Goldfields** (+2 bonus armies): *Sunken Pass (B1), The Marches (B2), Golden Vale (B3)*
-  - ❄ **Frostpeak** (+3 bonus armies): *Frostfell (C1), Crown Citadel (C2), Glacier Bay (C3), White Cliff (C4)*
-  - 🌋 **Cinder Wastes** (+2 bonus armies): *Ember Coast (D1), Ashmoor (D2), Red Basin (D3), Obsidian Spire (D4)*
-  - 🏜 **Dunemere** (+2 bonus armies): *Hollowmere (E1), Dune Sea (E2), Duskfall (E3)*
-  - 🌊 **Mistveil Isles** (+2 bonus armies): *Mossgate (F1), Verdant Reach (F2), Mist Isle (F3)*
+  - 🌾 **Amber Steppes** (+2 bonus armies): *Sunken Pass (B1), The Marches (B2), Golden Vale (B3)*
+  - ❄ **Northreach** (+3 bonus armies): *Frostfell (C1), Crown Citadel (C2), Glacier Bay (C3), White Cliff (C4)*
+  - 🌋 **Crimson Caldera** (+3 bonus armies): *Ember Coast (D1), Ashmoor (D2), Red Basin (D3), Iron Hollow (D4)*
+  - 🏜 **The Blackfen** (+2 bonus armies): *Hollowmere (E1), Blackfen (E2), Duskfall (E3)*
+  - 🌊 **Emerald Isles** (+2 bonus armies): *Mossgate (F1), Verdant Reach (F2), Mist Isle (F3)*
 - **Resilient Reconnection**: Per-player session tokens are stored locally. If your connection drops or terminal closes, launching the client seamlessly reconnects you with full match state.
 - **Self-Hosting First**: Run your own community server with Docker Compose or standalone Bun, complete with configurable ports, persistence paths, and server metadata.
 
@@ -110,10 +110,10 @@ Automation, scripts, and power users can bypass the front door directly:
 # Connect and immediately enter Quick Match
 ./conquest.sh --quick --name Alice
 
-# Join or create an explicit room by code
+# Join an existing room by code
 ./conquest.sh --room ABCD --name Bob
 
-# Connect to a remote server
+# Connect to a remote server and join an existing room
 ./conquest.sh --server wss://conquest.example.com --room ABCD
 ```
 
@@ -139,7 +139,7 @@ The official server and self-hosted instances use the exact same server implemen
    ./conquest.sh --server localhost:4000
    ```
 
-Data is persisted to the mounted `./data` directory (`/data/conquest.sqlite`).
+Data is persisted to the named `conquest-data` Docker volume (`/data/conquest.sqlite`).
 
 ### Option B: Standalone Bun Server
 
@@ -157,8 +157,9 @@ The server supports CLI arguments and environment variables (CLI arguments take 
 | :--- | :--- | :--- | :--- |
 | `-p, --port` | `CONQUEST_PORT` | `4000` | Port to bind HTTP & WebSocket server |
 | `-n, --name` | `CONQUEST_SERVER_NAME` | `conquest.sh-server` | Server name displayed in lobbies and browser |
+| `-m, --map` | `CONQUEST_MAP` | `ironreach` | Map id to load: `ironreach`, `ironreach-legacy`, `sector-07` |
 | `-d, --db` | `CONQUEST_DB_PATH` | `:memory:` | SQLite session database path (e.g. `/data/conquest.sqlite`) |
-| `-m, --max-players` | `CONQUEST_MAX_PLAYERS` | `6` | Maximum allowed players per room |
+| `--max-players` | `CONQUEST_MAX_PLAYERS` | `4` | Default maximum players per room |
 
 For client connections, the default server can also be configured via:
 

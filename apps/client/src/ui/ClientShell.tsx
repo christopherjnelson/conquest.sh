@@ -64,12 +64,11 @@ export function ClientShell({
   // Error handling across screens
   useEffect(() => {
     const unsubError = client.onError((msg, code) => {
-      if (code === "ROOM_NOT_FOUND") {
+      if (code === "ROOM_NOT_FOUND" || code === "JOIN_FAILED" || code === "INVALID_ROOM_CODE") {
         if (screen === "game") {
-          // If we tried to join/resume an invalid room, return to home and clear stale room
-          client.clearSession();
+          client.leaveRoom();
           setCachedSession(null);
-          setErrorMessage(`Previous battle room is no longer active.`);
+          setErrorMessage(code === "ROOM_NOT_FOUND" ? "Previous battle room is no longer active." : msg);
           setScreen("home");
         } else {
           setErrorMessage(msg);
@@ -215,9 +214,19 @@ export function ClientShell({
           onExit={() => {
             if (isDirectEntry) {
               onExit?.();
-            } else {
-              setScreen("home");
+              return;
             }
+            // Once a match is actively underway, prefer Q quitting the client/preserving reconnect
+            // rather than silently abandoning the match and switching rooms.
+            if (client.state && client.state.phase !== "lobby") {
+              onExit?.();
+              return;
+            }
+            // In lobby phase, returning to Home actually detaches/removes player from that lobby
+            client.leaveRoom();
+            setCachedSession(client.getCachedSession());
+            setErrorMessage(null);
+            setScreen("home");
           }}
           terminalDimensions={terminalDimensions}
         />

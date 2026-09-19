@@ -1,21 +1,25 @@
-import type {
-  ClientAttack,
-  ClientChat,
-  ClientCreateRoom,
-  ClientDeploy,
-  ClientEndTurn,
-  ClientFortify,
-  ClientJoin,
-  ClientMessage,
-  ClientPing,
-  ClientReady,
-  ClientSkipPhase,
-  GameEvent,
-  GameState,
-  RoomSummary,
-  RoomVisibility,
-  ServerInfo,
-  ServerMessage,
+import {
+  ServerInfoSchema,
+  RoomSummarySchema,
+  RoomSummariesSchema,
+  type ClientAttack,
+  type ClientChat,
+  type ClientCreateRoom,
+  type ClientDeploy,
+  type ClientEndTurn,
+  type ClientFortify,
+  type ClientJoin,
+  type ClientLeaveRoom,
+  type ClientMessage,
+  type ClientPing,
+  type ClientReady,
+  type ClientSkipPhase,
+  type GameEvent,
+  type GameState,
+  type RoomSummary,
+  type RoomVisibility,
+  type ServerInfo,
+  type ServerMessage,
 } from "@conquest/protocol";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -351,6 +355,11 @@ export class GameClient {
         }
 
         case "server:error": {
+          if (["JOIN_FAILED", "ROOM_NOT_FOUND", "ROOM_FULL", "GAME_ALREADY_STARTED", "INVALID_ROOM_CODE"].includes(msg.code)) {
+            this.roomCode = null;
+            this.explicitRoomCode = undefined;
+            this.state = null;
+          }
           this.notifyError(msg.message, msg.code);
           break;
         }
@@ -571,12 +580,26 @@ export class GameClient {
     this.join(this.playerName);
   }
 
+  public leaveRoom(): void {
+    if (this.roomCode) {
+      const msg: ClientLeaveRoom = {
+        type: "client:leave_room",
+      };
+      this.send(msg);
+    }
+    this.roomCode = null;
+    this.explicitRoomCode = undefined;
+    this.state = null;
+    this.clearSession();
+  }
+
   public async fetchServerInfo(): Promise<ServerInfo> {
     const res = await fetch(`${this.httpUrl}/api/server`);
     if (!res.ok) {
       throw new Error(`Failed to fetch server info: HTTP ${res.status}`);
     }
-    return (await res.json()) as ServerInfo;
+    const data = await res.json();
+    return ServerInfoSchema.parse(data);
   }
 
   public async fetchRooms(): Promise<RoomSummary[]> {
@@ -584,7 +607,8 @@ export class GameClient {
     if (!res.ok) {
       throw new Error(`Failed to fetch rooms: HTTP ${res.status}`);
     }
-    return (await res.json()) as RoomSummary[];
+    const data = await res.json();
+    return RoomSummariesSchema.parse(data);
   }
 
   public getCachedSession(): SessionData | null {

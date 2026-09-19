@@ -123,6 +123,25 @@ export class GameRoom {
   }
 
   /**
+   * Checks whether a player can join or reconnect to this room.
+   */
+  canJoin(playerId?: string): { ok: boolean; error?: string } {
+    if (playerId && this.hasPlayer(playerId)) {
+      return { ok: true };
+    }
+
+    if (this.state.phase !== "lobby") {
+      return { ok: false, error: "Game already in progress" };
+    }
+
+    if (this.state.players.length >= this.maxPlayers) {
+      return { ok: false, error: "Room is full" };
+    }
+
+    return { ok: true };
+  }
+
+  /**
    * Add a new player to the room, or reconnect if they already exist in this room.
    */
   addPlayer(
@@ -137,12 +156,9 @@ export class GameRoom {
       return { ok: reconnected, error: reconnected ? undefined : "Player reconnect failed" };
     }
 
-    if (this.state.phase !== "lobby") {
-      return { ok: false, error: "Game already in progress" };
-    }
-
-    if (this.state.players.length >= this.maxPlayers) {
-      return { ok: false, error: "Room is full" };
+    const joinCheck = this.canJoin(playerId);
+    if (!joinCheck.ok) {
+      return joinCheck;
     }
 
     const colorIndex = this.state.players.length;
@@ -188,7 +204,8 @@ export class GameRoom {
   }
 
   /**
-   * Mark player ready. If all players ready and at least 2 players present, start game.
+   * Mark player ready. If all connected players ready and at least 2 players present, start game.
+   * If readiness changes and game does not start, broadcast updated lobby state.
    */
   setReady(playerId: string, ready: boolean): boolean {
     const player = this.getPlayer(playerId);
@@ -196,11 +213,15 @@ export class GameRoom {
 
     player.ready = ready;
 
-    if (this.state.phase === "lobby" && this.state.players.length >= 2) {
-      const allReady = this.state.players.every((p) => p.ready);
+    if (this.state.phase === "lobby") {
+      const connectedPlayers = this.state.players.filter((p) => p.connected);
+      const allReady = connectedPlayers.length >= 2 && connectedPlayers.every((p) => p.ready);
       if (allReady) {
         this.startGame();
+        return true;
       }
+      // Broadcast updated lobby snapshot so all players see readiness changes
+      this.broadcastSnapshot();
     }
 
     return true;
@@ -208,15 +229,17 @@ export class GameRoom {
 
   /**
    * Start the match authoritative state transition.
+   * Only connected players participate in the starting match.
    */
   startGame(): boolean {
     if (this.state.phase !== "lobby") return false;
-    if (this.state.players.length < 2) return false;
+    const activePlayers = this.state.players.filter((p) => p.connected);
+    if (activePlayers.length < 2) return false;
 
     const initialState = createInitialGameState(
       this.gameId,
       this.roomCode,
-      this.state.players,
+      activePlayers,
       this.map,
       3
     );
@@ -232,7 +255,7 @@ export class GameRoom {
     this.broadcastSnapshot();
 
     logger.info(
-      `Game started in room ${this.roomCode} with ${this.state.players.length} players. Active player: ${this.state.players[0].name}`
+      `Game started in room ${this.roomCode} with ${activePlayers.length} players. Active player: ${activePlayers[0].name}`
     );
     return true;
   }
@@ -265,12 +288,35 @@ export class GameRoom {
   }
 
   /**
-   * Mark a player as disconnected.
+   * Mark a player as disconnected or remove them if still in lobby.
    */
   disconnectPlayer(playerId: string, reason?: string) {
     const player = this.getPlayer(playerId);
     if (!player) return;
 
+    if (this.state.phase === "lobby") {
+      // Before game start, free the lobby seat rather than leaving a ghost player
+      this.state.players = this.state.players.filter((p) => p.id !== playerId);
+      this.playerSockets.delete(playerId);
+      this.playerTokens.delete(playerId);
+
+      const event: GameEvent = {
+        type: "player_left",
+        playerId,
+        reason: reason ?? "left lobby",
+        timestamp: Date.now(),
+      };
+      this.state.history.push(event);
+
+      // Broadcast event and updated snapshot to remaining players in lobby
+      this.broadcastEvent(event, this.state);
+      this.broadcastSnapshot();
+
+      logger.info(`Player ${player.name} (${playerId}) left lobby ${this.roomCode} (seat freed)`);
+      return;
+    }
+
+    // During an active game, retain disconnected player for reconnect
     player.connected = false;
     this.playerSockets.delete(playerId);
 
@@ -286,6 +332,10 @@ export class GameRoom {
     this.broadcastEvent(event, this.state);
 
     logger.info(`Player ${player.name} (${playerId}) disconnected from room ${this.roomCode}`);
+  }
+
+  removePlayer(playerId: string, reason?: string) {
+    this.disconnectPlayer(playerId, reason ?? "removed");
   }
 
   /**
@@ -475,7 +525,7 @@ export class GameRoom {
       visibility: this.visibility,
       kind: this.kind,
       phase: this.state.phase,
-      playersCount: this.connectedPlayersCount,
+      playersCount: this.state.players.length,
       maxPlayers: this.maxPlayers,
       mapId: this.map.id,
       mapName: this.map.name,

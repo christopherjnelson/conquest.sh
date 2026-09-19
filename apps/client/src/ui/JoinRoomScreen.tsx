@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useKeyboard } from "@opentui/react";
+import { RoomCodeSchema } from "@conquest/protocol";
 
 export interface JoinRoomScreenProps {
   onJoin: (roomCode: string) => void;
@@ -11,6 +12,9 @@ export interface JoinRoomScreenProps {
 export function JoinRoomScreen({ onJoin, onBack, errorMessage }: JoinRoomScreenProps) {
   const [code, setCode] = useState("");
 
+  const clean = code.trim().toUpperCase();
+  const isValidCode = RoomCodeSchema.safeParse(clean).success;
+
   useKeyboard((key) => {
     if (key.name === "escape") {
       onBack();
@@ -18,8 +22,7 @@ export function JoinRoomScreen({ onJoin, onBack, errorMessage }: JoinRoomScreenP
     }
 
     if (key.name === "return" || key.name === "enter") {
-      const clean = code.trim().toUpperCase();
-      if (clean.length > 0) {
+      if (isValidCode) {
         onJoin(clean);
       }
       return;
@@ -32,13 +35,11 @@ export function JoinRoomScreen({ onJoin, onBack, errorMessage }: JoinRoomScreenP
 
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
       const char = key.sequence.toUpperCase();
-      if (/^[A-Z0-9]$/.test(char) && code.length < 8) {
+      if (/^[A-Z0-9]$/.test(char) && code.length < 4) {
         setCode((prev) => prev + char);
       }
     }
   });
-
-  const isValidCode = code.trim().length >= 2;
 
   return (
     <box
