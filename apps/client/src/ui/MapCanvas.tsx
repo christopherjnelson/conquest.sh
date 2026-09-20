@@ -184,7 +184,7 @@ export function findArmyMarkerPlacements(
 function getDarkTint(color: string, tid?: string | null): string {
   const isOdd = tid ? stableIdHash(tid) % 2 === 1 : false;
   // Owned interiors need enough chroma to read as connected realms at a
-  // whole-screen glance, while coastlines and selected cyan stay brighter.
+  // whole-screen glance, while coastlines and selected outlines stay brighter.
   const weight = isOdd ? 0.42 : 0.36;
   return mixColors(color, "#080f1a", weight);
 }
@@ -512,14 +512,28 @@ export function MapCanvas({
   };
 
   // Precompute label and unit positions
-  const labelMap: Record<number, Record<number, { char: string; fg: string; bold?: boolean; priority: number }>> = {};
+  const labelMap: Record<number, Record<number, {
+    char: string;
+    fg: string;
+    bold?: boolean;
+    priority: number;
+    territoryId?: string;
+  }>> = {};
 
-  const setLabelPoint = (x: number, y: number, char: string, fg: string, bold = true, priority = 2) => {
+  const setLabelPoint = (
+    x: number,
+    y: number,
+    char: string,
+    fg: string,
+    bold = true,
+    priority = 2,
+    territoryId?: string,
+  ) => {
     if (!labelMap[y]) labelMap[y] = {};
     // Territory names are the cartographic primary. Army markers are only
     // painted into free cells and can never erase a label.
     if ((labelMap[y][x]?.priority ?? -1) > priority) return;
-    labelMap[y][x] = { char, fg, bold, priority };
+    labelMap[y][x] = { char, fg, bold, priority, territoryId };
   };
 
   // Reserve army positions before arranging names. A territory's army count is
@@ -604,7 +618,9 @@ export function MapCanvas({
           line1Y,
           line1Text[i],
           "#f8fafc",
-          true
+          true,
+          2,
+          t.id,
         );
       }
     } else if (t.displayCode) {
@@ -632,7 +648,7 @@ export function MapCanvas({
         line1Y = chosen.y;
         line1StartX = chosen.x;
         for (let i = 0; i < displayCode.length; i++) {
-          setLabelPoint(chosen.x + i, chosen.y, displayCode[i], "#f8fafc", true);
+          setLabelPoint(chosen.x + i, chosen.y, displayCode[i], "#f8fafc", true, 2, t.id);
         }
       }
     }
@@ -646,7 +662,7 @@ export function MapCanvas({
       if (!marker) continue;
       for (let i = 0; i < marker.text.length; i++) {
         const char = marker.text[i];
-        setLabelPoint(marker.x + i, marker.y, char, "#f8fafc", true, 3);
+        setLabelPoint(marker.x + i, marker.y, char, "#f8fafc", true, 3, territory.id);
       }
   }
 
@@ -667,6 +683,19 @@ export function MapCanvas({
       const labelCell = labelMap[y]?.[x];
       if (labelCell) {
         let labelBg = "#0f172a";
+        let labelFg = labelCell.fg;
+        const labelTerritoryId = labelCell.territoryId ?? cellTid;
+        const labelTerritory = labelTerritoryId
+          ? activeMap.territories.find((territory) => territory.id === labelTerritoryId)
+          : undefined;
+        const labelState = labelTerritoryId
+          ? territories[labelTerritoryId] ?? Object.values(territories).find(
+              (state) => state.name?.toLowerCase() === labelTerritory?.name.toLowerCase()
+            )
+          : undefined;
+        const labelOwner = phase !== "lobby" && labelState?.ownerId
+          ? players.find((player) => player.id === labelState.ownerId)
+          : undefined;
         if (cellTid) {
           const territory = activeMap.territories.find((t) => t.id === cellTid);
           const tState =
@@ -682,16 +711,16 @@ export function MapCanvas({
             isLobby || !hasOwner
               ? (territory?.regionColor ?? "#64748b")
               : (owner?.colorHex ?? territory?.regionColor ?? "#00d2ff");
-          const isSelected = selectedTerritoryId === cellTid;
           const isTarget = targetTerritoryId === cellTid;
           const isHovered = hoveredTerritoryId === cellTid;
           const isEnemy = Boolean(hasOwner && rawOwnerId && myPlayerId && rawOwnerId !== myPlayerId);
           const hoverBg = isLobby || !hasOwner ? "#1e293b" : getHoverTint(ownerColor);
 
           const neutralTint = getUnclaimedTint(territory?.regionColor ?? "#64748b", cellTid);
-          labelBg = isSelected
-            ? "#0c2b3d"
-            : isTarget
+          // Selection is an outline state. Keep the owner's fill behind the
+          // name so selecting a territory never makes its allegiance look
+          // like a different player's colour.
+          labelBg = isTarget
             ? isEnemy
               ? "#280a0e"
               : "#082115"
@@ -702,9 +731,16 @@ export function MapCanvas({
             : getDarkTint(ownerColor, cellTid);
         }
 
+        // On compact territories the label or army count may be the only
+        // visible interior. Its source territory remains known even when a
+        // cartographic island code extends into water.
+        if (selectedTerritoryId === labelTerritoryId) {
+          labelFg = labelOwner?.colorHex ?? "#fef3c7";
+        }
+
         cell = {
           char: labelCell.char,
-          fg: labelCell.fg,
+          fg: labelFg,
           bg: labelBg,
           bold: labelCell.bold,
         };
@@ -776,7 +812,14 @@ export function MapCanvas({
 
           if (isSelected) {
             return {
-              color: isPerimeter ? "#00bcd4" : "#0b2735",
+              // Do not replace the political fill with the selection colour.
+              // Off-white is reserved for the outline, leaving ownership
+              // legible throughout the selected territory.
+              color: isPerimeter
+                ? "#f8fafc"
+                : isLobby || !hasOwner
+                ? getUnclaimedTint(territory?.regionColor ?? "#64748b", tid)
+                : getDarkTint(ownerColor, tid),
               isPerimeter,
               isPoliticalBorder,
               isOwner: true,
@@ -795,7 +838,8 @@ export function MapCanvas({
           if (isHovered) {
             const hoverBg = isLobby || !hasOwner ? "#1e293b" : getHoverTint(ownerColor);
             return {
-              color: isPerimeter ? "#ffffff" : hoverBg,
+              // Keep hover quieter than the off-white selected outline.
+              color: isPerimeter ? "#94a3b8" : hoverBg,
               isPerimeter,
               isPoliticalBorder,
               isOwner: true,
@@ -868,11 +912,14 @@ export function MapCanvas({
           const isWestLandBorder = (westTop !== null && westTop !== tid) || (westBot !== null && westBot !== tid);
 
           if (isSelected && (isEastLandBorder || isWestLandBorder || topStyle.isPerimeter)) {
-            // Selected perimeter: strongest neon
+            // Selected perimeter: a neutral, high-contrast outline.
             cell = {
               char: isWestLandBorder ? "▌" : isEastLandBorder ? "▐" : "█",
-              fg: "#00bcd4",
-              bg: "#0b2735",
+              fg: "#f8fafc",
+              // Preserve the owner-derived terrain fill under the outline.
+              bg: isLobby || !hasOwner
+                ? getUnclaimedTint(activeMap.territories.find((t) => t.id === tid)?.regionColor ?? "#64748b", tid)
+                : getDarkTint(ownerColor, tid),
               bold: true,
             };
           } else if (isTarget && (isEastLandBorder || isWestLandBorder || topStyle.isPerimeter)) {

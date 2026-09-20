@@ -14,6 +14,57 @@ import {
 } from "../packages/map-engine/src/index.js";
 import { getMapRenderLayout, getTerrainTextureMark } from "../apps/client/src/ui/MapCanvas.js";
 
+type PaintedCell = { char: string; fg?: string; bg?: string };
+
+/** Expand MapCanvas span runs so assertions inspect the actual painted cell. */
+function paintedCells(canvas: any): PaintedCell[][] {
+  return canvas.props.children.props.children.map((line: any) => {
+    const cells: PaintedCell[] = [];
+    for (const span of line.props.children) {
+      const text = typeof span.props.children === "string"
+        ? span.props.children
+        : span.props.children?.props?.children ?? "";
+      for (const char of text) cells.push({ char, fg: span.props.fg, bg: span.props.bg });
+    }
+    return cells;
+  });
+}
+
+function interiorCellFor(territoryId: string, map = MAP_GRID_IRONREACH_WIDE) {
+  const layout = getMapRenderLayout(map);
+  for (let y = layout.sourceY; y <= layout.land.maxY; y++) {
+    for (let x = layout.sourceX; x <= layout.land.maxX; x++) {
+      const microY = y * 2;
+      if (
+        getMicroTerritoryAt(x, microY, map) === territoryId &&
+        getMicroTerritoryAt(x, microY + 1, map) === territoryId &&
+        getMicroTerritoryAt(x - 1, microY, map) === territoryId &&
+        getMicroTerritoryAt(x + 1, microY, map) === territoryId &&
+        getMicroTerritoryAt(x, microY - 1, map) === territoryId &&
+        getMicroTerritoryAt(x, microY + 2, map) === territoryId
+      ) return { x: x - layout.sourceX, y: y - layout.sourceY };
+    }
+  }
+  throw new Error(`No fully interior rendered cell for ${territoryId}`);
+}
+
+function perimeterCellFor(territoryId: string, map = MAP_GRID_IRONREACH_WIDE) {
+  const layout = getMapRenderLayout(map);
+  for (let y = layout.sourceY; y <= layout.land.maxY; y++) {
+    for (let x = layout.sourceX; x <= layout.land.maxX; x++) {
+      const top = getMicroTerritoryAt(x, y * 2, map);
+      const bottom = getMicroTerritoryAt(x, y * 2 + 1, map);
+      if (top !== territoryId && bottom !== territoryId) continue;
+      if (
+        top !== bottom ||
+        getMicroTerritoryAt(x - 1, y * 2, map) !== top ||
+        getMicroTerritoryAt(x + 1, y * 2, map) !== top
+      ) return { x: x - layout.sourceX, y: y - layout.sourceY };
+    }
+  }
+  throw new Error(`No rendered perimeter cell for ${territoryId}`);
+}
+
 describe("visual map: rendered geography occupancy", () => {
   it("chooses a map-aware full-width fallback at terminal boundaries and never clips Earth", async () => {
     // @ts-ignore runtime-only OpenTUI modules
@@ -370,5 +421,85 @@ describe("visual map: rendered geography occupancy", () => {
 
     assertSolidInterior("C2", selectedFrame);
     assertSolidInterior("B3", targetFrame);
+  });
+
+  it("keeps ownership legible through selection while reserving red for an attack target", async () => {
+    const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
+    const players = [
+      { id: "cyan", name: "Cyan", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
+      { id: "purple", name: "Purple", colorIndex: 1, colorHex: "#8b5cf6", connected: true, isAlive: true, ready: true },
+    ];
+    const territories = {
+      C2: { id: "C2", name: "Crown Citadel", sectorId: "ne_cyan", ownerId: "cyan", units: 3, neighbors: ["A3", "C1", "C3", "C4"] },
+      B3: { id: "B3", name: "Golden Vale", sectorId: "nc_amber", ownerId: "purple", units: 3, neighbors: ["B1", "B2", "C4", "E1"] },
+    };
+    const cyanCell = interiorCellFor("C2");
+    const purpleCell = interiorCellFor("B3");
+    const cyanPerimeter = perimeterCellFor("C2");
+    const render = (selectedTerritoryId: string | null, targetTerritoryId: string | null, hoveredTerritoryId?: string) =>
+      paintedCells(MapCanvas({
+        mapBundle: ironreachBundle, renderProfile: "wide", territories, players,
+        myPlayerId: "cyan", phase: "attack", selectedTerritoryId, targetTerritoryId, hoveredTerritoryId,
+        onSelectTerritory: () => {}, onSelectTarget: () => {}, onDeselect: () => {},
+      }));
+    const cellAt = (frame: PaintedCell[][], point: { x: number; y: number }) => frame[point.y]?.[point.x];
+    const selectedCyan = cellAt(render("C2", null), cyanCell)!;
+    const selectedPurple = cellAt(render("B3", null), purpleCell)!;
+    const hoveredCyan = cellAt(render(null, null, "C2"), cyanCell)!;
+
+    // Selection must carry each territory's ownership hue. If both selected
+    // cells use one generic fill, a player cannot tell who owns land until it
+    // is deselected. It must also remain a different state from hover.
+    expect(selectedCyan.bg).not.toBe(selectedPurple.bg);
+    expect(selectedCyan.bg).not.toBe(hoveredCyan.bg);
+    expect(selectedCyan.bg).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(selectedPurple.bg).toMatch(/^#[0-9a-f]{6}$/i);
+    const isRedHued = (color: string | undefined) => {
+      if (!color?.match(/^#[0-9a-f]{6}$/i)) return false;
+      const [r, g, b] = [color.slice(1, 3), color.slice(3, 5), color.slice(5, 7)].map(component => parseInt(component, 16));
+      return r > g + 12 && r > b + 12;
+    };
+    const isCyanHued = (color: string | undefined) => {
+      if (!color?.match(/^#[0-9a-f]{6}$/i)) return false;
+      const [r, g, b] = [color.slice(1, 3), color.slice(3, 5), color.slice(5, 7)].map(component => parseInt(component, 16));
+      return g > r + 12 && b > r + 12;
+    };
+    const isPurpleHued = (color: string | undefined) => {
+      if (!color?.match(/^#[0-9a-f]{6}$/i)) return false;
+      const [r, g, b] = [color.slice(1, 3), color.slice(3, 5), color.slice(5, 7)].map(component => parseInt(component, 16));
+      return b > g + 12 && b > r + 12;
+    };
+    expect(isCyanHued(selectedCyan.bg)).toBe(true);
+    expect(isPurpleHued(selectedPurple.bg)).toBe(true);
+
+    const selectedBorder = cellAt(render("C2", null), cyanPerimeter)!;
+    const hoveredBorder = cellAt(render(null, null, "C2"), cyanPerimeter)!;
+    const isNeutral = (color: string | undefined) => {
+      if (!color?.match(/^#[0-9a-f]{6}$/i)) return false;
+      const [r, g, b] = [color.slice(1, 3), color.slice(3, 5), color.slice(5, 7)].map(component => parseInt(component, 16));
+      return Math.max(r, g, b) - Math.min(r, g, b) <= 38 && Math.max(r, g, b) >= 130;
+    };
+    // The outline is the selection cue. It cannot borrow cyan (or another
+    // player hue), and it must communicate more than the transient hover.
+    expect(selectedBorder.fg).not.toBe(players[0].colorHex);
+    expect(selectedBorder.fg).not.toBe(players[1].colorHex);
+    expect(isNeutral(selectedBorder.fg)).toBe(true);
+    expect(`${selectedBorder.fg}/${selectedBorder.bg}`).not.toBe(`${hoveredBorder.fg}/${hoveredBorder.bg}`);
+
+    // In an attack frame the enemy target still gets an unmistakably red
+    // signal. Both owners above deliberately use non-target colors here.
+    const targetFrame = render("C2", "B3");
+    const targetColors = new Set<string>();
+    const layout = getMapRenderLayout(MAP_GRID_IRONREACH_WIDE);
+    for (let y = layout.sourceY; y <= layout.land.maxY; y++) {
+      for (let x = layout.sourceX; x <= layout.land.maxX; x++) {
+        if (getMicroTerritoryAt(x, y * 2, MAP_GRID_IRONREACH_WIDE) !== "B3" &&
+            getMicroTerritoryAt(x, y * 2 + 1, MAP_GRID_IRONREACH_WIDE) !== "B3") continue;
+        const cell = cellAt(targetFrame, { x: x - layout.sourceX, y: y - layout.sourceY });
+        if (cell?.fg) targetColors.add(cell.fg);
+        if (cell?.bg) targetColors.add(cell.bg);
+      }
+    }
+    expect([...targetColors].some(isRedHued)).toBe(true);
   });
 });

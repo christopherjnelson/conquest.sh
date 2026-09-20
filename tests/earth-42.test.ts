@@ -317,4 +317,42 @@ describe("map bundles and geometry", () => {
     expect(first.backgrounds.size).toBeGreaterThanOrEqual(4);
     expect([...first.backgrounds].sort()).not.toEqual([...second.backgrounds].sort());
   });
+
+  it("keeps the owner colour in a selected tiny-island label or code", () => {
+    const island = EARTH_42_BUNDLE.renderVariants.find(variant => variant.profile === "wide")!
+      .grid.territories.find(territory => territory.id === "eu_british_isles")!;
+    const owner: Player = {
+      id: "cyan-owner", name: "Cyan", colorIndex: 0, colorHex: "#00d2ff",
+      connected: true, isAlive: true, ready: true,
+    };
+    const canvas: any = MapCanvas({
+      mapBundle: EARTH_42_BUNDLE,
+      territories: {
+        [island.id]: {
+          id: island.id, name: island.name, sectorId: island.sectorId,
+          ownerId: owner.id, units: 12, neighbors: island.neighbors,
+        },
+      },
+      players: [owner], myPlayerId: owner.id, phase: "deployment",
+      selectedTerritoryId: island.id, targetTerritoryId: null,
+      renderProfile: "wide",
+      onSelectTerritory: () => {}, onSelectTarget: () => {}, onDeselect: () => {},
+    });
+    const spans = (canvas.props.children.props.children as any[]).flatMap((line) => line.props.children);
+    const characters = spans.flatMap((span) => {
+      const text = typeof span.props.children === "string"
+        ? span.props.children
+        : span.props.children?.props?.children ?? "";
+      return [...text].map(char => ({ char, fg: span.props.fg }));
+    });
+    const renderedText = characters.map(cell => cell.char).join("");
+
+    // British Isles is the smallest wide-raster territory. Its selected
+    // cartographic label may fall back to the authored EU2 code, but it must
+    // still expose its owner's colour instead of only the neutral outline.
+    const label = renderedText.includes("BRITAIN") ? "BRITAIN" : "EU2";
+    const labelIndex = renderedText.indexOf(label);
+    expect(labelIndex).toBeGreaterThanOrEqual(0);
+    expect(characters.slice(labelIndex, labelIndex + label.length).some(cell => cell.fg === owner.colorHex)).toBe(true);
+  });
 });
