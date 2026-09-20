@@ -173,18 +173,18 @@ export function deriveCoarseTemplateFromMicro(microTemplate: string[]): string[]
 }
 
 export const MICRO_TEMPLATE_COMPACT: string[] = [
-  "........BBBB..........AAA..................GGGG.........................................................", // 0
-  "......BBBBBBBB......AAAAAAA..............GGGGGGGG.......................................................", // 1
-  ".......BBBBBBB......AAAAAAAAAGGGGGGGGGGGGGGGGGGGGGG.....IIIIIIII........................................", // 2
-  ".....BBBBBBBBBBA..AAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGG.GIIIIIIIIIII......................................", // 3
-  "......BBBBBBBBBBAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIII.....................................", // 4
-  "....BBBBBBBBBBBBBAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIII...................................", // 5
-  ".....BBBBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIII...................................", // 6
+  ".........BBB..........AAA...................GG..........................................................", // 0
+  ".......BBBBBBB......AAAAAAA...............GGGGGG........................................................", // 1
+  ".........BBBBB......AAAAAAAAAGGGGG......GGG.....GG........IIIIII........................................", // 2
+  "......BBBBBBBBBA..AAAAAAAAAAAAAGGGG.GGGGGG.........G..GIIIIIIIIIII......................................", // 3
+  "........BBBBBBBBAAAAAAAAAAAAAAA..GGGGGGGGGGG........GGIIIIIIIIIIIII.....................................", // 4
+  "....BBBBBBBBBBBBBAAAAAAAAAAAAAAA..GGGGGGGGGGGG.......IIIIIIIIIIIIIIII...................................", // 5
+  ".....BBBBBBBBBBBBAAAAAAAAAAAAAAAA..GGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIII...................................", // 6
   "....BBBBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIII..................................", // 7
-  "....BBBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIII..................................", // 8
-  "....BBBBBBBBBBAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIII..................................", // 9
-  "....BBBBBBBBBAAAAAAAAAAAAAAAGGGGGGGGGGGHHHHHHGGGGGGGGGGIIIIIIIIIIIIIII..................................", // 10
-  ".....BBBBBBBBAAAAAAAAAAAAAAAGGGGGGGGGGGHHHHHHGGGGGIIIIIIIIIIIIIIIIIII...................................", // 11
+  "....BBBBBBBBBBBAAAAAAAAAAAAAAAA..GGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIII..................................", // 8
+  "....BBBBBBBBBBAAAAAAAAAAAAAAAA..GGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIII..................................", // 9
+  "....BBBBBBBBBAAAAAAAAAAAAAA..GGGGGGGGGGHHHHHHGGGGGGGGGGIIIIIIIIIIIIIII..................................", // 10
+  ".....BBBBBBBBAAAAAAAAAAAAAA..GGGGGGGGGGHHHHHHGGGGGIIIIIIIIIIIIIIIIIII...................................", // 11
   "....BBBBBBBBBCCCCCCCCCCCCCCC.HHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIJJJJJ................................", // 12
   "......BBBBBBBCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIJJJJJJ...............................", // 13
   ".....BBBBBBBCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJ...............................", // 14
@@ -199,36 +199,36 @@ export const MICRO_TEMPLATE_COMPACT: string[] = [
   "................CCCCCCC..........HHHHHHHHHHH........JJJJJJJJJJJJ........................................", // 23
   "........................................................................................................", // 24
   "........................................................................................................", // 25
-  "...............DDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFF.............................SSSSSSSSS........", // 26
-  "..............DDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFF.........................SSSSSSSSSSSSS......", // 27
+  "...................DDDDDDD...DDDDDDDDDDF.....FFFFF...FFFFFFFF.........................SSSSSSSSS.........", // 26
+  "...................DDDDD.....EEEEEEEEEEEEEEEEEFFF.....FFFFFFFF.........................SSSSSSSSSSSSS....", // 27
   "..............DDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFF................RRRRRRRRRSSSSSSSSSSSSS......", // 28
   "..............DDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFF............RRRRRRRRRRSSSSSSSSSSSSSSSS....", // 29
-  ".......KKK....DDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFF............RRRRRRRRRSSSSSSSSSSSSSSSS.....", // 30
-  ".....KKKKKKL..DDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF..........RRRRRRRRRRSSSSSSSSSSSSSSSSSS....", // 31
-  "......KKKKKKLLLDDDDDDDLLLLLEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF............RRRRRRRRSSSSSSSSSSSSSSSSSSS....", // 32
-  "....KKKKKKKKKLLDDDDDDDLLLLLEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF............RRRRRRRRSSSSSSSSSSSSSSSSSSSS....", // 33
-  "....KKKKKKKKKLLLLLLLLLLLLLLLEEEEEEEEEOOOOFFFFFFFFFFFFFFFFFF.............RRRRRRRSSSSSSSSSSSSSSSSSSSSS....", // 34
+  ".......KKK....DDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFF............RRRRRRRRRSSSSSSSS.............", // 30
+  ".....KKKKKKL..DDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF..........RRRRRRRRRRSSSSSSSSSS............", // 31
+  "......KKKKKKLLLDDDDDDDLLLLLEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF............RRRRRRRRSSSSSSSSSSSSSSSSS......", // 32
+  "....KKKKKKKKKLLDDDDDDDLLLLLEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFF............RRRRRRRRSSSSSSSSSSSSSSSSSSS.....", // 33
+  "....KKKKKKKKKLLLLLLLLLLLLLLLEEEEEEEEEOOOOFFFFFFFFFFFFFFFFFF.............RRRRRRRSSSSSSSSSSSSSSSSSSS......", // 34
   "...KKKKKKKKKLLLLLLLLLLLLLLLLEEEEEEEEOOOOOFFFFFFFFFFFFFFFFF...............RRRRRRRRRRRSSSSSSSSSSSSSSS.....", // 35
-  "...KKKKKKKKLLLLLLLLLLLLLLLLEEEEEEEEOOOOOOOOOOOOOOOOOOOOOOO...............RRRRRRRRRRRSSSSSSSSSSSSSSS.....", // 36
+  "...KKKKKKKKLLLLLLLLLLLLLL..EEEEEEEEOOOOOOOOOOOOOOO.......................RRRRRRRRRRRSSSSSSSSSSSSSSS.....", // 36
   "....KKKKKKLLLLLLLLLLLLLLLLLEEEEEEEOOOOOOOOOOOOOOOOOOOOOOOO................RRRRRRRRRRSSSSSSSSSSSSS.......", // 37
-  "...KKKKKKLLLLLLLLLLLLLLLLLLOOOEEEOOOOOOOOOOOOOOOOOOOOOO...................RRRRRRRRRRSSSSSSSSSSSSS.......", // 38
-  ".....KKKLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOO.....................RRRRRRRRRSSSSSSSSSSS.........", // 39
-  "....KKKKKKKK..LLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQ............RRRRRRRRRRSSSSSSSSSSS.........", // 40
-  ".....KKKKKK...LLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQ...........RRRRRRRRRSSSSSSSSSS..........", // 41
-  ".....MMMMMMMMMMLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQ............RRRRRRRTTTTTTTTTTTT..........", // 42
-  "....MMMMMMMMMMMLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQ...........RRRRRRTTTTTTTTTTTTTT........", // 43
-  ".....MMMMMMMMMMMMNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQ.............TTTTTTTTTTTTTTTTTT.........", // 44
-  "....MMMMMMMMMMMMMMNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQ...........TTTTTTTTTTTTTTTTTTTTT.......", // 45
-  "....MMMMMMMMMMMMMNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQ...........TTTTTTTTTTTTTTTTTTTT........", // 46
-  ".....MMMMMMMMMMMNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQ............TTTTTTTTTTTTTTTTTTTTT.......", // 47
-  "....MMMMMMMMMMMNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQ...........TTTTTTTTTTTTTTTTTTTTT.......", // 48
-  ".....MMMMMMMMMMNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOPQQQQQQQQQQQQQQQQQ..............TTTTTTTTTTTTTTTTTTT.......", // 49
-  ".....MMMMMMMMMNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQ.............TTTTTTTTTTTTTTTTTTTT.......", // 50
-  "....MMMMMMMM...NNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQ................TTTTTTTTTTTTTTTTT........", // 51
-  ".....MMMM.....NNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQ.................TTTTTTTTTTTTTTTT.........", // 52
-  "....MMM.........NNNNNPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQ.....................TTTTTTTTTTTT...........", // 53
-  "....MMM..............PPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQ.......................TTTTTTTTTTT............", // 54
-  ".......................PPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQ...........................TTTTTTT..............", // 55
+  "...KKKKKKLLLLLLLLLLLLLLL...OOOEEEOOOOOOOOOOOOOOO..........................RRRRRRRRRRSSSSSSSSSSSSS.......", // 38
+  ".....KKKLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOO...................RRRRRRRRRRSSSSSSSSSSS..........", // 39
+  "....KKKKKKKK..LLLLLLLLL....OOOOOOOOOOOOOOOOOOOOOOOOOO..................RRRRRRRRRRRRRSSSSSSSSSSS.........", // 40
+  ".....KKKKKK...LLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQ........RRRRRRRRRRRRRRRRSSSSSSSSSS..........", // 41
+  ".....MMMMMMMMMMLLLLLLL.....OOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQ.......RRRRRRRRRRRRRTTTTTTT..............", // 42
+  "....MMMMMMMMMMMLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQ.......RRRRRRRRRTTTTTTTT..............", // 43
+  ".....MMMMMMMMMMMMNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQ.............TTTTTTTTTTTTTT.............", // 44
+  "....MMMMMMMMMMMMMMNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQ..............TTTTTTTTTTTTTT..............", // 45
+  "....MMMMMMMMMMMMMNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQ................TTTTTTTTTTTTTTTTTTTT........", // 46
+  ".....MMMMMMMMMMMNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQ..................TTTTTTTTTTTTTTTTTTTTT.......", // 47
+  "....MMMMMMMMMMMNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQ.................TTTTTTTTTTTTTTTTTTTTT.........", // 48
+  ".....MMMMMMMMMMNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOPQQQQQQQQQ......................TTTTTTTTTTTTTTTTTTT.......", // 49
+  ".....MMMMMMMMMNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQ......................TTTTTTTTTTTTTTTTTTTT.......", // 50
+  "....MMMMMMMM...NNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQ.........................TTTTTTTTTTTTTTTTT........", // 51
+  ".....MMMM.....NNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQ..........................TTTTTTTTTTTTTTTT.........", // 52
+  "....MMM.........NNNNNPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQ.............................TTTTTTTTTTTT...........", // 53
+  "....MMM..............PPPPPPPPPPPPPPPPPPPPPQQQQQQQQQ..............................TTTTTTTTTTT............", // 54
+  ".......................PPPPPPPPPPPPPPPPPPQQQQQQQQQ.................................TTTTTTT..............", // 55
   "........................PPPPPPPPPPPPPPPPP..........................................TTTT.................", // 56
   "..........................PPPPPPPPPPPPP............................................TTTT.................", // 57
   "...........................PPPPPPPPPPP..................................................................", // 58
@@ -236,22 +236,22 @@ export const MICRO_TEMPLATE_COMPACT: string[] = [
 ];
 
 export const MICRO_TEMPLATE_WIDE: string[] = [
-  "...........BBBBB.............AAAA.......................GGGGGG..........................................................................", // 0
-  "..........BBBBBBB...........AAAAAA.....................GGGGGGGG.........................................................................", // 1
-  "..........BBBBBBB...........AAAAAA.....................GGGGGGGG.........................................................................", // 2
-  ".........BBBBBBBBB.........AAAAAAAA...................GGGGGGGGGG........................................................................", // 3
-  ".........BBBBBBBBBB.......AAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGG......IIIIIIIIIII....................................................", // 4
-  ".......BBBBBBBBBBBBBA...AAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGG..IIIIIIIIIIIIIII..................................................", // 5
-  "........BBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIII................................................", // 6
-  "......BBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIII..............................................", // 7
-  ".......BBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 8
+  "............BBBB.............AAAA........................GGGG...........................................................................", // 0
+  "...........BBBBBB...........AAAAAA......................GGGGGG..........................................................................", // 1
+  ".............BBBB...........AAAAAA......................GGGGGG..........................................................................", // 2
+  "..........BBBBBBBB.........AAAAAAAA....................GGGGGGGG.........................................................................", // 3
+  "...........BBBBBBBB..........AAAAAAAAAA.G..........GGGGG.......GGGG..........IIIIIII....................................................", // 4
+  ".......BBBBBBBBBBBBBA...AAAAAAAAAAAAAAAAAG.......GGGGGGGG.........GGG........IIIIIIII...................................................", // 5
+  "........BBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAA..GGGGGGGGGGGGGGGG.........GGIIIIIIIIIIIIIIIIII................................................", // 6
+  "......BBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAA..GGGGGGGGGGGGGGGGG........IIIIIIIIIIIIIIIIIIIII..............................................", // 7
+  ".......BBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAA..GGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 8
   "......BBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIIII............................................", // 9
-  "......BBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII............................................", // 10
-  "......BBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIII............................................", // 11
-  "......BBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGHHHHHHHHGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIII............................................", // 12
-  "......BBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGHHHHHHHHGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIII.............................................", // 13
-  "......BBBBBBBBBBBAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGHHHHHHHHGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 14
-  ".......BBBBBBBBBBAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGGGGGHHHHHHHHGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 15
+  "......BBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAA..GGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII............................................", // 10
+  "......BBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAA..GGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIIIII............................................", // 11
+  "......BBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAA..GGGGGGGGGGHHHHHHHHGGGGGGGGGGGGIIIIIIIIIIIIIIIIIIIII............................................", // 12
+  "......BBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAA..GGGGGGGGGGGHHHHHHHHGGGGGGGGGGGGGGIIIIIIIIIIIIIIIIII.............................................", // 13
+  "......BBBBBBBBBBBAAAAAAAAAAAAAAAAAAA..GGGGGGGGGGGGGHHHHHHHHGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 14
+  ".......BBBBBBBBBBAAAAAAAAAAAAAAAAAAA..GGGGGGGGGGGGGHHHHHHHHGGGGGGGIIIIIIIIIIIIIIIIIIIIIIIII.............................................", // 15
   "......BBBBBBBBBBBCCCCCCCCCCCCCCCCCCCC.HHHHHHHHHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIIIIIIJJJJJJJ.........................................", // 16
   "........BBBBBBBBBCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIIIIIIJJJJJJJJ........................................", // 17
   ".......BBBBBBBBBCCCCCCCCCCCCCCCCCCCCCHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHJJJJJJJJJJJJJJJJJJJJJJJJJJJJ........................................", // 18
@@ -266,46 +266,46 @@ export const MICRO_TEMPLATE_WIDE: string[] = [
   "..................CCCCCCCCCCCCCCC......HHHHHHHHHHHHHHHHHHHHH......HJJJJJJJJJJJJJJJJJJJJJJJJJ............................................", // 27
   "...................CCCCCCCCCCCCCC........HHHHHHHHHHHHHHHHHHH......JJJJJJJJJJJJJJJJJJJJ..................................................", // 28
   ".....................CCCCCCCCCC............HHHHHHHHHHHHHHH..........JJJJJJJJJJJJJJJJ....................................................", // 29
-  "...................................DD...................................................................................................", // 30
-  "..................................DDDD..................................................................................................", // 31
-  "....................DDDDDDDDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFFFFFFFFF............................................SSSSSSSSS.......", // 32
-  "...................DDDDDDDDDDDDDDDDDDDDDDDDDDDDDFFFFFFFFFFFFFFFFFFFFFFFFFFFFF.........................................SSSSSSSSSSSSS.....", // 33
-  "...................DDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFFF............................RRRRRRRRRRRRSSSSSSSSSSSSSSSS...", // 34
-  "...................DDDDDDDDDDDDDDD.EEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFF..........................RRRRRRRRRRRRSSSSSSSSSSSSSSSSSSS.", // 35
-  ".........KKKKK.....DDDDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS.", // 36
-  ".......KKKKKKKKK...DDDDDDDDDDDDD.DDDDEEEEEEEEEEEEEEEEEEE.EEFFFFFFFFFFFFFFFFFFFFF.......................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS", // 37
-  "........KKKKKKK....DDDDDDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSSSSS", // 38
-  "......KKKKKKKKKKK..DDDDDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEE.EEFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSSSSSS", // 39
-  ".......KKKKKKKKKKKKLLLLLDDDDDDDDDLLLLLEEEEEEEEEEEEEEEEEE.EFFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRSSSSSSSSSSSSSSSSSSSSS", // 40
-  ".....KKKKKKKKKKKKKLLLLLLDDDDDDDDDLLLLLEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFFF.........................RRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS", // 41
+  "........................................................................................................................................", // 30
+  "........................................................................................................................................", // 31
+  ".........................D...DDDDDDDDDDDDDDDDDDD......FFFFFFFFFFFFFFFFFFFFF.............................................SSSSSSSSS.......", // 32
+  "............................DDDDDDDDDDDDDDDDDDDDF....FFFFFFFFFFFFFFFFFFFFFFF..........................................SSSSSSSSSSSSS.....", // 33
+  "........................DDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFFF............................RRRRRRRRRRRRSSSSSSSSSSSSS......", // 34
+  "...................D....DDDDDDDDDD.EEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFF..........................RRRRRRRRRRRRSSSSSSSSSSSSS.......", // 35
+  ".........KKKKK.....DDDDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEE.FFFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRSSSSSS.............", // 36
+  ".......KKKKKKKKK...DDDDDDDDDDDDD.DDDDEEEEEEEEEEEEEEEEEEE.EEFFFFFFFFFFFFFFFFFFFFF.......................RRRRRRRRRRRRRRRSSSSSS............", // 37
+  "........KKKKKKK....DDDDDDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRSSSSSSSSS.........S", // 38
+  "......KKKKKKKKKKK..DDDDDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEE.EEFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRRSSSSSSSSSSS.......SS", // 39
+  ".......KKKKKKKKKKKKLLLLLDDDDDDDDDLLLLLEEEEEEEEEEEEEEEEEE.EFFFFFFFFFFFFFFFFFFFFF........................RRRRRRRRRRRRSSSSSSSSSSSSSSSSSSSS.", // 40
+  ".....KKKKKKKKKKKKKLLLLLLDDDDDDDDDLLLLLEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFFF.........................RRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSS.", // 41
   ".....KKKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFF...........................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS", // 42
   "....KKKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLLEEEEEEEEEEEEEEEEEFF.FFFFFFFFFFFFFFFFF............................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS", // 43
-  "....KKKKKKKKKKKLLLLLLLLLLLLLLLLLLLLLLLEEEEEEEEEOOOOOOOOOOOOOOOOOFFFFFFFFFFFFF..........................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSS.", // 44
+  "....KKKKKKKKKKKLLLLLLLLLLLLLLLLLLLL...EEEEEEEEEOOOOOOOOO........FFFFFFFFFFFFF..........................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSS.", // 44
   ".....KKKKKKKKKLLLLLLLLLLLLLLLLLLLLLLLLEEEEEEEEOOOOOOOOOOOOOOOOOO.FFFFFFFFFFFF..........................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSS...", // 45
-  ".....KKKKKKKKLLLLLLLLLLLLLLLLLLLLLLLLLLEEEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO..........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS..", // 46
-  ".......KKKKKLLLLLLLLLLLLLLLLLLLLLLLLLLLEEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO..........................RRRRRRRRRRRRRSSSSSSSSSSSSSSSS....", // 47
-  "......KKKKKLLLLLLLLLLLLLLLLLLLLLLLLLLOEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQ.........................RRRRRRRRRRRSSSSSSSSSSSSSSS.......", // 48
-  ".......KKKKKKKKKKLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOO.OQQQQQQQQQQQQ........................RRRRRRRRRRRSSSSSSSSSSSSS.........", // 49
-  ".......KKKKKKKKLLLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQ........................RRRRRRRRRRRSSSSSSSSSSSSSS........", // 50
-  ".......KKKKKKKKLLLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQ........................RRRRRRRRRRRSSSSSSSSSSSSS.........", // 51
-  ".......MMMMMMMMMMMLLLLLLLLLLLLLLNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQ........................RRRRRRRRRTTTTTTTTTTTTTTTT........", // 52
-  "......MMMMMMMMMMMMLLLLLLLLLLLLLLNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO.QQQQQQQQQQQQQQQ.........................RRRRRRRRTTTTTTTTTTTTTTTTTT......", // 53
-  ".......MMMMMMMMMMMMMMNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOO..QQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT.......", // 54
-  "......MMMMMMMMMMMMMMMMNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQQ........................TTTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 55
-  "......MMMMMMMMMMMMMMMMMNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO..QQQQQQQQQQQQQQQ.........................TTTTTTTTTTTTTTTTTTTTTTTTTT......", // 56
-  ".......MMMMMMMMMMMMMMMNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQ........................TTTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 57
-  "......MMMMMMMMMMMMMMMNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQQ........................TTTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 58
-  ".......MMMMMMMMMMMMMNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOO..QQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 59
-  ".......MMMMMMMMMMM.NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQQQQ.........................TTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 60
-  ".......MMMMMMMMMM..NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 61
-  ".......MMMMMMMMMM..NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPP.....QQQQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 62
-  "......MMMMMMMMMM....NNNNNNNNNNNNNN.PPPPPPPPPPPPPPPPPP.........QQQQQQQQQQQQQQQQQ............................TTTTTTTTTTTTTTTTTTTTTTT......", // 63
-  ".......MMMMM.......NNNNNNNNNNNNNNN.PPPPPPPPPPPPPPPP..........QQQQQQQQQQQQQQQQQQQ...........................TTTTTTTTTTTTTTTTTTTT.........", // 64
-  "......MMMM...........NNNNNNNNNNN.....PPPPPPPPPPPPQ.............QQQQQQQQQQQQQQQ...............................TTTTTTTTTTTTTTTT...........", // 65
-  "......MMM............NNNNNNNNNNNN...PPPPPPPPPPPQQQ.............QQQQQQQQQQQQQQQ.................................TTTTTTTTTTTTTT...........", // 66
-  ".......................NNNNNNNN.......PPPPPPPPQQQ................QQQQQQQQQQQ.....................................TTTTTTTTTTT............", // 67
-  ".......................NNNNNNN........PPPPPPPPPP.................QQQQQQQQQQ.........................................TTTTTTTTTT..........", // 68
-  ".........................NNN............PPPPPP.....................QQQQQQ.............................................TTTTTTTT..........", // 69
+  ".....KKKKKKKKLLLLLLLLLLLLLLLLLLLLL.....EEEEEOOOOOOOOOOOOOOOOOOOOOO...................................RRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSS..", // 46
+  ".......KKKKKLLLLLLLLLLLLLLLLLLLLLLLLLLLEEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO.....................RRRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSS....", // 47
+  "......KKKKKLLLLLLLLLLLLLLLLLLLLL.....OEEEOOOOOOOOOOOOOOOOOOOOOOOOOOO..........................RRRRRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSS.......", // 48
+  ".......KKKKKKKKKKLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOO.OQQQQQQQQQQQQ.........RRRRRRRRRRRRRRRRRRRRRRRRRR..SSSSSSSSSSSSS.......", // 49
+  ".......KKKKKKKKLLLLLLLLLLLLLLL.....LLOOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQ........RRRRRRRRRRRRRRRRRRRRRRRR..SSSSSSSSSSSSSS......", // 50
+  ".......KKKKKKKKLLLLLLLLLLLLLLLLLLLLLLOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQQQQ........RRRRRRRRRRRRRRRRRRRRSSSSSSSSSSSSS.........", // 51
+  ".......MMMMMMMMMMMLLLLLLLLLLLLLLNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOOOQQQQQQQQQQQQQQQQQQQQQQQQ..........RRRRRRRRRRRRRRTTTTTTTTT...............", // 52
+  "......MMMMMMMMMMMMLLLLLLLLLLLLLLNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO.QQQQQQQQQQQQQQQQQQQQQQ..........RRRRRRRRRRRRRRRR.TTTTTTTTTT.............", // 53
+  ".......MMMMMMMMMMMMMMNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOO..QQQQQQQQQQQQQQQQQQ.......................TTTTTTTTTTTTTTTTTT.............", // 54
+  "......MMMMMMMMMMMMMMMMNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQQQQQ.........................TTTTTTTTTTTTTTTTTTTT............", // 55
+  "......MMMMMMMMMMMMMMMMMNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO..QQQQQQQQQQQQQ...........................TTTTTTTTTTTTTTTTTTTTTTTTTT......", // 56
+  ".......MMMMMMMMMMMMMMMNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQ............................TTTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 57
+  "......MMMMMMMMMMMMMMMNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOO...QQQQQQQQQQQ.............................TTTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 58
+  ".......MMMMMMMMMMMMMNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOO..QQQQQQQQQQQQQQ..............................TTTTTTTTTTTTTTTTTTTTTTTT......", // 59
+  ".......MMMMMMMMMMM.NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQQQ..........................TTTTTTTTTTTTTTTTTTTTTTTTTT.....", // 60
+  ".......MMMMMMMMMM..NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPPPPPQQQQQQQQQQQQQQQQQQQQQ...........................TTTTTTTTTTTTTTTTTTTTTTTT......", // 61
+  ".......MMMMMMMMMM..NNNNNNNNNNNNNNNNPPPPPPPPPPPPPPPPPPPP.....QQQQQQQQQQQQQQQQQQ............................TTTTTTTTTTTTTTTTTTTTTTTT......", // 62
+  "......MMMMMMMMMM....NNNNNNNNNNNNNN.PPPPPPPPPPPPPPPPPP.........QQQQQQQQQQQQQQQ..............................TTTTTTTTTTTTTTTTTTTTTTT......", // 63
+  ".......MMMMM.......NNNNNNNNNNNNNNN.PPPPPPPPPPPPPPPP..........QQQQQQQQQQQQQQQ...............................TTTTTTTTTTTTTTTTTTTT.........", // 64
+  "......MMMM...........NNNNNNNNNNN.....PPPPPPPPPPPPQQQQQQQQQQQQQQQQQQQQQQQQQQ..................................TTTTTTTTTTTTTTTT...........", // 65
+  "......MMM............NNNNNNNNNNNN...PPPPPPPPPPPQQQQQQQQQQQQQQQQQQQQQQQQQQQ.....................................TTTTTTTTTTTTTT...........", // 66
+  ".......................NNNNNNNN.......PPPPPPPPQQQQQQQQQQQQQQQQQQQQQQQQQQQ........................................TTTTTTTTTTT............", // 67
+  ".......................NNNNNNN........PPPPPPPPPP.................QQQQQQQ............................................TTTTTTTTTT..........", // 68
+  ".........................NNN............PPPPPP.....................QQQQ...............................................TTTTTTTT..........", // 69
   "........................................PPPPPP..........................................................................................", // 70
   "..........................................PP............................................................................................", // 71
 ];
@@ -759,11 +759,10 @@ export const GRID_SEA_ROUTES_COMPACT: GridSeaRoute[] = [
     from: "E3",
     to: "F1",
     path: [
+      { x: 59, y: 20 },
       { x: 62, y: 20 },
       { x: 65, y: 20 },
-      { x: 68, y: 19 },
-      { x: 71, y: 19 },
-      { x: 73, y: 18 },
+      { x: 68, y: 20 },
     ],
   },
 ];
@@ -807,11 +806,9 @@ export const GRID_SEA_ROUTES_WIDE: GridSeaRoute[] = [
     to: "F1",
     path: [
       { x: 78, y: 24 },
-      { x: 83, y: 24 },
-      { x: 88, y: 23 },
-      { x: 94, y: 23 },
-      { x: 99, y: 22 },
-      { x: 105, y: 22 },
+      { x: 81, y: 24 },
+      { x: 84, y: 24 },
+      { x: 88, y: 24 },
     ],
   },
 ];
@@ -943,7 +940,8 @@ export const MAP_GRID_IRONREACH_WIDE: GridMapDefinition = {
 /**
  * Calculates the available content width and height inside the World Map pane
  * from the total terminal dimensions, taking into account layout chrome
- * (Header: 6 rows, EventLog: 8 rows, Footer: 3 rows, Tactical gap: 1 col, 75% flex width, 1-char borders).
+ * (wide Header: 5 rows, EventLog: 6 rows, Footer: 3 rows, plus pane borders
+ * and row gaps; tactical width remains the 75% flex column).
  */
 export function getMapContentDimensionsForTerminal(
   terminalCols: number,
@@ -958,11 +956,36 @@ export function getMapContentDimensionsForTerminal(
 }
 
 /**
- * Returns the appropriate map definition based on available WORLD MAP content dimensions.
- * Returns wide template if contentWidth >= 136 and contentHeight >= 36, otherwise compact template.
+ * Returns dimensions occupied by authored land, excluding ocean margin.
+ */
+function getLandDimensions(microTemplate: readonly string[]): { width: number; height: number } {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let y = 0; y < microTemplate.length; y++) {
+    for (let x = 0; x < microTemplate[y].length; x++) {
+      if (microTemplate[y][x] === ".") continue;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  return minX === Infinity
+    ? { width: 0, height: 0 }
+    : { width: maxX - minX + 1, height: Math.floor(maxY / 2) - Math.floor(minY / 2) + 1 };
+}
+
+const WIDE_LAND_DIMENSIONS = getLandDimensions(MICRO_TEMPLATE_WIDE);
+
+/**
+ * Selects wide whenever its rendered land crop fits the WORLD MAP pane. The
+ * full canonical canvas includes disposable ocean margins and must not force a
+ * smaller map into a pane that can already display the wide geography.
  */
 export function getMapForDimensions(contentWidth: number, contentHeight: number): GridMapDefinition {
-  if (contentWidth >= GRID_CANVAS_WIDE_WIDTH && contentHeight >= GRID_CANVAS_WIDE_HEIGHT) {
+  if (contentWidth >= WIDE_LAND_DIMENSIONS.width && contentHeight >= WIDE_LAND_DIMENSIONS.height) {
     return MAP_GRID_IRONREACH_WIDE;
   }
   return MAP_GRID_IRONREACH_COMPACT;

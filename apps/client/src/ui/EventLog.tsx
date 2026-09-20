@@ -207,8 +207,10 @@ export function EventLog({
       ? formattedItems
       : formattedItems.filter((item) => item.category === activeTab);
 
-  const logHeight = layoutMode === "compact" ? 4 : layoutMode === "standard" ? 6 : 8;
-  const sliceCount = layoutMode === "compact" ? 2 : layoutMode === "standard" ? 4 : 5;
+  // An empty chronicle is intentionally short so the tactical map keeps the spare rows.
+  const baseLogHeight = layoutMode === "compact" ? 4 : layoutMode === "standard" ? 5 : 6;
+  const logHeight = chatOpen ? baseLogHeight + 4 : baseLogHeight;
+  const sliceCount = layoutMode === "compact" ? 1 : layoutMode === "standard" ? 2 : 3;
   const displayedItems = filteredItems.slice(-sliceCount);
 
   return (
