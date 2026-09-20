@@ -12,6 +12,16 @@ export interface CompactInspectorProps {
   roomCode?: string | null;
   phase: GamePhase;
   onDeploy: () => void;
+  deploymentCount?: number;
+  onDecreaseDeployment?: () => void;
+  onIncreaseDeployment?: () => void;
+  onSelectAllDeployments?: () => void;
+  onSelectMinimumDeployment?: () => void;
+  pendingConquestMove?: GameState["pendingConquestMove"];
+  conquestMoveUnits?: number;
+  onDecreaseConquestMove?: () => void;
+  onIncreaseConquestMove?: () => void;
+  onConfirmConquestMove?: () => void;
   onAttack: () => void;
   onFortify: () => void;
   onSkipPhase: () => void;
@@ -30,6 +40,16 @@ export function CompactInspector({
   targetTerritoryId,
   phase,
   onDeploy,
+  deploymentCount,
+  onDecreaseDeployment,
+  onIncreaseDeployment,
+  onSelectAllDeployments,
+  onSelectMinimumDeployment,
+  pendingConquestMove,
+  conquestMoveUnits,
+  onDecreaseConquestMove,
+  onIncreaseConquestMove,
+  onConfirmConquestMove,
   onAttack,
   onFortify,
   onSkipPhase,
@@ -81,9 +101,10 @@ export function CompactInspector({
   const isTargetFriendly = Boolean(targetTerritory && targetTerritory.ownerId === myPlayerId);
 
   const canDeploy = isMyTurn && phase === "deployment" && isActionSourceOwnedByMe && pendingReinforcements > 0;
-  const canAttack = isMyTurn && phase === "attack" && isActionSourceOwnedByMe && isTargetEnemy && (selectedTerritoryState?.units ?? 0) >= 2;
+  const selectedDeploymentCount = Math.min(Math.max(1, deploymentCount ?? pendingReinforcements), pendingReinforcements);
+  const canAttack = isMyTurn && !pendingConquestMove && phase === "attack" && isActionSourceOwnedByMe && isTargetEnemy && (selectedTerritoryState?.units ?? 0) >= 2;
   const canFortify = isMyTurn && phase === "fortify" && isActionSourceOwnedByMe && isTargetFriendly && (selectedTerritoryState?.units ?? 0) >= 2;
-  const canSkipOrEnd = isMyTurn && (phase === "attack" || phase === "fortify");
+  const canSkipOrEnd = isMyTurn && !pendingConquestMove && (phase === "attack" || phase === "fortify");
 
   const myPlayer = players.find((p) => p.id === myPlayerId);
   const isReady = myPlayer?.ready ?? false;
@@ -220,25 +241,41 @@ export function CompactInspector({
           </box>
         ) : (
           <>
-            {/* Deploy */}
+            {/* Deployment amount and action */}
             {phase === "deployment" && (
-              <box
-                border
-                borderStyle="single"
-                borderColor={canDeploy ? "#00d2ff" : "#334155"}
-                backgroundColor={canDeploy ? "#0c2b3d" : undefined}
-                paddingLeft={1}
-                paddingRight={1}
-                onMouseDown={canDeploy ? onDeploy : undefined}
-              >
-                <text fg={canDeploy ? "#00d2ff" : "#64748b"}>
-                  <b>[ ➜ Deploy ]</b>
-                </text>
+              <box flexDirection="row" alignItems="center" gap={1}>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onDecreaseDeployment : undefined}><b>[−]</b></text>
+                <text fg={canDeploy ? "#e2e8f0" : "#64748b"}><b>{pendingReinforcements > 0 ? `${selectedDeploymentCount}/${pendingReinforcements}` : "-"}</b></text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onIncreaseDeployment : undefined}><b>[+]</b></text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onSelectMinimumDeployment : undefined}><b>[1]</b></text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onSelectAllDeployments : undefined}><b>[All]</b></text>
+                <box
+                  border
+                  borderStyle="single"
+                  borderColor={canDeploy ? "#00d2ff" : "#334155"}
+                  backgroundColor={canDeploy ? "#0c2b3d" : undefined}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onMouseDown={canDeploy ? onDeploy : undefined}
+                >
+                  <text fg={canDeploy ? "#00d2ff" : "#64748b"}>
+                    <b>[D] ➜ Deploy</b>
+                  </text>
+                </box>
               </box>
             )}
 
-            {/* Attack */}
-            {phase === "attack" && (
+            {/* Attack or mandatory post-conquest troop move */}
+            {phase === "attack" && pendingConquestMove && isMyTurn ? (
+              <box flexDirection="row" alignItems="center" gap={1}>
+                <text fg="#a78bfa" onMouseDown={onDecreaseConquestMove}><b>[−]</b></text>
+                <text fg="#e9d5ff"><b>MOVE {conquestMoveUnits} ({pendingConquestMove.minimumUnits}-${pendingConquestMove.maximumUnits})</b></text>
+                <text fg="#a78bfa" onMouseDown={onIncreaseConquestMove}><b>[+]</b></text>
+                <box border borderStyle="single" borderColor="#a78bfa" paddingLeft={1} paddingRight={1} onMouseDown={onConfirmConquestMove}>
+                  <text fg="#e9d5ff"><b>[Enter] Confirm</b></text>
+                </box>
+              </box>
+            ) : phase === "attack" && (
               <box
                 border
                 borderStyle="single"

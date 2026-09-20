@@ -183,6 +183,10 @@ export function App({
   const [hoveredTerritoryId, setHoveredTerritoryId] = useState<string | null>(
     initialHoveredTerritoryId ?? null
   );
+  // Start each reinforcement pool with every army selected, while allowing the
+  // player to split that pool across any of their territories.
+  const [deploymentCount, setDeploymentCount] = useState(client.state?.pendingReinforcements ?? 0);
+  const [conquestMoveUnits, setConquestMoveUnits] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(1);
 
@@ -200,6 +204,7 @@ export function App({
       setState(newState);
       setMyPlayerId(newPlayerId);
       setEvents(newState.history ?? []);
+      setDeploymentCount(newState.pendingReinforcements);
     });
 
     const unsubEvent = client.onEvent((newEvent) => {
@@ -224,6 +229,11 @@ export function App({
       unsubError();
     };
   }, [client, showToast]);
+
+  const pendingConquestMove = state?.pendingConquestMove;
+  useEffect(() => {
+    if (pendingConquestMove) setConquestMoveUnits(pendingConquestMove.minimumUnits);
+  }, [pendingConquestMove?.sourceTerritoryId, pendingConquestMove?.targetTerritoryId, pendingConquestMove?.minimumUnits]);
 
   const activePlayer = state ? state.players[state.activePlayerIndex] : undefined;
   const isMyTurn = Boolean(activePlayer && activePlayer.id === myPlayerId);
@@ -273,9 +283,24 @@ export function App({
       return;
     }
 
-    client.deploy(selectedTerritoryId, state.pendingReinforcements);
-    showToast(`Deploying ${state.pendingReinforcements} reinforcements to ${territoryName(selectedTerritoryId)}...`, "info");
-  }, [client, state, selectedTerritoryId, myPlayerId, isMyTurn, showToast, territoryName]);
+    const count = Math.min(Math.max(1, deploymentCount), state.pendingReinforcements);
+    client.deploy(selectedTerritoryId, count);
+    showToast(`Deploying ${count} reinforcement${count === 1 ? "" : "s"} to ${territoryName(selectedTerritoryId)}...`, "info");
+  }, [client, state, selectedTerritoryId, myPlayerId, isMyTurn, deploymentCount, showToast, territoryName]);
+
+  const adjustDeploymentCount = useCallback((delta: number) => {
+    const available = state?.pendingReinforcements ?? 0;
+    if (available <= 0) return;
+    setDeploymentCount((current) => Math.min(available, Math.max(1, current + delta)));
+  }, [state?.pendingReinforcements]);
+
+  const selectAllDeployments = useCallback(() => {
+    setDeploymentCount(state?.pendingReinforcements ?? 0);
+  }, [state?.pendingReinforcements]);
+
+  const selectMinimumDeployment = useCallback(() => {
+    if ((state?.pendingReinforcements ?? 0) > 0) setDeploymentCount(1);
+  }, [state?.pendingReinforcements]);
 
   const handleAttack = useCallback(() => {
     if (!state || !selectedTerritoryId) {
@@ -308,6 +333,19 @@ export function App({
     client.attack(selectedTerritoryId, targetTerritoryId);
     showToast(`Attacking ${territoryName(targetTerritoryId)} from ${territoryName(selectedTerritoryId)}...`, "info");
   }, [client, state, selectedTerritoryId, targetTerritoryId, myPlayerId, showToast, territoryName]);
+
+  const adjustConquestMove = useCallback((delta: number) => {
+    if (!pendingConquestMove) return;
+    setConquestMoveUnits((current) => Math.min(
+      pendingConquestMove.maximumUnits,
+      Math.max(pendingConquestMove.minimumUnits, current + delta)
+    ));
+  }, [pendingConquestMove]);
+
+  const confirmConquestMove = useCallback(() => {
+    if (!pendingConquestMove) return;
+    client.completeConquestMove(conquestMoveUnits);
+  }, [client, conquestMoveUnits, pendingConquestMove]);
 
   const handleFortify = useCallback(() => {
     if (!state || !selectedTerritoryId) {
@@ -398,9 +436,25 @@ export function App({
       return;
     }
 
+    if (pendingConquestMove && isMyTurn) {
+      if (key.name === "left" || key.name === "[") {
+        adjustConquestMove(-1);
+      } else if (key.name === "right" || key.name === "]") {
+        adjustConquestMove(1);
+      } else if (key.name === "return" || key.name === "enter") {
+        confirmConquestMove();
+      }
+      return;
+    }
+
     // Number keys 1-5 for bottom pill tabs
     if (["1", "2", "3", "4", "5"].includes(key.name)) {
       setActiveTab(parseInt(key.name, 10));
+      return;
+    }
+
+    if (phase === "deployment" && key.name === "0") {
+      selectMinimumDeployment();
       return;
     }
 
@@ -443,6 +497,16 @@ export function App({
     if (!isEliminated) {
       if (key.name === "d" || key.name === "D") {
         handleDeploy();
+        return;
+      }
+
+      if (phase === "deployment" && key.name === "[") {
+        adjustDeploymentCount(-1);
+        return;
+      }
+
+      if (phase === "deployment" && key.name === "]") {
+        adjustDeploymentCount(1);
         return;
       }
 
@@ -567,6 +631,16 @@ export function App({
             roomCode={client.roomCode}
             phase={phase}
             onDeploy={handleDeploy}
+            deploymentCount={deploymentCount}
+            onDecreaseDeployment={() => adjustDeploymentCount(-1)}
+            onIncreaseDeployment={() => adjustDeploymentCount(1)}
+            onSelectAllDeployments={selectAllDeployments}
+            pendingConquestMove={pendingConquestMove}
+            conquestMoveUnits={conquestMoveUnits}
+            onDecreaseConquestMove={() => adjustConquestMove(-1)}
+            onIncreaseConquestMove={() => adjustConquestMove(1)}
+            onConfirmConquestMove={confirmConquestMove}
+            onSelectMinimumDeployment={selectMinimumDeployment}
             onAttack={handleAttack}
             onFortify={handleFortify}
             onSkipPhase={handleSkipPhase}
@@ -624,6 +698,16 @@ export function App({
               hoveredTerritoryId={hoveredTerritoryId}
               targetTerritoryId={targetTerritoryId}
               onDeploy={handleDeploy}
+              deploymentCount={deploymentCount}
+              onDecreaseDeployment={() => adjustDeploymentCount(-1)}
+              onIncreaseDeployment={() => adjustDeploymentCount(1)}
+              onSelectAllDeployments={selectAllDeployments}
+              pendingConquestMove={pendingConquestMove}
+              conquestMoveUnits={conquestMoveUnits}
+              onDecreaseConquestMove={() => adjustConquestMove(-1)}
+              onIncreaseConquestMove={() => adjustConquestMove(1)}
+              onConfirmConquestMove={confirmConquestMove}
+              onSelectMinimumDeployment={selectMinimumDeployment}
               onAttack={handleAttack}
               onFortify={handleFortify}
               onSkipPhase={handleSkipPhase}

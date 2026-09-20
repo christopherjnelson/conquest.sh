@@ -150,6 +150,10 @@ export function attackTerritory(
     return { ok: false, error: `Cannot attack during ${state.phase} phase` };
   }
 
+  if (state.pendingConquestMove) {
+    return { ok: false, error: "Complete the troop move after your conquest first" };
+  }
+
   const source = state.territories[sourceTerritoryId];
   const target = state.territories[targetTerritoryId];
 
@@ -191,7 +195,8 @@ export function attackTerritory(
   if (nextTargetUnits <= 0) {
     conquered = true;
     targetOwnerId = playerId;
-    // Units moved is at least the number of attacking dice used
+    // Risk requires the attacking dice to enter the conquered territory
+    // immediately. The player may then move further surviving troops.
     unitsMoved = Math.min(nextSourceUnits - 1, attackerDice);
     nextSourceUnits -= unitsMoved;
     nextTargetUnits = unitsMoved;
@@ -229,29 +234,17 @@ export function attackTerritory(
     ...state,
     territories: nextTerritories,
     hasConqueredThisTurn: state.hasConqueredThisTurn || conquered,
+    pendingConquestMove: conquered
+      ? {
+          sourceTerritoryId,
+          targetTerritoryId,
+          defenderId: originalDefenderId,
+          minimumUnits: unitsMoved,
+          maximumUnits: nextSourceUnits + unitsMoved - 1,
+        }
+      : null,
     history: [...state.history, ...events],
   };
-
-  if (conquered) {
-    // 1. Evaluate player elimination
-    const elimRes = evaluatePlayerEliminations(candidateState, originalDefenderId, playerId, now);
-    candidateState = {
-      ...candidateState,
-      players: elimRes.nextPlayers,
-    };
-    if (elimRes.eliminationEvent) {
-      events.push(elimRes.eliminationEvent);
-      candidateState.history = [...candidateState.history, elimRes.eliminationEvent];
-    }
-
-    // 2. Evaluate victory
-    const victoryRes = evaluateVictory(candidateState, playerId);
-    if (victoryRes.isVictory && victoryRes.winnerId) {
-      const finalRes = finalizeMatch(candidateState, victoryRes.winnerId, victoryRes.reason ?? "conquest", now);
-      candidateState = finalRes.state;
-      events.push(...finalRes.events);
-    }
-  }
 
   return {
     ok: true,
@@ -265,6 +258,66 @@ export function attackTerritory(
       conquered,
     },
   };
+}
+
+/** Complete the optional part of the mandatory post-conquest troop transfer. */
+export function completeConquestMove(
+  state: GameState,
+  playerId: string,
+  units: number
+): ActionResult<void> {
+  if (!Number.isFinite(units) || !Number.isInteger(units)) {
+    return { ok: false, error: "Troop move must be a whole number" };
+  }
+  const activePlayer = state.players[state.activePlayerIndex];
+  if (!activePlayer || activePlayer.id !== playerId) return { ok: false, error: "Not your turn" };
+  if (!activePlayer.isAlive) return { ok: false, error: "Eliminated players cannot move troops" };
+  if (state.phase !== "attack") return { ok: false, error: `Cannot move conquest troops during ${state.phase} phase` };
+  const pending = state.pendingConquestMove;
+  if (!pending) return { ok: false, error: "No conquest troop move is pending" };
+  if (units < pending.minimumUnits || units > pending.maximumUnits) {
+    return { ok: false, error: `Move between ${pending.minimumUnits} and ${pending.maximumUnits} troops` };
+  }
+  const source = state.territories[pending.sourceTerritoryId];
+  const target = state.territories[pending.targetTerritoryId];
+  if (!source || !target || source.ownerId !== playerId || target.ownerId !== playerId) {
+    return { ok: false, error: "Conquest territories are no longer valid" };
+  }
+
+  const additionalUnits = units - pending.minimumUnits;
+  const now = Date.now();
+  const moveEvent: GameEvent = {
+    type: "conquest_move_completed",
+    playerId,
+    sourceTerritoryId: pending.sourceTerritoryId,
+    targetTerritoryId: pending.targetTerritoryId,
+    units,
+    timestamp: now,
+  };
+  let nextState: GameState = {
+    ...state,
+    territories: {
+      ...state.territories,
+      [source.id]: { ...source, units: source.units - additionalUnits },
+      [target.id]: { ...target, units: target.units + additionalUnits },
+    },
+    pendingConquestMove: null,
+    history: [...state.history, moveEvent],
+  };
+  const events: GameEvent[] = [moveEvent];
+  const elimRes = evaluatePlayerEliminations(nextState, pending.defenderId, playerId, now);
+  nextState = { ...nextState, players: elimRes.nextPlayers };
+  if (elimRes.eliminationEvent) {
+    events.push(elimRes.eliminationEvent);
+    nextState.history = [...nextState.history, elimRes.eliminationEvent];
+  }
+  const victoryRes = evaluateVictory(nextState, playerId);
+  if (victoryRes.isVictory && victoryRes.winnerId) {
+    const finalRes = finalizeMatch(nextState, victoryRes.winnerId, victoryRes.reason ?? "conquest", now);
+    nextState = finalRes.state;
+    events.push(...finalRes.events);
+  }
+  return { ok: true, state: nextState, events };
 }
 
 /**
@@ -388,6 +441,10 @@ export function skipPhase(state: GameState, playerId: string): ActionResult<void
 
   if (!activePlayer.isAlive) {
     return { ok: false, error: "Eliminated players cannot skip phase" };
+  }
+
+  if (state.pendingConquestMove) {
+    return { ok: false, error: "Complete the troop move after your conquest first" };
   }
 
   const now = Date.now();

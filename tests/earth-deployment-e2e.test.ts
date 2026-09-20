@@ -34,6 +34,16 @@ function findClickableDeploy(node: any): (() => void) | undefined {
   return undefined;
 }
 
+function findClickableText(node: any, text: string): (() => void) | undefined {
+  if (node == null) return undefined;
+  if (node.props?.onMouseDown && containsText(node, text)) return node.props.onMouseDown;
+  for (const child of node?.props?.children instanceof Array ? node.props.children : [node?.props?.children]) {
+    const handler = findClickableText(child, text);
+    if (handler) return handler;
+  }
+  return undefined;
+}
+
 describe("Earth deployment through the client UI", () => {
   it("keeps Deploy clickable for a selected owned territory while inspecting an enemy", () => {
     const earth = getMap("earth-42")!;
@@ -62,6 +72,40 @@ describe("Earth deployment through the client UI", () => {
     sidebarDeploy?.();
     compactDeploy?.();
     expect(deployments).toBe(2);
+  });
+
+  it("lets a player split reinforcements before deploying to any selected owned territory", () => {
+    const earth = getMap("earth-42")!;
+    const players = [
+      { id: "p1", name: "Alpha", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
+      { id: "p2", name: "Bravo", colorIndex: 1, colorHex: "#ff4444", connected: true, isAlive: true, ready: true },
+    ];
+    const state = createInitialGameState("earth-split-deployment", "EUI2", players, earth.definition);
+    const selected = Object.values(state.territories).find(territory => territory.ownerId === "p1");
+    expect(selected).toBeDefined();
+    if (!selected) throw new Error("Expected an owned Earth territory");
+    const calls = { decrease: 0, increase: 0, minimum: 0, all: 0, deploy: 0 };
+    const props = {
+      mapBundle: earth, state, myPlayerId: "p1", selectedTerritoryId: selected.id,
+      hoveredTerritoryId: null, targetTerritoryId: null, phase: "deployment" as const,
+      deploymentCount: 1,
+      onDecreaseDeployment: () => { calls.decrease++; },
+      onIncreaseDeployment: () => { calls.increase++; },
+      onSelectMinimumDeployment: () => { calls.minimum++; },
+      onSelectAllDeployments: () => { calls.all++; },
+      onDeploy: () => { calls.deploy++; }, onAttack: () => {}, onFortify: () => {},
+      onSkipPhase: () => {}, onEndTurn: () => {},
+    };
+
+    for (const inspector of [Sidebar({ ...props, layoutMode: "wide" }), CompactInspector(props)]) {
+      expect(containsText(inspector, `1/${state.pendingReinforcements}`)).toBe(true);
+      findClickableText(inspector, "[−]")?.();
+      findClickableText(inspector, "[+]")?.();
+      findClickableText(inspector, "[1]")?.();
+      findClickableText(inspector, "[All]")?.();
+      findClickableDeploy(inspector)?.();
+    }
+    expect(calls).toEqual({ decrease: 2, increase: 2, minimum: 2, all: 2, deploy: 2 });
   });
 
   it("sends an active player's selected Earth territory deployment to the authoritative server", async () => {
@@ -141,15 +185,17 @@ describe("Earth deployment through the client UI", () => {
       // subsequent owned-territory click is the deployment selection; hovering
       // the enemy afterwards must leave that selection intact for Deploy.
       await act(async () => { await setup.mockMouse.click(screenPoint(enemyRender).x, screenPoint(enemyRender).y); });
-      await act(async () => { await setup.mockMouse.click(screenPoint(ownRender).x, screenPoint(ownRender).y); });
-      await act(async () => { await setup.mockMouse.moveTo(screenPoint(enemyRender).x, screenPoint(enemyRender).y); });
-      const lines = setup.captureCharFrame().split("\n");
-      const deployLine = lines.findIndex((line: string) => line.includes("[D] ➜ Deploy"));
-      expect(deployLine).toBeGreaterThanOrEqual(0);
-      const deployColumn = lines[deployLine]!.indexOf("[D] ➜ Deploy") + 2;
+      await act(async () => {
+        await setup.mockMouse.click(screenPoint(ownRender).x, screenPoint(ownRender).y);
+        await setup.renderOnce();
+      });
+      await act(async () => {
+        await setup.mockMouse.moveTo(screenPoint(enemyRender).x, screenPoint(enemyRender).y);
+        await setup.renderOnce();
+      });
       let afterDeployment: typeof deployedState | undefined;
       await act(async () => {
-        await setup.mockMouse.click(deployColumn, deployLine);
+        setup.mockInput.pressKey("d");
         afterDeployment = await alpha.waitForSnapshot(state =>
           state.phase === "attack" && state.territories[territory.id]?.units === unitsBefore + reinforcements,
         );
@@ -244,6 +290,203 @@ describe("Earth deployment through the client UI", () => {
       expect(server.roomManager.getRoom(deployed.roomCode)?.state.territories[territory.id]?.units)
         .toBe(unitsBefore + reinforcements);
     } finally {
+      if (setup && reactAct) await reactAct(async () => { setup.renderer.destroy(); });
+      alpha.disconnect();
+      bravo.disconnect();
+      server.stop();
+    }
+  });
+
+  it("splits chosen reinforcements between any two owned Earth territories through the live UI", async () => {
+    const server = new ConquestServer({ port: 0, serverName: "earth-ui-split-deployment-e2e" });
+    server.start();
+    const host = `localhost:${server.port}`;
+    const alpha = new GameClient({ host, playerName: "Alpha", forceNewSession: true, autoReconnect: false });
+    const bravo = new GameClient({ host, playerName: "Bravo", forceNewSession: true, autoReconnect: false });
+    let setup: any;
+    let reactAct: any;
+
+    try {
+      await alpha.connect();
+      alpha.createRoom({ playerName: "Alpha", displayName: "Earth split deployment", maxPlayers: 2, mapId: "earth-42" });
+      const lobby = await alpha.waitForSnapshot(state => state.phase === "lobby" && state.mapId === "earth-42");
+      await bravo.connect();
+      bravo.join("Bravo", lobby.roomCode);
+      await alpha.waitForSnapshot(state => state.phase === "lobby" && state.players.length === 2);
+      alpha.ready();
+      await alpha.waitForSnapshot(state => state.phase === "lobby" && Boolean(state.players.find(player => player.id === alpha.myPlayerId)?.ready));
+      bravo.ready();
+      const initial = await alpha.waitForSnapshot(state => state.phase === "deployment");
+      const alphaId = alpha.myPlayerId;
+      if (!alphaId) throw new Error("Split-deployment player has no ID");
+      expect(initial.players[initial.activePlayerIndex]?.id).toBe(alphaId);
+      expect(initial.pendingReinforcements).toBeGreaterThan(1);
+
+      const owned = Object.values(initial.territories).filter(territory => territory.ownerId === alphaId);
+      const first = owned.find(territory => owned.some(other => other.id !== territory.id && !territory.neighbors.includes(other.id)));
+      const second = first && owned.find(territory => territory.id !== first.id && !first.neighbors.includes(territory.id));
+      expect(first).toBeDefined();
+      expect(second).toBeDefined();
+      if (!first || !second) throw new Error("Expected two non-adjacent owned Earth territories");
+
+      // @ts-ignore OpenTUI test renderer is runtime-only in Bun.
+      const React = (await import("../apps/client/node_modules/react/index.js")).default;
+      // @ts-ignore OpenTUI test renderer is runtime-only in Bun.
+      const { act } = await import("../apps/client/node_modules/react/index.js");
+      reactAct = act;
+      // @ts-ignore OpenTUI test renderer is runtime-only in Bun.
+      const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+      const { App } = await import("../apps/client/src/ui/App.js");
+      setup = await testRender(React.createElement(App, { client: alpha, terminalDimensions: { columns: 180, rows: 51 } }), { width: 180, height: 51 });
+      await act(async () => { await setup.renderOnce(); });
+
+      const earth = getMap("earth-42")!;
+      const variant = selectRenderVariant(earth, { width: 135, height: 36 }).grid;
+      const bounds = getGeographyBoundingBox(variant);
+      const raster = findRaster(setup.renderer.root, bounds.width, bounds.height);
+      if (!raster) throw new Error("Could not find the rendered Earth raster");
+      const pointFor = (territoryId: string) => {
+        const renderTerritory = variant.territories.find(candidate => candidate.id === territoryId);
+        if (!renderTerritory) throw new Error(`Earth render territory ${territoryId} is missing`);
+        return { x: raster.screenX + renderTerritory.labelPos.x - bounds.minX, y: raster.screenY + renderTerritory.labelPos.y - bounds.minY };
+      };
+
+      const firstPoint = pointFor(first.id);
+      await act(async () => { await setup.mockMouse.click(firstPoint.x, firstPoint.y); });
+      // The UI starts at all reinforcements. Reduce the choice to one, then deploy it.
+      for (let count = initial.pendingReinforcements; count > 1; count--) {
+        await act(async () => { setup.mockInput.pressKey("["); await setup.renderOnce(); });
+      }
+      let afterFirst: typeof initial | undefined;
+      await act(async () => {
+        setup.mockInput.pressKey("d");
+        afterFirst = await alpha.waitForSnapshot(state => state.phase === "deployment" &&
+          state.pendingReinforcements === initial.pendingReinforcements - 1 &&
+          state.territories[first.id]?.units === initial.territories[first.id]!.units + 1);
+      });
+      if (!afterFirst) throw new Error("Expected first split deployment to remain in deployment");
+      expect(afterFirst.territories[second.id]?.units).toBe(initial.territories[second.id]!.units);
+
+      const secondPoint = pointFor(second.id);
+      await act(async () => { await setup.mockMouse.click(secondPoint.x, secondPoint.y); await setup.renderOnce(); });
+      // Exercise both quantity controls on the second territory, returning to
+      // the remaining pool before committing it.
+      await act(async () => { setup.mockInput.pressKey("["); await setup.renderOnce(); });
+      await act(async () => { setup.mockInput.pressKey("]"); await setup.renderOnce(); });
+      let afterSecond: typeof initial | undefined;
+      await act(async () => {
+        setup.mockInput.pressKey("d");
+        afterSecond = await alpha.waitForSnapshot(state => state.phase === "attack" && state.pendingReinforcements === 0);
+      });
+      if (!afterSecond) throw new Error("Expected split deployment to advance to attack");
+      expect(afterSecond.territories[first.id]?.units).toBe(initial.territories[first.id]!.units + 1);
+      expect(afterSecond.territories[second.id]?.units).toBe(initial.territories[second.id]!.units + initial.pendingReinforcements - 1);
+    } finally {
+      if (setup && reactAct) await reactAct(async () => { setup.renderer.destroy(); });
+      alpha.disconnect();
+      bravo.disconnect();
+      server.stop();
+    }
+  });
+
+  it("keeps a conquest pending until the player chooses and confirms the troop transfer", async () => {
+    const server = new ConquestServer({ port: 0, serverName: "earth-ui-conquest-transfer-e2e" });
+    server.start();
+    const host = `localhost:${server.port}`;
+    const alpha = new GameClient({ host, playerName: "Alpha", forceNewSession: true, autoReconnect: false });
+    const bravo = new GameClient({ host, playerName: "Bravo", forceNewSession: true, autoReconnect: false });
+    let setup: any;
+    let reactAct: any;
+    const originalRandom = Math.random;
+
+    try {
+      await alpha.connect();
+      alpha.createRoom({ playerName: "Alpha", displayName: "Earth conquest transfer", maxPlayers: 2, mapId: "earth-42" });
+      const lobby = await alpha.waitForSnapshot(state => state.phase === "lobby");
+      await bravo.connect();
+      bravo.join("Bravo", lobby.roomCode);
+      await alpha.waitForSnapshot(state => state.phase === "lobby" && state.players.length === 2);
+      alpha.ready();
+      await alpha.waitForSnapshot(state => state.phase === "lobby" && Boolean(state.players.find(player => player.id === alpha.myPlayerId)?.ready));
+      bravo.ready();
+      const deployment = await alpha.waitForSnapshot(state => state.phase === "deployment");
+      const alphaId = alpha.myPlayerId;
+      if (!alphaId) throw new Error("Conquest-transfer player has no ID");
+      const source = Object.values(deployment.territories).find(territory => territory.ownerId === alphaId &&
+        territory.neighbors.some(id => deployment.territories[id]?.ownerId !== alphaId));
+      if (!source) throw new Error("Expected an owned Earth territory bordering an enemy");
+      const target = deployment.territories[source.neighbors.find(id => deployment.territories[id]?.ownerId !== alphaId)!];
+      if (!target) throw new Error("Expected an adjacent enemy Earth territory");
+
+      // Make a deterministic, non-terminal conquest setup while retaining the
+      // real room, sockets, snapshots, map selection, and client command path.
+      const room = server.roomManager.getRoom(deployment.roomCode);
+      if (!room) throw new Error("Expected authoritative Earth room");
+      room.state = {
+        ...room.state,
+        phase: "attack",
+        pendingReinforcements: 0,
+        pendingConquestMove: null,
+        territories: {
+          ...room.state.territories,
+          [source.id]: { ...room.state.territories[source.id]!, units: 10 },
+          [target.id]: { ...room.state.territories[target.id]!, units: 1 },
+        },
+      };
+      room.broadcastSnapshot();
+      await alpha.waitForSnapshot(state => state.phase === "attack" && state.territories[source.id]?.units === 10);
+
+      // @ts-ignore OpenTUI test renderer is runtime-only in Bun.
+      const React = (await import("../apps/client/node_modules/react/index.js")).default;
+      // @ts-ignore OpenTUI test renderer is runtime-only in Bun.
+      const { act } = await import("../apps/client/node_modules/react/index.js");
+      reactAct = act;
+      // @ts-ignore OpenTUI test renderer is runtime-only in Bun.
+      const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+      const { App } = await import("../apps/client/src/ui/App.js");
+      setup = await testRender(React.createElement(App, {
+        client: alpha,
+        terminalDimensions: { columns: 180, rows: 51 },
+        initialSelectedTerritoryId: source.id,
+        initialTargetTerritoryId: target.id,
+      }), { width: 180, height: 51 });
+      await act(async () => { await setup.renderOnce(); });
+
+      let roll = 0;
+      // Three 6s for Alpha, then a 1 for Bravo.  This avoids tie-breaking in
+      // the defender's favor while retaining the production server combat path.
+      Math.random = () => ([0.999999, 0.999999, 0.999999, 0][roll++ % 4]!);
+      let pending: any;
+      await act(async () => {
+        setup.mockInput.pressKey("a");
+        pending = await alpha.waitForSnapshot(state => state.pendingConquestMove?.sourceTerritoryId === source.id);
+        await setup.renderOnce();
+      });
+      Math.random = originalRandom;
+      expect(pending.pendingConquestMove).toMatchObject({ targetTerritoryId: target.id, minimumUnits: 3, maximumUnits: 9 });
+      expect(pending.territories[source.id]?.units).toBe(7);
+      expect(pending.territories[target.id]?.units).toBe(3);
+      const pendingFrame = setup.captureCharFrame();
+      expect(pendingFrame).toContain("MOVE 3");
+      expect(pendingFrame).toContain("[Enter] Confirm");
+
+      const clickControl = async (label: string) => {
+        const lines = setup.captureCharFrame().split("\n");
+        const row = lines.findIndex((line: string) => line.includes(label));
+        expect(row).toBeGreaterThanOrEqual(0);
+        await setup.mockMouse.click(lines[row]!.indexOf(label) + Math.floor(label.length / 2), row);
+      };
+      await act(async () => { await clickControl("[+]"); await setup.renderOnce(); });
+      expect(setup.captureCharFrame()).toContain("MOVE 4");
+      let completed: any;
+      await act(async () => {
+        await clickControl("[Enter] Confirm");
+        completed = await alpha.waitForSnapshot(state => state.phase === "attack" && state.pendingConquestMove === null &&
+          state.territories[source.id]?.units === 6 && state.territories[target.id]?.units === 4);
+      });
+      expect(completed.pendingConquestMove).toBeNull();
+    } finally {
+      Math.random = originalRandom;
       if (setup && reactAct) await reactAct(async () => { setup.renderer.destroy(); });
       alpha.disconnect();
       bravo.disconnect();

@@ -79,6 +79,14 @@ export const GameEventSchema = z.discriminatedUnion("type", [
     timestamp: z.number(),
   }),
   z.object({
+    type: z.literal("conquest_move_completed"),
+    playerId: z.string(),
+    sourceTerritoryId: z.string(),
+    targetTerritoryId: z.string(),
+    units: z.number(),
+    timestamp: z.number(),
+  }),
+  z.object({
     type: z.literal("player_left"),
     playerId: z.string(),
     reason: z.string().optional(),
@@ -190,6 +198,13 @@ export const GameStateSchema = z.object({
   territories: z.record(TerritoryStateSchema),
   sectors: z.record(SectorSchema),
   pendingReinforcements: z.number(),
+  pendingConquestMove: z.object({
+    sourceTerritoryId: z.string(),
+    targetTerritoryId: z.string(),
+    defenderId: z.string(),
+    minimumUnits: z.number().int().min(1),
+    maximumUnits: z.number().int().min(1),
+  }).nullable().default(null),
   hasConqueredThisTurn: z.boolean(),
   winnerId: z.string().nullable(),
   result: MatchResultSchema.nullable().default(null),

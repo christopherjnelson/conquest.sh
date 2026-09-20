@@ -12,6 +12,7 @@ import type {
 } from "@conquest/protocol";
 import {
   attackTerritory,
+  completeConquestMove,
   createInitialGameState,
   deployUnits,
   endTurn,
@@ -97,6 +98,7 @@ export class GameRoom {
       territories: {},
       sectors: initialSectors,
       pendingReinforcements: 0,
+      pendingConquestMove: null,
       hasConqueredThisTurn: false,
       winnerId: null,
       result: null,
@@ -528,6 +530,15 @@ export class GameRoom {
       for (const event of result.events) {
         this.broadcastEvent(event, this.state);
       }
+    }
+    return result;
+  }
+
+  completeConquestMove(playerId: string, units: number): ActionResult<void> {
+    const result = completeConquestMove(this.state, playerId, units);
+    if (result.ok) {
+      this.state = result.state;
+      for (const event of result.events) this.broadcastEvent(event, this.state);
     }
     return result;
   }

@@ -53,6 +53,7 @@ export function createInitialGameState(
     territories,
     sectors,
     pendingReinforcements: 0,
+    pendingConquestMove: null,
     hasConqueredThisTurn: false,
     winnerId: null,
     result: null,

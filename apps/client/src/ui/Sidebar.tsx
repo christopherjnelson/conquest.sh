@@ -11,6 +11,16 @@ export interface SidebarProps {
   hoveredTerritoryId?: string | null;
   targetTerritoryId: string | null;
   onDeploy: () => void;
+  deploymentCount?: number;
+  onDecreaseDeployment?: () => void;
+  onIncreaseDeployment?: () => void;
+  onSelectAllDeployments?: () => void;
+  onSelectMinimumDeployment?: () => void;
+  pendingConquestMove?: GameState["pendingConquestMove"];
+  conquestMoveUnits?: number;
+  onDecreaseConquestMove?: () => void;
+  onIncreaseConquestMove?: () => void;
+  onConfirmConquestMove?: () => void;
   onAttack: () => void;
   onFortify: () => void;
   onSkipPhase: () => void;
@@ -34,6 +44,16 @@ export function Sidebar({
   hoveredTerritoryId = null,
   targetTerritoryId,
   onDeploy,
+  deploymentCount,
+  onDecreaseDeployment,
+  onIncreaseDeployment,
+  onSelectAllDeployments,
+  onSelectMinimumDeployment,
+  pendingConquestMove,
+  conquestMoveUnits,
+  onDecreaseConquestMove,
+  onIncreaseConquestMove,
+  onConfirmConquestMove,
   onAttack,
   onFortify,
   onSkipPhase,
@@ -90,9 +110,10 @@ export function Sidebar({
   const isTargetFriendly = Boolean(targetTerritory && targetTerritory.ownerId === myPlayerId);
 
   const canDeploy = isMyTurn && phase === "deployment" && isActionSourceOwnedByMe && pendingReinforcements > 0;
-  const canAttack = isMyTurn && phase === "attack" && isActionSourceOwnedByMe && isTargetEnemy && (selectedTerritoryState?.units ?? 0) >= 2;
+  const selectedDeploymentCount = Math.min(Math.max(1, deploymentCount ?? pendingReinforcements), pendingReinforcements);
+  const canAttack = isMyTurn && !pendingConquestMove && phase === "attack" && isActionSourceOwnedByMe && isTargetEnemy && (selectedTerritoryState?.units ?? 0) >= 2;
   const canFortify = isMyTurn && phase === "fortify" && isActionSourceOwnedByMe && isTargetFriendly && (selectedTerritoryState?.units ?? 0) >= 2;
-  const canSkipOrEnd = isMyTurn && (phase === "attack" || phase === "fortify");
+  const canSkipOrEnd = isMyTurn && !pendingConquestMove && (phase === "attack" || phase === "fortify");
 
   // Ready status in lobby
   const myPlayer = state?.players.find((p) => p.id === myPlayerId);
@@ -318,7 +339,7 @@ export function Sidebar({
         paddingLeft={1}
         paddingRight={1}
         gap={0}
-        style={{ height: isLobby ? 8 : 7 }}
+        style={{ height: isLobby || phase === "deployment" ? 8 : 7 }}
       >
         {myPlayer && !myPlayer.isAlive ? (
           <box flexDirection="column" gap={1} justifyContent="center" alignItems="center" flexGrow={1}>
@@ -357,18 +378,27 @@ export function Sidebar({
         ) : (
           <box flexDirection="column" gap={0}>
             {/* Compact one-line controls preserve four actions inside the active card. */}
-            <box
-              flexDirection="row"
-              justifyContent="space-between"
-              onMouseDown={canDeploy ? onDeploy : undefined}
-            >
-              <text fg={canDeploy ? "#00d2ff" : "#e2e8f0"}>
-                <b>[D] ➜ Deploy</b>
-              </text>
-              <text fg="#64748b">
-                {pendingReinforcements > 0 ? `+${pendingReinforcements}` : "-"}
-              </text>
-            </box>
+            {pendingConquestMove && isMyTurn ? (
+              <box flexDirection="row" justifyContent="space-between">
+                <text fg="#a78bfa" onMouseDown={onDecreaseConquestMove}><b>[−]</b></text>
+                <text fg="#e9d5ff"><b>MOVE {conquestMoveUnits} ({pendingConquestMove.minimumUnits}-${pendingConquestMove.maximumUnits})</b></text>
+                <text fg="#a78bfa" onMouseDown={onIncreaseConquestMove}><b>[+]</b></text>
+                <text fg="#e9d5ff" onMouseDown={onConfirmConquestMove}><b>[Enter] Confirm</b></text>
+              </box>
+            ) : <>
+              <box flexDirection="row" gap={1}>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onDecreaseDeployment : undefined}><b>[−]</b></text>
+                <text fg={canDeploy ? "#e2e8f0" : "#64748b"}>{pendingReinforcements > 0 ? `${selectedDeploymentCount}/${pendingReinforcements}` : "-"}</text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onIncreaseDeployment : undefined}><b>[+]</b></text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onSelectMinimumDeployment : undefined}><b>[1]</b></text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onSelectAllDeployments : undefined}><b>[All]</b></text>
+              </box>
+              {phase === "deployment" && <box onMouseDown={canDeploy ? onDeploy : undefined}>
+                <text fg={canDeploy ? "#00d2ff" : "#e2e8f0"}>
+                  <b>[D] ➜ Deploy</b><span fg="#64748b">  [/ adjust, 0 one]</span>
+                </text>
+              </box>}
+            </>}
 
             <box
               flexDirection="row"

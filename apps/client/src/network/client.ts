@@ -480,6 +480,10 @@ export class GameClient {
     this.send(msg);
   }
 
+  public completeConquestMove(units: number): void {
+    this.send({ type: "client:complete_conquest_move", units });
+  }
+
   public fortify(sourceId: string, targetId: string, units: number): void {
     const msg: ClientFortify = {
       type: "client:fortify",

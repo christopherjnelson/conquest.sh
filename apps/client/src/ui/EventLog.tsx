@@ -116,6 +116,12 @@ export function formatEvent(
         color: "#f97316",
       };
     }
+    case "conquest_move_completed": {
+      const player = getPlayerName(e.playerId);
+      const source = getTerritoryName(e.sourceTerritoryId);
+      const target = getTerritoryName(e.targetTerritoryId);
+      return { text: `↗ ${player} moved ${e.units} troops from ${source} to ${target}.`, color: "#a78bfa" };
+    }
     case "units_fortified": {
       const player = getPlayerName(e.playerId);
       const target = getTerritoryName(e.targetTerritoryId);
