@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
-import { attackTerritory, calculateReinforcements, completeConquestMove, createInitialGameState } from "../packages/game-core/src/index.js";
+import { attackTerritory, calculateReinforcements, completeConquestMove, createInitialGameState, fortifyUnits } from "../packages/game-core/src/index.js";
 import { EARTH_42_BUNDLE } from "../packages/map-engine/src/maps/earth-42.js";
 import { getDefaultMap, getMap, getRenderVariant, selectRenderVariant, type MapBundle } from "../packages/map-engine/src/registry.js";
 import { getGeographyBoundingBox, getNextTerritoryInDirection, getTerritoryAt } from "../packages/map-engine/src/grid-engine.js";
@@ -77,6 +77,35 @@ describe("Earth-42 logical topology", () => {
         Math.max(3, Math.floor(sector.territoryIds.length / 3)) + sector.bonusReinforcements
       );
     }
+  });
+
+  it("accepts an Andes attack on Caribbean Coast when ownership and phase allow it", () => {
+    const state = createInitialGameState("g", "EAR1", players(2), earth);
+    state.phase = "attack";
+    state.territories.sa_andes.ownerId = "p0";
+    state.territories.sa_andes.units = 5;
+    state.territories.sa_caribbean_coast.ownerId = "p1";
+    state.territories.sa_caribbean_coast.units = 2;
+
+    const result = attackTerritory(state, "p0", "sa_andes", "sa_caribbean_coast", undefined, () => 0.5);
+    expect(result.ok).toBe(true);
+  });
+
+  it("fortifies from Eastern Australia to Indonesia through owned Oceania and passes the turn", () => {
+    const state = createInitialGameState("g", "EAR1", players(2), earth);
+    state.phase = "fortify";
+    for (const id of ["oc_eastern_australia", "oc_western_australia", "oc_new_guinea", "oc_indonesia"]) {
+      state.territories[id].ownerId = "p0";
+    }
+    state.territories.oc_eastern_australia.units = 5;
+    const before = state.territories.oc_indonesia.units;
+
+    const result = fortifyUnits(state, "p0", "oc_eastern_australia", "oc_indonesia", 2);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.state.territories.oc_eastern_australia.units).toBe(3);
+    expect(result.state.territories.oc_indonesia.units).toBe(before + 2);
+    expect(result.state.players[result.state.activePlayerIndex].id).toBe("p1");
   });
 
   it("can conquer all 42 Earth territories and finish through normal attack rules", () => {

@@ -21,6 +21,9 @@ import { EventLog } from "../apps/client/src/ui/EventLog.js";
 import { Sidebar } from "../apps/client/src/ui/Sidebar.js";
 import { CompactInspector } from "../apps/client/src/ui/CompactInspector.js";
 import { App } from "../apps/client/src/ui/App.js";
+import { Header } from "../apps/client/src/ui/Header.js";
+
+const earthBundle = getMap("earth-42")!;
 
 const players: Player[] = [
   { id: "p1", name: "Commander Alexandria", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
@@ -72,6 +75,18 @@ function findNodeWithSize(node: any, width: number, height: number): any | null 
   return null;
 }
 
+function findTextNode(node: any, text: string): any | null {
+  if (node == null) return null;
+  if (typeof node === "string") return node.includes(text) ? node : null;
+  const children = node?.props?.children instanceof Array ? node.props.children : [node?.props?.children];
+  if (children.some((child: any) => typeof child === "string" && child.includes(text))) return node;
+  for (const child of children) {
+    const found = findTextNode(child, text);
+    if (found) return found;
+  }
+  return null;
+}
+
 describe("visual sidebar composition", () => {
   it("keeps long territory and owner names in their own inspector lanes at every responsive width", async () => {
     const mapBundle = structuredClone(ironreachBundle);
@@ -112,6 +127,90 @@ describe("visual sidebar composition", () => {
     expect(compactFrame).toContain("Commander Ale…");
     expect(compactFrame).not.toContain("Territory Name That");
     await act(async () => { compact.renderer.destroy(); });
+  });
+
+  it("does not turn a hovered territory's neighbors into targets for the selected source", () => {
+    const state = selectedState();
+    let selectedTarget: string | undefined;
+    const hovered = "B1";
+    const hoveredNeighbor = state.territories[hovered]!.neighbors[0]!;
+    const inspector: any = Sidebar({
+      mapBundle: ironreachBundle, state, myPlayerId: "p1", selectedTerritoryId: "B2", hoveredTerritoryId: hovered,
+      targetTerritoryId: null, onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {},
+      onSelectTarget: (id) => { selectedTarget = id; }, layoutMode: "wide",
+    });
+    const hoveredChip = findTextNode(inspector, `[${ironreachBundle.metadata.displayCodes[hoveredNeighbor] ?? hoveredNeighbor}]`);
+    expect(hoveredChip?.props?.onMouseDown).toBeUndefined();
+    expect(selectedTarget).toBeUndefined();
+  });
+
+  it("labels the current player separately from the active turn and omits the header quote", async () => {
+    const header: any = Header({
+      roomCode: "SIDE", turnNumber: 3, activePlayer: players[1], currentPlayer: players[0], phase: "attack",
+      pendingReinforcements: 2, connectionStatus: "connected", isMyTurn: false, layoutMode: "wide",
+    });
+    const serialized = JSON.stringify(header);
+    expect(serialized).toContain("YOU: ");
+    expect(serialized).toContain("Commander Alexandria");
+    expect(serialized).toContain("Blair");
+    expect(serialized).not.toContain("Same map.");
+    expect(serialized).not.toContain("Different stories.");
+  });
+
+  for (const [layoutMode, width] of [["compact", 105], ["standard", 140], ["wide", 180]] as const) {
+    it(`keeps current-player identity and the active player readable in the ${layoutMode} header`, async () => {
+      const currentPlayer = { ...players[0], name: "Commander Alexandria of the Long Northern Marches" };
+      const activePlayer = { ...players[1], name: "Baron Redwurm of the Eastern Dominion" };
+      const setup = await testRender(
+        React.createElement(Header, {
+          roomCode: "HEAD", turnNumber: 4, currentPlayer, activePlayer, phase: "attack",
+          pendingReinforcements: 5, connectionStatus: "connected", isMyTurn: false, layoutMode,
+        }),
+        { width, height: 8 },
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const lines = setup.captureCharFrame().split("\n");
+      const youLine = lines.find((line: string) => line.includes("YOU:"));
+      expect(youLine).toBeDefined();
+      expect(youLine).toContain("YOU:");
+      expect(youLine).toContain("Commander");
+      expect(youLine!.length).toBeLessThanOrEqual(width);
+      const activeLine = lines.find((line: string) => line.includes("Baron") || line.includes("Active:"));
+      expect(activeLine).toBeDefined();
+      expect(activeLine!.length).toBeLessThanOrEqual(width);
+      await act(async () => { setup.renderer.destroy(); });
+    });
+  }
+
+  it("keeps Nile Valley's owner row separate and hides raw Earth target IDs in a 42-column sidebar", async () => {
+    const earthPlayers: Player[] = [
+      { ...players[0], name: "Redwurm" },
+      { ...players[1], name: "Sable" },
+    ];
+    const state = createInitialGameState("earth-sidebar", "NILE", earthPlayers, earthBundle.definition);
+    state.phase = "attack";
+    state.activePlayerIndex = 0;
+    state.territories.af_nile_valley = { ...state.territories.af_nile_valley!, ownerId: "p1", units: 7 };
+    const setup = await testRender(
+      React.createElement(Sidebar, {
+        mapBundle: earthBundle, state, myPlayerId: "p1", selectedTerritoryId: "af_nile_valley", targetTerritoryId: "na_atlantic_states",
+        onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {}, layoutMode: "wide",
+      }),
+      { width: 42, height: 38 },
+    );
+    await act(async () => { await setup.renderOnce(); });
+    const lines = setup.captureCharFrame().split("\n");
+    const ownerLine = lines.find((line: string) => line.includes("Owner"))!;
+    const territoryLine = lines.find((line: string) => line.includes("[AF2]"))!;
+    const territoryNameLine = lines.find((line: string) => line.includes("Nile Valley"))!;
+    expect(ownerLine).toContain("Redwurm");
+    expect(ownerLine).not.toContain("Nile Valley");
+    expect(territoryNameLine).toContain("Nile Valley");
+    expect(territoryNameLine).not.toContain("Owner");
+    expect(territoryLine).not.toContain("Owner");
+    expect(lines.some((line: string) => line.includes("na_atlantic_states"))).toBe(false);
+    expect(lines.some((line: string) => line.includes("NA8"))).toBe(true);
+    await act(async () => { setup.renderer.destroy(); });
   });
 
   it("renders the post-conquest move amount without a dollar sign", async () => {

@@ -110,6 +110,10 @@ export function Sidebar({
   );
   const isTargetEnemy = Boolean(targetTerritory && targetTerritory.ownerId !== myPlayerId);
   const isTargetFriendly = Boolean(targetTerritory && targetTerritory.ownerId === myPlayerId);
+  const actionSourceIsInspected = Boolean(selectedTerritoryId && activeTid === selectedTerritoryId);
+  const targetDisplay = targetTerritoryId
+    ? mapBundle.metadata.displayCodes[targetTerritoryId] ?? targetTerritoryId
+    : "-";
 
   const canDeploy = isMyTurn && phase === "deployment" && isActionSourceOwnedByMe && pendingReinforcements > 0;
   const selectedDeploymentCount = Math.min(Math.max(1, deploymentCount ?? pendingReinforcements), pendingReinforcements);
@@ -125,13 +129,13 @@ export function Sidebar({
   const neighborIds = gridDef?.neighbors ?? selectedTerritory?.neighbors ?? [];
   // The inspector is intentionally terse. At the supported 110-column width its
   // panel has only about 30 inner cells, so values must never push into labels.
-  const valueLimit = layoutMode === "wide" ? 30 : 17;
+  const valueLimit = layoutMode === "wide" ? 25 : 17;
   // The identity and owner rows have less room than a plain value row. Keeping
   // their text within those lanes prevents terminal wrapping from painting a
   // territory name over the Owner row.
-  const identityLimit = layoutMode === "wide" ? 34 : 24;
-  const ownerValueLimit = layoutMode === "wide" ? 22 : 14;
-  const flavorLimit = layoutMode === "wide" ? 34 : 22;
+  const identityLimit = layoutMode === "wide" ? 28 : 24;
+  const ownerValueLimit = layoutMode === "wide" ? 18 : 14;
+  const flavorLimit = layoutMode === "wide" ? 28 : 22;
 
   return (
     <box
@@ -183,7 +187,7 @@ export function Sidebar({
                   <span fg="#94a3b8">{idx + 1} </span>
                   <span fg={p.colorHex}>● </span>
                   <span fg="#e2e8f0">{displayName}</span>
-                  {isMe && <span fg="#00ff66">*</span>}
+                  {isMe && <span fg="#00ff66"> YOU</span>}
                 </text>
                 <text fg={statusColor}>
                   <b>{statusText}</b>
@@ -217,7 +221,7 @@ export function Sidebar({
                   <span fg={isActive ? "#00ff66" : isEliminated ? "#ef4444" : "#e2e8f0"}>
                     <b>{displayName}</b>
                   </span>
-                  {isMe && <span fg={isEliminated ? "#ef4444" : "#00ff66"}>*</span>}
+                  {isMe && <span fg={isEliminated ? "#ef4444" : "#00ff66"}> YOU</span>}
                 </text>
                 <text fg={isActive ? "#00ff66" : isEliminated ? "#ef4444" : "#e2e8f0"}>
                   <b>
@@ -264,7 +268,7 @@ export function Sidebar({
           <>
             {/* Keep identity on two short rows so the data columns below remain stable. */}
             <box flexDirection="column" style={{ height: 2 }} flexShrink={0}>
-              <box flexDirection="row" alignItems="center" gap={1}>
+              <box flexDirection="row" alignItems="center" gap={1} style={{ height: 1 }} flexShrink={0}>
                 <text fg="#ffffff"><b>[{mapBundle.metadata.displayCodes[activeTid] ?? activeTid}]</b></text>
                 {inspectionMode !== "none" && (
                   <text fg={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}>
@@ -272,7 +276,7 @@ export function Sidebar({
                   </text>
                 )}
               </box>
-              <text fg="#00d2ff">
+              <text fg="#00d2ff" style={{ height: 1 }} flexShrink={0}>
                 <b>{fitSidebarText(territoryName, identityLimit)}</b>
               </text>
             </box>
@@ -314,7 +318,7 @@ export function Sidebar({
                   <text
                     key={nId}
                     fg={nColor}
-                    onMouseDown={() => onSelectTarget?.(nId)}
+                    onMouseDown={actionSourceIsInspected ? () => onSelectTarget?.(nId) : undefined}
                   >
                     <b>[{mapBundle.metadata.displayCodes[nId] ?? nId}{isTarget ? "*" : ""}]</b>
                   </text>
@@ -416,7 +420,7 @@ export function Sidebar({
                 <b>[A] ⚔ Attack</b>
               </text>
               <text fg="#64748b">
-                {targetTerritoryId ? targetTerritoryId : "-"}
+                {targetDisplay}
               </text>
             </box>
 

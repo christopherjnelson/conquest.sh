@@ -7,6 +7,7 @@ export interface HeaderProps {
   roomCode: string | null;
   turnNumber?: number;
   activePlayer?: Player | undefined;
+  currentPlayer?: Player | undefined;
   phase: GamePhase;
   pendingReinforcements?: number;
   connectionStatus: ConnectionStatus;
@@ -15,10 +16,15 @@ export interface HeaderProps {
   layoutMode?: LayoutMode;
 }
 
+function fitHeaderName(name: string, maxLength: number): string {
+  return name.length > maxLength ? `${name.slice(0, Math.max(1, maxLength - 1))}…` : name;
+}
+
 export function Header({
   roomCode,
   turnNumber = 0,
   activePlayer,
+  currentPlayer,
   phase,
   pendingReinforcements = 0,
   connectionStatus,
@@ -30,6 +36,8 @@ export function Header({
   const isCompact = layoutMode === "compact";
   const isStandard = layoutMode === "standard";
   const isWide = layoutMode === "wide" || (!isCompact && !isStandard);
+  const currentPlayerName = currentPlayer ? fitHeaderName(currentPlayer.name, isCompact ? 16 : isStandard ? 20 : 26) : "—";
+  const activePlayerName = activePlayer ? fitHeaderName(activePlayer.name, isCompact ? 12 : isStandard ? 16 : 22) : "";
 
   return (
     <box flexDirection="column" style={{ width: "100%" }} marginBottom={0}>
@@ -53,7 +61,7 @@ export function Header({
 
         <box flexDirection="row" gap={1}>
           <text fg="#64748b">
-            Ctrl+C to quit  │  v0.2.0
+            <span fg="#00ff66"><b>YOU: {currentPlayerName}</b></span>  │  Ctrl+C to quit  │  v0.2.0
           </text>
         </box>
       </box>
@@ -105,7 +113,7 @@ export function Header({
                 Active: {activePlayer ? (
                   <>
                     <span fg={activePlayer.colorHex}>● </span>
-                    <span fg={activePlayer.colorHex}><b>{activePlayer.name}</b></span>
+                    <span fg={activePlayer.colorHex}><b>{activePlayerName}</b></span>
                     {isMyTurn && <span fg="#00ff66"> (You)</span>}
                   </>
                 ) : (
@@ -166,7 +174,7 @@ export function Header({
                 Active: {activePlayer ? (
                   <>
                     <span fg={activePlayer.colorHex}>● </span>
-                    <span fg={activePlayer.colorHex}><b>{activePlayer.name}</b></span>
+                    <span fg={activePlayer.colorHex}><b>{activePlayerName}</b></span>
                     {isMyTurn && <span fg="#00ff66"> (You)</span>}
                   </>
                 ) : (
@@ -214,7 +222,7 @@ export function Header({
             </text>
           </box>
 
-          {/* Center-Right Columns: Turn, Active Player, Reinforcements, Quote */}
+          {/* Center-Right Columns: Turn, Active Player, Reinforcements */}
           {isLobby ? (
             <box flexDirection="row" alignItems="center" gap={3}>
               {/* Lobby Status Column */}
@@ -227,18 +235,6 @@ export function Header({
                 </text>
               </box>
 
-              {/* Slogan Quote Column */}
-              <box flexDirection="column">
-                <text fg="#64748b">
-                  <i>"Same map.</i>
-                </text>
-                <text fg="#64748b">
-                  <i>Different stories."</i>
-                </text>
-                <text fg="#475569">
-                  ─ CONQUEST.SH
-                </text>
-              </box>
             </box>
           ) : (
             <box flexDirection="row" alignItems="center" gap={3}>
@@ -258,7 +254,7 @@ export function Header({
                 {activePlayer ? (
                   <text>
                     <span fg={activePlayer.colorHex}>● </span>
-                    <span fg={activePlayer.colorHex}><b>{activePlayer.name}</b></span>
+                    <span fg={activePlayer.colorHex}><b>{activePlayerName}</b></span>
                     {isMyTurn && <span fg="#00ff66"> (You)</span>}
                   </text>
                 ) : (
@@ -276,18 +272,6 @@ export function Header({
                 </text>
               </box>
 
-              {/* Slogan Quote Column */}
-              <box flexDirection="column">
-                <text fg="#64748b">
-                  <i>"Same map.</i>
-                </text>
-                <text fg="#64748b">
-                  <i>Different stories."</i>
-                </text>
-                <text fg="#475569">
-                  ─ CONQUEST.SH
-                </text>
-              </box>
             </box>
           )}
         </box>

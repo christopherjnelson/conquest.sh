@@ -485,6 +485,9 @@ describe("Earth deployment through the client UI", () => {
           state.territories[source.id]?.units === 6 && state.territories[target.id]?.units === 4);
       });
       expect(completed.pendingConquestMove).toBeNull();
+      await act(async () => { await setup.renderOnce(); });
+      const clearedFrame = await setup.waitForFrame((frame: string) => !frame.includes("[SELECTED]"));
+      expect(clearedFrame).toContain("WORLD MAP");
     } finally {
       Math.random = originalRandom;
       if (setup && reactAct) await reactAct(async () => { setup.renderer.destroy(); });

@@ -191,15 +191,16 @@ Built-in registration belongs in `packages/map-engine`; client components, serve
 ### Mouse
 - **Click Territory**: Selects territory for orders, troop deployment, and inspection.
 - **Click Adjacent Enemy**: Selects adjacent territory as attack target.
-- **Click Adjacent Friendly**: Selects connected friendly territory as fortify destination.
+- **Click Friendly Territory**: Selects any friendly territory connected through your owned territories as a fortify destination.
 - **Click Action Buttons**: Choose a deployment amount with `−`, `+`, or `All`, then use `[ Deploy ]` on any territory you own. Use `[ Attack ]`, `[ Fortify ]`, `[ Skip / End Turn ]`, or `[ Ready ]` as the phase allows.
 - **After a Conquest**: Choose how many surviving troops enter the captured territory with `−` and `+`, then confirm the move before continuing the attack phase.
-- **Skip / End Turn**: Click once to request the phase change, then click the confirmation action to proceed. `Esc` cancels.
+- **Skip / End Turn**: Click once to open the confirmation dialog on the world map, then use its Confirm or Cancel control. `Enter` confirms and `Esc` cancels.
 - **Hover**: Previews territory intel, owner, and defensive garrison armies in real time.
 
 ### Keyboard
 - **`Arrow Keys`**: Spatial 2D navigation between territories using centroid geometry.
 - **`Tab` / `Shift+Tab`**: Cycle selected territory across the continent.
+- **`N` / `Shift+N`**: Cycle legal targets while keeping the selected attack or fortify source armed.
 - **`[` / `]` / `0`**: Decrease, increase, or set the deployment amount to one.
 - **`D`**: Deploy the chosen amount to the selected owned territory. You can split reinforcements across territories.
 - **`A`**: Attack targeted enemy province from selected territory.

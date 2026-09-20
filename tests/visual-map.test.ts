@@ -474,16 +474,11 @@ describe("visual map: rendered geography occupancy", () => {
 
     const selectedBorder = cellAt(render("C2", null), cyanPerimeter)!;
     const hoveredBorder = cellAt(render(null, null, "C2"), cyanPerimeter)!;
-    const isNeutral = (color: string | undefined) => {
-      if (!color?.match(/^#[0-9a-f]{6}$/i)) return false;
-      const [r, g, b] = [color.slice(1, 3), color.slice(3, 5), color.slice(5, 7)].map(component => parseInt(component, 16));
-      return Math.max(r, g, b) - Math.min(r, g, b) <= 38 && Math.max(r, g, b) >= 130;
-    };
-    // The outline is the selection cue. It cannot borrow cyan (or another
-    // player hue), and it must communicate more than the transient hover.
+    // The warm selection outline stays distinct from ownership and the
+    // transient hover while leaving the owner-colored interior intact.
     expect(selectedBorder.fg).not.toBe(players[0].colorHex);
     expect(selectedBorder.fg).not.toBe(players[1].colorHex);
-    expect(isNeutral(selectedBorder.fg)).toBe(true);
+    expect(selectedBorder.fg).toBe("#fef08a");
     expect(`${selectedBorder.fg}/${selectedBorder.bg}`).not.toBe(`${hoveredBorder.fg}/${hoveredBorder.bg}`);
 
     // In an attack frame the enemy target still gets an unmistakably red
