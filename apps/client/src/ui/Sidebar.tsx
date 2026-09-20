@@ -21,6 +21,10 @@ export interface SidebarProps {
   layoutMode?: LayoutMode;
 }
 
+function fitSidebarText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, Math.max(1, maxLength - 1))}…` : value;
+}
+
 export function Sidebar({
   state,
   myPlayerId,
@@ -60,7 +64,6 @@ export function Sidebar({
   // Territory details
   const territoryName = gridDef?.name ?? selectedTerritory?.name ?? activeTid ?? "";
   const sectorName = gridDef?.regionName ?? "Sector";
-  const adjacentStr = gridDef?.neighbors.join(", ") ?? selectedTerritory?.neighbors.join(", ") ?? "-";
   const flavorQuote = gridDef?.flavor ?? "";
 
   // Owner resolution
@@ -83,14 +86,16 @@ export function Sidebar({
   const canFortify = isMyTurn && phase === "fortify" && isSelectedOwnedByMe && isTargetFriendly && armiesCount >= 2;
   const canSkipOrEnd = isMyTurn && (phase === "attack" || phase === "fortify");
 
-  // Crest icon
-  const crestIcon = gridDef?.icon ?? "▲";
-
   // Ready status in lobby
   const myPlayer = state?.players.find((p) => p.id === myPlayerId);
   const isReady = myPlayer?.ready ?? false;
 
   const players = state?.players ?? [];
+  const neighborIds = gridDef?.neighbors ?? selectedTerritory?.neighbors ?? [];
+  // The inspector is intentionally terse. At the supported 110-column width its
+  // panel has only about 30 inner cells, so values must never push into labels.
+  const valueLimit = layoutMode === "wide" ? 30 : 17;
+  const flavorLimit = layoutMode === "wide" ? 34 : 22;
 
   return (
     <box
@@ -102,15 +107,15 @@ export function Sidebar({
       {/* CARD 1: ! PLAYERS */}
       <box
         title="! PLAYERS"
-        titleColor="#00d2ff"
+        titleColor="#38bdf8"
         border
         borderStyle="single"
-        borderColor="#00d2ff"
+        borderColor="#24566d"
         backgroundColor="#080f1a"
         flexDirection="column"
         paddingLeft={1}
         paddingRight={1}
-        style={{ height: 8 }}
+        style={{ height: 7 }}
       >
         {/* Table Header */}
         <box flexDirection="row" justifyContent="space-between" marginBottom={0}>
@@ -196,112 +201,72 @@ export function Sidebar({
             ? "! HOVERED TERRITORY"
             : "! SELECTED TERRITORY"
         }
-        titleColor="#00d2ff"
+        titleColor="#38bdf8"
         border
         borderStyle="single"
-        borderColor="#00d2ff"
+        borderColor="#24566d"
         backgroundColor="#080f1a"
         flexDirection="column"
         paddingLeft={1}
         paddingRight={1}
-        style={{ height: 14 }}
+        style={{ height: activeTid ? 14 : 7 }}
       >
         {!activeTid ? (
           <box
             flexDirection="column"
-            alignItems="center"
-            justifyContent="center"
-            flexGrow={1}
+            paddingTop={1}
+            gap={1}
           >
             <text fg="#64748b">
               <i>Move over or click a territory to inspect.</i>
             </text>
+            <text fg="#475569">
+              Map intel will appear here.
+            </text>
           </box>
         ) : (
           <>
-            {/* Header: Badge [ activeTid ] [STATUS]   territoryName + Crest Box */}
-            <box flexDirection="row" justifyContent="space-between" alignItems="flex-start" marginBottom={0}>
+            {/* Keep identity on two short rows so the data columns below remain stable. */}
+            <box flexDirection="column" style={{ height: 2 }} flexShrink={0}>
               <box flexDirection="row" alignItems="center" gap={1}>
-                <box
-                  border
-                  borderStyle="single"
-                  borderColor="#334155"
-                  backgroundColor="#0f172a"
-                  paddingLeft={1}
-                  paddingRight={1}
-                >
-                  <text fg="#ffffff">
-                    <b>{activeTid}</b>
-                  </text>
-                </box>
+                <text fg="#ffffff"><b>[{activeTid}]</b></text>
                 {inspectionMode !== "none" && (
-                  <box
-                    border
-                    borderStyle="single"
-                    borderColor={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}
-                    backgroundColor={inspectionMode === "selected" ? "#0c2b3d" : "#291c06"}
-                    paddingLeft={1}
-                    paddingRight={1}
-                  >
-                    <text fg={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}>
-                      <b>{inspectionMode.toUpperCase()}</b>
-                    </text>
-                  </box>
+                  <text fg={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}>
+                    <b>{inspectionMode === "selected" ? "SEL" : "HOV"}</b>
+                  </text>
                 )}
-                <text fg="#00d2ff">
-                  <b>{territoryName}</b>
-                </text>
               </box>
-
-              {/* Crest Box */}
-              <box
-                border
-                borderStyle="single"
-                borderColor="#334155"
-                flexDirection="column"
-                alignItems="center"
-                paddingLeft={1}
-                paddingRight={1}
-              >
-                <text fg="#475569">
-                  {crestIcon}{crestIcon}
-                </text>
-                <text fg="#334155">
-                  {" "}{crestIcon}
-                </text>
-              </box>
+              <text fg="#00d2ff">
+                <b>{fitSidebarText(territoryName, valueLimit + 8)}</b>
+              </text>
             </box>
 
-            {/* Details Table */}
-            <box flexDirection="column" gap={0} marginTop={0}>
-              <box flexDirection="row">
-                <text fg="#64748b">Owner        </text>
-                <text>
+            {/* Fixed label column prevents values from colliding at narrow widths. */}
+            <box flexDirection="column" style={{ height: 4 }} flexShrink={0}>
+              <box flexDirection="row" style={{ height: 1 }}>
+                <text fg="#64748b" style={{ width: 10 }}>Owner</text>
+                <text flexGrow={1}>
                   <span fg={ownerColor}>● </span>
-                  <span fg="#e2e8f0"><b>{ownerName}</b></span>
+                  <span fg="#e2e8f0"><b>{fitSidebarText(ownerName, valueLimit)}</b></span>
                 </text>
               </box>
-              <box flexDirection="row">
-                <text fg="#64748b">Armies       </text>
-                <text fg="#e2e8f0"><b>{armiesCount}</b></text>
+              <box flexDirection="row" style={{ height: 1 }}>
+                <text fg="#64748b" style={{ width: 10 }}>Armies</text>
+                <text fg="#e2e8f0" flexGrow={1}><b>{armiesCount}</b></text>
               </box>
-              <box flexDirection="row">
-                <text fg="#64748b">Region       </text>
-                <text fg="#e2e8f0"><b>{sectorName}</b></text>
+              <box flexDirection="row" style={{ height: 1 }}>
+                <text fg="#64748b" style={{ width: 10 }}>Region</text>
+                <text fg="#e2e8f0" flexGrow={1}><b>{fitSidebarText(sectorName, valueLimit)}</b></text>
               </box>
-              <box flexDirection="row">
-                <text fg="#64748b">Bonus        </text>
-                <text fg="#00ff66"><b>+{gridDef?.regionBonus ?? 0} armies</b></text>
-              </box>
-              <box flexDirection="row">
-                <text fg="#64748b">Bordering    </text>
-                <text fg="#e2e8f0">{adjacentStr}</text>
+              <box flexDirection="row" style={{ height: 1 }}>
+                <text fg="#64748b" style={{ width: 10 }}>Bonus</text>
+                <text fg="#00ff66" flexGrow={1}><b>+{gridDef?.regionBonus ?? 0} armies</b></text>
               </box>
             </box>
 
-            {/* Bordering Realms Chips */}
-            <box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
-              {(gridDef?.neighbors ?? selectedTerritory?.neighbors ?? []).map((nId) => {
+            {/* Neighbor ids wrap inside a two-line lane and cannot displace the quote. */}
+            <box flexDirection="row" flexWrap="wrap" gap={1} style={{ height: 2 }} flexShrink={0}>
+              {neighborIds.map((nId) => {
                 const isTarget = targetTerritoryId === nId;
                 const nDef = MAP_GRID_IRONREACH.territories.find((t) => t.id === nId);
                 const nState = territories[nId];
@@ -309,32 +274,25 @@ export function Sidebar({
                 const nColor = isTarget ? "#00ffff" : nOwner?.colorHex ?? nDef?.regionColor ?? "#94a3b8";
 
                 return (
-                  <box
+                  <text
                     key={nId}
-                    border
-                    borderStyle="single"
-                    borderColor={isTarget ? "#00ffff" : "#334155"}
-                    backgroundColor={isTarget ? "#0c2b3d" : "#0f172a"}
-                    paddingLeft={1}
-                    paddingRight={1}
+                    fg={nColor}
                     onMouseDown={() => onSelectTarget?.(nId)}
                   >
-                    <text fg={nColor}>
-                      <b>{nId} {nDef?.name ?? ""}</b>
-                    </text>
-                  </box>
+                    <b>[{nId}{isTarget ? "*" : ""}]</b>
+                  </text>
                 );
               })}
             </box>
 
-            {/* Flavor quote */}
-            {flavorQuote ? (
-              <box marginTop={0}>
+            {/* Reserved quote lane keeps a long flavor line below the neighbor chips. */}
+            <box style={{ height: 2 }} flexShrink={0}>
+              {flavorQuote ? (
                 <text fg="#64748b">
-                  <i>"{flavorQuote}"</i>
+                  <i>"{fitSidebarText(flavorQuote, flavorLimit)}"</i>
                 </text>
-              </box>
-            ) : null}
+              ) : null}
+            </box>
           </>
         )}
       </box>
@@ -342,16 +300,16 @@ export function Sidebar({
       {/* CARD 3: ! ACTIONS */}
       <box
         title="! ACTIONS"
-        titleColor="#00d2ff"
+        titleColor="#38bdf8"
         border
         borderStyle="single"
-        borderColor="#00d2ff"
+        borderColor="#24566d"
         backgroundColor="#080f1a"
         flexDirection="column"
         paddingLeft={1}
         paddingRight={1}
-        gap={1}
-        style={{ height: 10 }}
+        gap={0}
+        style={{ height: isLobby ? 8 : 7 }}
       >
         {myPlayer && !myPlayer.isAlive ? (
           <box flexDirection="column" gap={1} justifyContent="center" alignItems="center" flexGrow={1}>
@@ -366,7 +324,7 @@ export function Sidebar({
             </text>
           </box>
         ) : isLobby ? (
-          <box flexDirection="column" gap={1} justifyContent="center" flexGrow={1}>
+          <box flexDirection="column" gap={0} paddingTop={0}>
             <box
               border
               borderStyle="single"
@@ -388,77 +346,45 @@ export function Sidebar({
             </text>
           </box>
         ) : (
-          <>
-            {/* Action 1: Deploy */}
+          <box flexDirection="column" gap={0}>
+            {/* Compact one-line controls preserve four actions inside the active card. */}
             <box
-              border
-              borderStyle="single"
-              borderColor={canDeploy ? "#00d2ff" : "#334155"}
-              backgroundColor={canDeploy ? "#0c2b3d" : undefined}
               flexDirection="row"
               justifyContent="space-between"
-              alignItems="center"
-              paddingLeft={1}
-              paddingRight={1}
               onMouseDown={canDeploy ? onDeploy : undefined}
             >
               <text fg={canDeploy ? "#00d2ff" : "#e2e8f0"}>
-                <b>[ ➜ Deploy ]</b>
+                <b>[D] ➜ Deploy</b>
               </text>
               <text fg="#64748b">
-                {pendingReinforcements > 0 ? `+${pendingReinforcements} units` : "-"}
+                {pendingReinforcements > 0 ? `+${pendingReinforcements}` : "-"}
               </text>
             </box>
 
-            {/* Action 2: Attack */}
             <box
-              border
-              borderStyle="single"
-              borderColor={canAttack ? "#00ffff" : "#334155"}
-              backgroundColor={canAttack ? "#0c2b3d" : undefined}
               flexDirection="row"
               justifyContent="space-between"
-              alignItems="center"
-              paddingLeft={1}
-              paddingRight={1}
               onMouseDown={canAttack ? onAttack : undefined}
             >
               <text fg={canAttack ? "#00ffff" : "#e2e8f0"}>
-                <b>[ ⚔ Attack ]</b>
+                <b>[A] ⚔ Attack</b>
               </text>
               <text fg="#64748b">
-                {targetTerritoryId ? `target: ${targetTerritoryId}` : "-"}
+                {targetTerritoryId ? targetTerritoryId : "-"}
               </text>
             </box>
 
-            {/* Action 3: Fortify */}
             <box
-              border
-              borderStyle="single"
-              borderColor={canFortify ? "#00ff66" : "#334155"}
-              backgroundColor={canFortify ? "#092e18" : undefined}
               flexDirection="row"
-              alignItems="center"
-              paddingLeft={1}
-              paddingRight={1}
               onMouseDown={canFortify ? onFortify : undefined}
-              gap={1}
             >
               <text fg={canFortify ? "#00ff66" : "#e2e8f0"}>
-                <b>[ 🛡 Fortify ]</b>
+                <b>[F] 🛡 Fortify</b>
               </text>
             </box>
 
-            {/* Action 4: End Attack / End Turn */}
             <box
-              border
-              borderStyle="single"
-              borderColor={canSkipOrEnd ? "#ffaa00" : "#334155"}
-              backgroundColor={canSkipOrEnd ? "#291c06" : undefined}
               flexDirection="row"
-              alignItems="center"
-              paddingLeft={1}
-              paddingRight={1}
               onMouseDown={
                 canSkipOrEnd
                   ? phase === "attack"
@@ -466,13 +392,12 @@ export function Sidebar({
                     : onEndTurn
                   : undefined
               }
-              gap={1}
             >
               <text fg={canSkipOrEnd ? "#ffaa00" : "#e2e8f0"}>
-                <b>{phase === "attack" ? "[ » End Attack ]" : "[ » End Turn ]"}</b>
+                <b>{phase === "attack" ? "[E] » End Attack" : "[E] » End Turn"}</b>
               </text>
             </box>
-          </>
+          </box>
         )}
       </box>
 
@@ -480,10 +405,10 @@ export function Sidebar({
       {layoutMode !== "standard" && (
         <box
           title="! REALM & SESSION INTEL"
-          titleColor="#00d2ff"
+          titleColor="#64748b"
           border
           borderStyle="single"
-          borderColor="#00d2ff"
+          borderColor="#1e3a4a"
           backgroundColor="#080f1a"
           flexDirection="column"
           paddingLeft={1}

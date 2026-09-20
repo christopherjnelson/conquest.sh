@@ -569,8 +569,8 @@ export function App({
           style={{ width: "100%", marginTop: 0, marginBottom: 0 }}
           gap={1}
         >
-          {/* Left: MapCanvas (~75% width) */}
-          <box flexGrow={3} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
+          {/* The standard pane favors readable inspector columns; wide keeps the canonical map raster at full width. */}
+          <box flexGrow={layoutMode === "wide" ? 3 : 5} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
             <MapCanvas
               contentDimensions={getMapContentDimensionsForTerminal(dimensions.columns, dimensions.rows)}
               terminalDimensions={dimensions}
@@ -594,8 +594,8 @@ export function App({
             />
           </box>
 
-          {/* Right: Sidebar (~25% width) */}
-          <box flexGrow={1} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
+          {/* Right: Sidebar (~29% standard, preserving the wide map's 25% raster contract) */}
+          <box flexGrow={layoutMode === "wide" ? 1 : 2} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
             <Sidebar
               state={state}
               myPlayerId={myPlayerId}

@@ -508,19 +508,21 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
     expect(compactMap.width).toBe(104);
     expect(compactMap.height).toBe(30);
 
-    // Threshold edge checks based on exact wide canvas dimensions (136x36)
-    expect(getMapForDimensions(136, 36)).toBe(MAP_GRID_IRONREACH_WIDE);
-    expect(getMapForDimensions(135, 36)).toBe(MAP_GRID_IRONREACH_COMPACT);
-    expect(getMapForDimensions(136, 35)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    // Threshold edge checks use the rendered wide land crop, excluding ocean margin.
+    const wideLand = getGeographyBoundingBox(MAP_GRID_IRONREACH_WIDE);
+    expect(getMapForDimensions(wideLand.width, wideLand.height)).toBe(MAP_GRID_IRONREACH_WIDE);
+    expect(getMapForDimensions(wideLand.width - 1, wideLand.height)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    expect(getMapForDimensions(wideLand.width, wideLand.height - 1)).toBe(MAP_GRID_IRONREACH_COMPACT);
 
     // Wide-but-short returns compact to prevent vertical overflow
     expect(getMapForDimensions(200, 30)).toBe(MAP_GRID_IRONREACH_COMPACT);
 
     // Breakpoint tests via getMapForTerminalDimensions
-    // 184x55: paneWidth = floor(183 * 0.75) = 137 -> contentWidth = 135 < 136 -> compact
-    expect(getMapForTerminalDimensions(184, 55)).toBe(MAP_GRID_IRONREACH_COMPACT);
-    // 185x55: paneWidth = floor(184 * 0.75) = 138 -> contentWidth = 136 >= 136 -> wide
+    // 180–185x55 panes fit the 132-column rendered wide geography.
+    expect(getMapForTerminalDimensions(180, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
+    expect(getMapForTerminalDimensions(184, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(185, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
+    expect(getMapForTerminalDimensions(200, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
     // 200x30: wide cols but short rows -> paneHeight = 13 -> contentHeight = 11 < 36 -> compact
     expect(getMapForTerminalDimensions(200, 30)).toBe(MAP_GRID_IRONREACH_COMPACT);
   });
@@ -641,6 +643,125 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
 
     const derivedCompact = deriveCoarseTemplateFromMicro(MAP_GRID_IRONREACH_COMPACT.microTemplate!);
     expect(derivedCompact).toEqual(MAP_GRID_IRONREACH_COMPACT.template);
+  });
+
+  it("keeps Duskfall's core as one continuous land lobe", () => {
+    for (const map of [MAP_GRID_IRONREACH_COMPACT, MAP_GRID_IRONREACH_WIDE]) {
+      const rows = map.microTemplate!;
+      for (const row of rows) {
+        const qCells = [...row].flatMap((cell, x) => (cell === "Q" ? [x] : []));
+        // Small Q fragments belong to the exterior taper.  A substantial row is
+        // the lobe's interior and may not contain a water channel.
+        if (qCells.length < 8) continue;
+        for (let x = qCells[0]; x <= qCells[qCells.length - 1]; x++) {
+          expect(row[x]).toBe("Q");
+        }
+      }
+    }
+
+    const wideRows = MAP_GRID_IRONREACH_WIDE.microTemplate!.slice(49, 70);
+    const rightEdges = wideRows.map((row) => row.lastIndexOf("Q"));
+    for (let i = 1; i < rightEdges.length; i++) {
+      expect(Math.abs(rightEdges[i] - rightEdges[i - 1])).toBeLessThanOrEqual(4);
+    }
+
+    // The facing coast is a proper angled cape after microcells are merged,
+    // rather than a flat horizontal bar between Hollowmere and Mossgate.
+    const renderedWide = deriveCoarseTemplateFromMicro(MAP_GRID_IRONREACH_WIDE.microTemplate!);
+    const duskfallEastEdge = [24, 25, 26, 27].map((y) => renderedWide[y].lastIndexOf("Q"));
+    expect(duskfallEastEdge[2]).toBeGreaterThanOrEqual(duskfallEastEdge[0] + 6);
+    expect(duskfallEastEdge[3]).toBeLessThan(duskfallEastEdge[2]);
+    const mossgateWestEdge = [23, 24, 25, 26].map((y) => renderedWide[y].indexOf("R"));
+    expect(mossgateWestEdge[1]).toBeLessThanOrEqual(mossgateWestEdge[0] - 8);
+    expect(mossgateWestEdge[3]).toBeGreaterThan(mossgateWestEdge[1]);
+  });
+
+  it("composes the Mist Strait as a narrow water route rather than a broad empty channel", () => {
+    const widestChannel = (rows: readonly string[], rowIndexes: readonly number[]) => {
+      const gaps = rowIndexes.map((y) => {
+        const row = rows[y];
+        const duskfallEdge = row.lastIndexOf("Q");
+        const mossgateEdge = row.indexOf("R");
+        expect(duskfallEdge).toBeGreaterThanOrEqual(0);
+        expect(mossgateEdge).toBeGreaterThan(duskfallEdge);
+        return mossgateEdge - duskfallEdge - 1;
+      });
+      return Math.max(...gaps);
+    };
+
+    // The paired E3/F1 peninsulas retain a navigable sea gap.  These rows sit
+    // directly beneath the E3 <-> F1 route and prevent a return to the former
+    // 24-microcell-wide empty corridor in wide mode.
+    expect(widestChannel(MAP_GRID_IRONREACH_WIDE.microTemplate!, [49, 50, 51, 52, 53]))
+      .toBeLessThanOrEqual(11);
+    expect(widestChannel(MAP_GRID_IRONREACH_COMPACT.microTemplate!, [41, 42, 43]))
+      .toBeLessThanOrEqual(8);
+  });
+
+  it("authors staggered northern coastlines instead of a continuous shelf", () => {
+    for (const map of [MAP_GRID_IRONREACH_COMPACT, MAP_GRID_IRONREACH_WIDE]) {
+      const northRows = map.microTemplate!.slice(0, Math.floor(map.microTemplate!.length / 4));
+      for (let y = 0; y < northRows.length; y++) {
+        let run = 0;
+        let longestExteriorRun = 0;
+        for (let x = 0; x < northRows[y].length; x++) {
+          const isExteriorCoast = northRows[y][x] !== "." && (y === 0 || northRows[y - 1][x] === ".");
+          run = isExteriorCoast ? run + 1 : 0;
+          longestExteriorRun = Math.max(longestExteriorRun, run);
+        }
+        expect(longestExteriorRun).toBeLessThanOrEqual(9);
+      }
+    }
+
+    // Rendering merges each two microcell rows into a terminal row.  Guard the
+    // visible contour as well, since a pair of short microcell ledges can form
+    // one long shelf after that merge.
+    const renderedNorth = deriveCoarseTemplateFromMicro(MAP_GRID_IRONREACH_WIDE.microTemplate!).slice(0, 8);
+    for (let y = 0; y < renderedNorth.length; y++) {
+      let run = 0;
+      let longestExteriorRun = 0;
+      for (let x = 0; x < renderedNorth[y].length; x++) {
+        const isExteriorCoast = renderedNorth[y][x] !== "." && (y === 0 || renderedNorth[y - 1][x] === ".");
+        run = isExteriorCoast ? run + 1 : 0;
+        longestExteriorRun = Math.max(longestExteriorRun, run);
+      }
+      expect(longestExteriorRun).toBeLessThanOrEqual(9);
+    }
+
+    // These water cuts create the paired bays between the northern territories
+    // while preserving their connections on the rows below.
+    expect(MAP_GRID_IRONREACH_COMPACT.microTemplate![2].slice(34, 40)).toBe("......");
+    expect(MAP_GRID_IRONREACH_WIDE.microTemplate![4].slice(41, 51)).toBe("..........");
+    expect(MAP_GRID_IRONREACH_WIDE.microTemplate![5].slice(42, 49)).toBe(".......");
+    expect(renderedNorth[2].slice(77, 85)).toBe("IIIIIIII");
+  });
+
+  it("does not leave floating micro-fragments in the Emerald Isles", () => {
+    for (const map of [MAP_GRID_IRONREACH_COMPACT, MAP_GRID_IRONREACH_WIDE]) {
+      const rows = map.microTemplate!;
+      for (const char of ["R", "S", "T"]) {
+        const visited = new Set<string>();
+        for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) {
+          const key = `${x},${y}`;
+          if (rows[y][x] !== char || visited.has(key)) continue;
+          const queue = [[x, y]];
+          const component: Array<[number, number]> = [];
+          visited.add(key);
+          while (queue.length) {
+            const [cx, cy] = queue.pop()!;
+            component.push([cx, cy]);
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              const nx = cx + dx, ny = cy + dy, next = `${nx},${ny}`;
+              if (rows[ny]?.[nx] === char && !visited.has(next)) {
+                visited.add(next);
+                queue.push([nx, ny]);
+              }
+            }
+          }
+          expect(component.length).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
   });
 
   it("resolves ambiguous half-cell hit testing using local neighborhood majority instead of always top microcell", () => {
