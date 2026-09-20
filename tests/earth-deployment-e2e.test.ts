@@ -166,4 +166,88 @@ describe("Earth deployment through the client UI", () => {
       server.stop();
     }
   });
+
+  it("dispatches D from the Earth App to the authoritative server", async () => {
+    const server = new ConquestServer({ port: 0, serverName: "earth-ui-keyboard-deployment-e2e" });
+    server.start();
+    const host = `localhost:${server.port}`;
+    const alpha = new GameClient({ host, playerName: "Alpha", forceNewSession: true, autoReconnect: false });
+    const bravo = new GameClient({ host, playerName: "Bravo", forceNewSession: true, autoReconnect: false });
+    let setup: any;
+    let reactAct: any;
+
+    try {
+      await alpha.connect();
+      alpha.createRoom({ playerName: "Alpha", displayName: "Earth keyboard", maxPlayers: 2, mapId: "earth-42" });
+      const lobby = await alpha.waitForSnapshot(state => state.phase === "lobby" && state.mapId === "earth-42");
+      await bravo.connect();
+      bravo.join("Bravo", lobby.roomCode);
+      await alpha.waitForSnapshot(state => state.phase === "lobby" && state.players.length === 2);
+      alpha.ready();
+      await alpha.waitForSnapshot(state => state.phase === "lobby" && Boolean(
+        state.players.find(player => player.id === alpha.myPlayerId)?.ready,
+      ));
+      bravo.ready();
+      const initial = await alpha.waitForSnapshot(state => state.phase === "deployment");
+      const alphaId = alpha.myPlayerId;
+      if (!alphaId) throw new Error("Keyboard client has no player ID");
+      expect(initial.players[initial.activePlayerIndex]?.id).toBe(alphaId);
+      const territory = Object.values(initial.territories).find(candidate => candidate.ownerId === alphaId &&
+        candidate.neighbors.some(id => initial.territories[id]?.ownerId !== alphaId));
+      if (!territory) throw new Error("Keyboard client owns no Earth territory bordering an enemy");
+      const adjacentEnemy = territory.neighbors
+        .map(id => initial.territories[id])
+        .find(candidate => candidate?.ownerId !== alphaId);
+      if (!adjacentEnemy) throw new Error("Keyboard territory has no enemy neighbor");
+      const reinforcements = initial.pendingReinforcements;
+      const unitsBefore = territory.units;
+
+      // @ts-ignore OpenTUI test renderer is runtime-only in Bun.
+      const React = (await import("../apps/client/node_modules/react/index.js")).default;
+      // @ts-ignore OpenTUI test renderer is runtime-only in Bun.
+      const { act } = await import("../apps/client/node_modules/react/index.js");
+      reactAct = act;
+      // @ts-ignore OpenTUI test renderer is runtime-only in Bun.
+      const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+      const { App } = await import("../apps/client/src/ui/App.js");
+      setup = await testRender(
+        React.createElement(App, {
+          client: alpha, terminalDimensions: { columns: 180, rows: 51 },
+        }),
+        { width: 180, height: 51 },
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const earth = getMap("earth-42")!;
+      const variant = selectRenderVariant(earth, { width: 135, height: 36 }).grid;
+      const bounds = getGeographyBoundingBox(variant);
+      const raster = findRaster(setup.renderer.root, bounds.width, bounds.height);
+      if (!raster) throw new Error("Could not find the rendered Earth raster");
+      const ownRender = variant.territories.find(candidate => candidate.id === territory.id)!;
+      const enemyRender = variant.territories.find(candidate => candidate.id === adjacentEnemy.id)!;
+      const screenPoint = (candidate: typeof ownRender) => ({
+        x: raster.screenX + candidate.labelPos.x - bounds.minX,
+        y: raster.screenY + candidate.labelPos.y - bounds.minY,
+      });
+      // This reproduces the reported deployment interaction before pressing D.
+      await act(async () => { await setup.mockMouse.click(screenPoint(enemyRender).x, screenPoint(enemyRender).y); });
+      await act(async () => { await setup.mockMouse.click(screenPoint(ownRender).x, screenPoint(ownRender).y); });
+      let deployed: typeof initial | undefined;
+      await act(async () => {
+        setup.mockInput.pressKey("d");
+        deployed = await alpha.waitForSnapshot(state =>
+          state.phase === "attack" && Boolean(state.territories[territory.id]?.units === unitsBefore + reinforcements),
+        );
+        await setup.renderOnce();
+      });
+      if (!deployed) throw new Error("D did not produce an authoritative Earth deployment snapshot");
+      expect(deployed.pendingReinforcements).toBe(0);
+      expect(server.roomManager.getRoom(deployed.roomCode)?.state.territories[territory.id]?.units)
+        .toBe(unitsBefore + reinforcements);
+    } finally {
+      if (setup && reactAct) await reactAct(async () => { setup.renderer.destroy(); });
+      alpha.disconnect();
+      bravo.disconnect();
+      server.stop();
+    }
+  });
 });
