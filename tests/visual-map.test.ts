@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   MAP_GRID_IRONREACH_COMPACT,
   MAP_GRID_IRONREACH_WIDE,
+  getMapContentDimensionsForTerminal,
+  getMicroTerritoryAt,
 } from "../packages/map-engine/src/index.js";
 import { getMapRenderLayout, getTerrainTextureMark } from "../apps/client/src/ui/MapCanvas.js";
 
@@ -20,13 +22,14 @@ describe("visual map: rendered geography occupancy", () => {
   });
 
   it("uses land bounds rather than ocean decorations for both pane variants", () => {
-    // These are the actual inner-pane dimensions observed at the standard and
-    // wide breakpoints. MapCanvas crops its raster to land, so routes and chart
-    // decoration cannot make this measurement look healthier than it is.
-    const standardPane = { width: 102, height: 30 };
-    // 132 is the current authored wide land width. A 131-column pane selects
-    // compact upstream, so wide occupancy must never be tested while clipped.
-    const widePane = { width: 132, height: 36 };
+    // These are the World Map pane dimensions supplied by App's shared layout
+    // contract at the requested terminal sizes: 140×45 standard and 200×55
+    // wide. MapCanvas crops to land, so chart decorations cannot affect this
+    // measurement.
+    const standardPane = getMapContentDimensionsForTerminal(140, 45);
+    const widePane = getMapContentDimensionsForTerminal(200, 55);
+    expect(standardPane).toEqual({ width: 99, height: 34 });
+    expect(widePane).toEqual({ width: 149, height: 41 });
     const standard = getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT, standardPane);
     const wide = getMapRenderLayout(MAP_GRID_IRONREACH_WIDE, widePane);
     expect(wide.width).toBe(wide.land.width);
@@ -38,8 +41,8 @@ describe("visual map: rendered geography occupancy", () => {
     expect(standard.landWidthRatio).toBeGreaterThanOrEqual(0.75);
     expect(standard.landHeightRatio).toBeGreaterThanOrEqual(0.70);
 
-    // At a realistic wide terminal the wide raster is materially larger than
-    // the standard raster in both rendered axes.
+    // At the actual App pane sizes, the wide raster is materially larger than
+    // the standard raster in both rendered axes and fits without clipping.
     expect(wide.land.width).toBeGreaterThan(standard.land.width);
     expect(wide.land.height).toBeGreaterThan(standard.land.height);
   });
@@ -54,8 +57,8 @@ describe("visual map: rendered geography occupancy", () => {
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
 
     for (const [viewport, pane, map] of [
-      ["compact", { width: 102, height: 30 }, MAP_GRID_IRONREACH_COMPACT],
-      ["wide", { width: 132, height: 36 }, MAP_GRID_IRONREACH_WIDE],
+      ["compact", getMapContentDimensionsForTerminal(140, 45), MAP_GRID_IRONREACH_COMPACT],
+      ["wide", getMapContentDimensionsForTerminal(200, 55), MAP_GRID_IRONREACH_WIDE],
     ] as const) {
       const layout = getMapRenderLayout(map);
       const setup = await testRender(
@@ -134,7 +137,7 @@ describe("visual map: rendered geography occupancy", () => {
     await act(async () => { setup.renderer.destroy(); });
   });
 
-  it("renders terrain grain in ordinary land while preserving a selected solid field", async () => {
+  it("renders terrain grain in ordinary land while keeping selected and target interiors solid", async () => {
     // @ts-ignore runtime-only OpenTUI modules
     const React = (await import("../apps/client/node_modules/react/index.js")).default;
     // @ts-ignore
@@ -142,23 +145,64 @@ describe("visual map: rendered geography occupancy", () => {
     // @ts-ignore
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
-    const setup = await testRender(React.createElement(MapCanvas, {
+    const renderInteractionFrame = async (selectedTerritoryId: string | null, targetTerritoryId: string | null) => {
+      const setup = await testRender(React.createElement(MapCanvas, {
       viewport: "wide",
       territories: {
         C2: { id: "C2", ownerId: "p1", units: 3 },
-        B2: { id: "B2", ownerId: "p1", units: 3 },
+        B3: { id: "B3", ownerId: "p1", units: 3 },
       },
       players: [{ id: "p1", name: "Alex", colorHex: "#00d2ff", connected: true, isAlive: true, ready: true }],
-      myPlayerId: "p1", phase: "deployment", selectedTerritoryId: "C2", targetTerritoryId: null,
+      myPlayerId: "p1", phase: "deployment", selectedTerritoryId, targetTerritoryId,
       onSelectTerritory: () => {}, onSelectTarget: () => {}, onDeselect: () => {},
-    }), { width: 160, height: 40 });
-    await act(async () => { await setup.renderOnce(); });
-    const frame = setup.captureCharFrame();
+      }), { width: 160, height: 40 });
+      await act(async () => { await setup.renderOnce(); });
+      const frame = setup.captureCharFrame();
+      await act(async () => { setup.renderer.destroy(); });
+      return frame;
+    };
+
+    const selectedFrame = await renderInteractionFrame("C2", null);
+    const targetFrame = await renderInteractionFrame(null, "B3");
+    const frame = selectedFrame;
     expect(frame).toContain("░");
     expect(frame).toContain("·");
-    // The selected territory itself remains a crisp solid cyan field.
-    const c2Line = frame.split("\n").find((line: string) => line.includes("C2"));
-    expect(c2Line).toBeDefined();
-    await act(async () => { setup.renderer.destroy(); });
+
+    const assertSolidInterior = (territoryId: string, renderedFrame: string) => {
+      const layout = getMapRenderLayout(MAP_GRID_IRONREACH_WIDE);
+      const rows = renderedFrame.split("\n");
+      const interiorCells: Array<{ x: number; y: number }> = [];
+      for (let y = layout.sourceY; y <= layout.land.maxY; y++) {
+        for (let x = layout.sourceX; x <= layout.land.maxX; x++) {
+          const microY = 2 * y;
+          if (
+            getMicroTerritoryAt(x, microY, MAP_GRID_IRONREACH_WIDE) === territoryId &&
+            getMicroTerritoryAt(x, microY + 1, MAP_GRID_IRONREACH_WIDE) === territoryId &&
+            getMicroTerritoryAt(x - 1, microY, MAP_GRID_IRONREACH_WIDE) === territoryId &&
+            getMicroTerritoryAt(x + 1, microY, MAP_GRID_IRONREACH_WIDE) === territoryId &&
+            getMicroTerritoryAt(x, microY - 1, MAP_GRID_IRONREACH_WIDE) === territoryId &&
+            getMicroTerritoryAt(x, microY + 2, MAP_GRID_IRONREACH_WIDE) === territoryId
+          ) {
+            interiorCells.push({ x, y });
+          }
+        }
+      }
+      const terrainMarkCells = interiorCells.filter(({ x, y }) =>
+        getTerrainTextureMark(territoryId, x, 2 * y) !== ""
+      );
+      // This samples the exact cells that would paint terrain grain in an
+      // ordinary territory, while avoiding punctuation from its text label.
+      expect(terrainMarkCells.length).toBeGreaterThan(0);
+      for (const { x, y } of terrainMarkCells) {
+        // testRender wraps a direct component in its one-cell test border.
+        const char = rows[y - layout.sourceY + 1]?.[x - layout.sourceX + 1];
+        expect(char, `${territoryId} terrain-mark cell at ${x},${y}`).not.toBe(
+          getTerrainTextureMark(territoryId, x, 2 * y)
+        );
+      }
+    };
+
+    assertSolidInterior("C2", selectedFrame);
+    assertSolidInterior("B3", targetFrame);
   });
 });

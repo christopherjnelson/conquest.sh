@@ -1,23 +1,27 @@
 # Visual parity review
 
-This is a direct, side-by-side visual review of [ref.png](ref.png) against the five final **actual xterm-client** captures. It reviews composition, legibility, and terminal presentation at the captured states; it does not claim a pixel match or evaluate game rules, networking, or protocol behavior.
+This is a direct, side-by-side visual review of [ref.png](ref.png) against five required final **actual xterm-client** captures plus a supplementary four-player capture. It reviews composition, legibility, and terminal presentation at the captured states; it does not claim a pixel match or evaluate game rules, networking, or protocol behavior.
 
 ## Capture coverage
 
 | Capture | State | Terminal size | Rendered occupancy |
 | --- | --- | --- | --- |
-| [visual_wide_lobby.png](visual_wide_lobby.png) | One-player lobby | 200 x 55 | 132/132 width, 36/36 height |
-| [visual_standard_lobby.png](visual_standard_lobby.png) | One-player lobby | 140 x 45 | 96/102 width, 30/30 height |
-| [visual_wide_active.png](visual_wide_active.png) | Two-player deployment | 200 x 55 | 132/132 width, 36/36 height |
-| [visual_standard_active.png](visual_standard_active.png) | Two-player deployment | 140 x 45 | 96/102 width, 30/30 height |
-| [visual_selected_territory.png](visual_selected_territory.png) | Standard active, real Tab selection | 140 x 45 | 96/102 width, 30/30 height |
-| [visual_four_player_active.png](visual_four_player_active.png) | Custom four-player deployment | 200 x 55 | 132/132 width, 36/36 height |
+| [visual_wide_lobby.png](visual_wide_lobby.png) | One-player lobby | 200 x 55 | land 132/149 width, 36/41 height |
+| [visual_standard_lobby.png](visual_standard_lobby.png) | One-player lobby | 140 x 45 | land 97/99 width, 30/34 height |
+| [visual_wide_active.png](visual_wide_active.png) | Two-player deployment | 200 x 55 | land 132/149 width, 36/41 height |
+| [visual_standard_active.png](visual_standard_active.png) | Two-player deployment | 140 x 45 | land 97/99 width, 30/34 height |
+| [visual_selected_territory.png](visual_selected_territory.png) | Standard active, real Tab selection | 140 x 45 | land 97/99 width, 30/34 height |
+| [visual_four_player_active.png](visual_four_player_active.png) | Custom four-player deployment | 200 x 55 | land 132/149 width, 36/41 height |
+
+## Chat-open evidence
+
+The actual-client chat-open frames show the fixed map pane and a visible `Chat:` input at both target viewports: [visual_standard_chat_open.png](visual_standard_chat_open.png) at 140 x 45 and [visual_wide_chat_open.png](visual_wide_chat_open.png) at 200 x 55. In each frame, the map raster remains within its border while the chat input occupies the added log row.
 
 ## Findings
 
 ### map scale — PASS
 
-The final map uses the available map pane decisively at both terminal sizes and keeps the legend inside the geography. The revised wide macro now carries the central and eastern territory mass across the map while preserving readable labels and the scale legend (`visual_wide_active.png`); standard remains fully occupied within its 96/102-cell render width.
+The final map uses the available map pane decisively at both terminal sizes and keeps the legend inside the geography. The revised wide macro now carries the central and eastern territory mass across the map while preserving readable labels and the scale legend (`visual_wide_active.png`); standard land occupies 97 of the rendered App pane's 99 columns.
 
 ### landmass silhouette — PASS
 
@@ -53,4 +57,4 @@ The two-player active frames clearly distinguish cyan and amber ownership (`visu
 
 ## Verification gate
 
-The reported full gate is **160 tests passing** with **typecheck passing**. The captures above were taken from actual xterm clients, with clean isolated lobby/active sessions; no `testRender` images were used.
+The reported full gate is **163 tests passing** with **typecheck passing**. The captures above were taken from actual xterm clients, with clean isolated lobby/active sessions; no `testRender` images were used.

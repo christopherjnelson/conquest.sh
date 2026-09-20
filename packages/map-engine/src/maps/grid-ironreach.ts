@@ -939,19 +939,27 @@ export const MAP_GRID_IRONREACH_WIDE: GridMapDefinition = {
 
 /**
  * Calculates the available content width and height inside the World Map pane
- * from the total terminal dimensions, taking into account layout chrome
- * (wide Header: 5 rows, EventLog: 6 rows, Footer: 3 rows, plus pane borders
- * and row gaps; tactical width remains the 75% flex column).
+ * from the total terminal dimensions. These calculations mirror App's flex
+ * ratios and fixed chrome: standard uses a 5:2 tactical split, while wide
+ * uses 3:1. The map raster is painted directly in that pane, so pane borders
+ * are not deducted here.
  */
 export function getMapContentDimensionsForTerminal(
   terminalCols: number,
   terminalRows: number
 ): { width: number; height: number } {
-  const paneWidth = Math.floor(Math.max(0, terminalCols - 1) * 0.75);
-  const paneHeight = Math.max(0, terminalRows - 17);
+  const isCompact = terminalCols < 130 || terminalRows < 38;
+  const isWide = !isCompact && terminalCols >= 180 && terminalRows >= 50;
+  const tacticalWidth = Math.max(0, terminalCols - 1); // one column row gap
+  const paneWidth = isCompact
+    ? terminalCols
+    : Math.floor(tacticalWidth * (isWide ? 3 / 4 : 5 / 7));
+  // Header, EventLog, and Footer consume 14 rows in wide mode and 11 in
+  // standard mode. Compact supplies its own full-width map viewport.
+  const paneHeight = Math.max(0, terminalRows - (isCompact ? 0 : isWide ? 14 : 11));
   return {
-    width: Math.max(0, paneWidth - 2),
-    height: Math.max(0, paneHeight - 2),
+    width: paneWidth,
+    height: paneHeight,
   };
 }
 
@@ -998,6 +1006,12 @@ export function getMapForTerminalDimensions(
   terminalCols: number,
   terminalRows: number
 ): GridMapDefinition {
+  // App forces its compact viewport at these responsive breakpoints. Keep
+  // keyboard navigation and direct callers on that same map even when the
+  // raw terminal rectangle happens to contain the wide land crop.
+  if (terminalCols < 130 || terminalRows < 38) {
+    return MAP_GRID_IRONREACH_COMPACT;
+  }
   const { width, height } = getMapContentDimensionsForTerminal(terminalCols, terminalRows);
   return getMapForDimensions(width, height);
 }

@@ -6,8 +6,14 @@ import { act } from "../apps/client/node_modules/react/index.js";
 // @ts-ignore Test renderer is intentionally imported from the client workspace.
 import { testRender } from "../apps/client/node_modules/@opentui/react/test-utils.js";
 import { createInitialGameState } from "../packages/game-core/src/index.js";
-import { MAP_GRID_IRONREACH, getLayoutMode } from "../packages/map-engine/src/index.js";
-import type { Player } from "../packages/protocol/src/index.js";
+import {
+  MAP_GRID_IRONREACH,
+  MAP_GRID_IRONREACH_COMPACT,
+  MAP_GRID_IRONREACH_WIDE,
+  getLayoutMode,
+} from "../packages/map-engine/src/index.js";
+import { getMapRenderLayout } from "../apps/client/src/ui/MapCanvas.js";
+import type { GameEvent, Player } from "../packages/protocol/src/index.js";
 import { EventLog } from "../apps/client/src/ui/EventLog.js";
 import { Sidebar } from "../apps/client/src/ui/Sidebar.js";
 import { App } from "../apps/client/src/ui/App.js";
@@ -51,6 +57,15 @@ function activeClient() {
     onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {}, onError: () => () => {},
     sendChat: () => {}, deploy: () => {}, attack: () => {}, fortify: () => {}, skipPhase: () => {}, endTurn: () => {}, ready: () => {},
   } as any;
+}
+
+function findNodeWithSize(node: any, width: number, height: number): any | null {
+  if (node?.width === width && node?.height === height) return node;
+  for (const child of node?.getChildren?.() ?? []) {
+    const found = findNodeWithSize(child, width, height);
+    if (found) return found;
+  }
+  return null;
 }
 
 describe("visual sidebar composition", () => {
@@ -128,6 +143,83 @@ describe("visual sidebar composition", () => {
       await act(async () => { setup.renderer.destroy(); });
     }
   });
+
+  it("renders sender names once and intact in every sender-bearing chronicle event", async () => {
+    const events: Array<{ event: GameEvent; expected: string }> = [
+      { event: { type: "units_deployed", playerId: "p1", territoryId: "B2", count: 3, remainingReinforcements: 2, timestamp: 1 }, expected: "Commander Alexandria reinforced The Marches" },
+      { event: { type: "attack_resolved", attackerId: "p1", defenderId: "p2", sourceTerritoryId: "B2", targetTerritoryId: "B1", attackerRolls: [6], defenderRolls: [1], attackerLosses: 0, defenderLosses: 1, conquered: true, unitsMoved: 2, timestamp: 2 }, expected: "Commander Alexandria captured Sunken Pass from Blair!" },
+      { event: { type: "units_fortified", playerId: "p1", sourceTerritoryId: "B2", targetTerritoryId: "B1", units: 2, timestamp: 3 }, expected: "Commander Alexandria fortified 2 armies to Sunken Pass" },
+      { event: { type: "player_eliminated", playerId: "p1", eliminatedBy: "p2", timestamp: 4 }, expected: "Commander Alexandria has fallen in battle!" },
+      { event: { type: "chat_message", senderId: "p1", senderName: "Commander Alexandria", channel: "game", text: "The line holds.", timestamp: 5 }, expected: "Commander Alexandria: \"The line holds.\"" },
+    ];
+
+    for (const { event, expected } of events) {
+      const setup = await testRender(
+        React.createElement(EventLog, {
+          events: [event], chatOpen: false, players, onToggleChat: () => {}, onSendChat: () => {}, layoutMode: "wide",
+        }),
+        { width: 120, height: 10 }
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const frame = setup.captureCharFrame();
+      const occurrences = frame.split("Commander Alexandria").length - 1;
+      expect(occurrences).toBe(1);
+      expect(frame).toContain(expected);
+      await act(async () => { setup.renderer.destroy(); });
+    }
+  });
+
+  for (const [columns, rows] of [[140, 45], [200, 55]] as const) {
+    it(`opens chat in the actual ${columns}x${rows} App without stealing map rows`, async () => {
+      const map = columns === 140 ? MAP_GRID_IRONREACH_COMPACT : MAP_GRID_IRONREACH_WIDE;
+      const raster = getMapRenderLayout(map);
+      expect(raster.height).toBe(columns === 140 ? 30 : 36);
+      const setup = await testRender(
+        React.createElement(App, { client: activeClient(), terminalDimensions: { columns, rows } }),
+        { width: columns, height: rows }
+      );
+      await act(async () => { await setup.renderOnce(); });
+      // Every test renderer has one parser listener. Wait for App's
+      // useKeyboard effect to register its second listener before dispatching
+      // the shortcut; React can defer that effect during a full-suite run.
+      await setup.waitFor(() => (setup.renderer.keyInput as any).listenerCount("keypress") >= 2);
+      const closedFrame = setup.captureCharFrame();
+      const closedLogLine = closedFrame.split("\n").findIndex((line: string) => line.includes("! EVENT LOG / CHAT"));
+      expect(closedLogLine).toBeGreaterThan(0);
+      const closedRaster = findNodeWithSize(setup.renderer.root, raster.width, raster.height);
+      expect(closedRaster).not.toBeNull();
+      // The raster's bordered World Map parent provides the real App pane,
+      // rather than a synthetic test rectangle. Two rows/columns are border.
+      expect(closedRaster.parent.width - 2).toBeGreaterThanOrEqual(raster.width);
+      expect(closedRaster.parent.height - 2).toBeGreaterThanOrEqual(raster.height);
+      const closedPane = { width: closedRaster.parent.width, height: closedRaster.parent.height };
+
+      await act(async () => {
+        // Exercise App's registered useKeyboard callback directly. Mock raw
+        // input is global across OpenTUI test renderers and flakes when the
+        // full suite has several renderer lifecycles in flight.
+        (setup.renderer.keyInput as any).emit("keypress", { name: "c" });
+        await setup.renderOnce();
+      });
+      const openFrame = await setup.waitForFrame((frame: string) => frame.includes("Chat:"));
+      const openLines = openFrame.split("\n");
+      const openLogLine = openLines.findIndex((line: string) => line.includes("! EVENT LOG / CHAT"));
+      expect(openFrame).toContain("Chat:");
+      expect(openFrame).toContain("WORLD MAP");
+      const openRaster = findNodeWithSize(setup.renderer.root, raster.width, raster.height);
+      expect(openRaster).not.toBeNull();
+      expect(openRaster.parent.width - 2).toBeGreaterThanOrEqual(raster.width);
+      expect(openRaster.parent.height - 2).toBeGreaterThanOrEqual(raster.height);
+      expect({ width: openRaster.parent.width, height: openRaster.parent.height }).toEqual(closedPane);
+      // The EventLog keeps its outer height, so its top edge and the map pane
+      // immediately above it remain fixed when the input is focused.
+      expect(openLogLine).toBe(closedLogLine);
+      // captureCharFrame terminates with one final newline.
+      expect(openLines).toHaveLength(rows + 1);
+      expect(openLines.slice(0, openLogLine).some((line: string) => line.includes("B2") || line.includes("THE MARCHES"))).toBe(true);
+      await act(async () => { setup.renderer.destroy(); });
+    });
+  }
 
   for (const [columns, rows] of [[140, 45], [200, 55]] as const) {
     it(`keeps the actual ${columns}x${rows} App lobby inspector compact`, async () => {

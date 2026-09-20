@@ -517,14 +517,25 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
     // Wide-but-short returns compact to prevent vertical overflow
     expect(getMapForDimensions(200, 30)).toBe(MAP_GRID_IRONREACH_COMPACT);
 
-    // Breakpoint tests via getMapForTerminalDimensions
-    // 180–185x55 panes fit the 132-column rendered wide geography.
-    expect(getMapForTerminalDimensions(180, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
+    // Terminal content dimensions mirror App's actual tactical pane rather
+    // than treating every layout as a 75% split.
+    expect(getMapContentDimensionsForTerminal(140, 45)).toEqual({ width: 99, height: 34 });
+    expect(getMapContentDimensionsForTerminal(180, 50)).toEqual({ width: 134, height: 36 });
+    expect(getMapContentDimensionsForTerminal(200, 55)).toEqual({ width: 149, height: 41 });
+
+    // Exact wide boundary: its 132x36 land crop fits at 180x50, while either
+    // preceding terminal dimension remains in the standard pane and selects compact.
+    expect(getMapForTerminalDimensions(179, 50)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    expect(getMapForTerminalDimensions(180, 49)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    expect(getMapForTerminalDimensions(180, 50)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(184, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(185, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(200, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
-    // 200x30: wide cols but short rows -> paneHeight = 13 -> contentHeight = 11 < 36 -> compact
+    // 200x30 remains compact because the terminal is below the layout minimum.
     expect(getMapForTerminalDimensions(200, 30)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    // The compact responsive viewport is authoritative even if a short,
+    // wide terminal's raw rectangle could otherwise hold wide geography.
+    expect(getMapForTerminalDimensions(200, 37)).toBe(MAP_GRID_IRONREACH_COMPACT);
   });
 
   it("evaluates getLayoutMode with canonical thresholds for compact, standard, and wide", () => {
@@ -541,7 +552,8 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
     expect(getLayoutMode(179, 45)).toBe("standard");
     expect(getLayoutMode(185, 45)).toBe("standard");
 
-    // Wide: cols >= 180 and rows >= 50
+    // Wide: cols >= 180 and rows >= 50. The same boundary now has a
+    // 134x36 App map pane, which fits the 132x36 wide land raster.
     expect(getLayoutMode(180, 50)).toBe("wide");
     expect(getLayoutMode(200, 55)).toBe("wide");
     expect(getLayoutMode(240, 60)).toBe("wide");

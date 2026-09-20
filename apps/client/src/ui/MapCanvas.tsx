@@ -778,7 +778,10 @@ export function MapCanvas({
             const terrainColor = isLobby || !hasOwner
               ? (territory?.regionColor ?? "#64748b")
               : ownerColor;
-            const mark = tid && !isHovered
+            // Tactical fills must stay genuinely solid throughout their
+            // interiors. A textured selected or target field makes a sparse
+            // terrain mark look like a state indicator at terminal scale.
+            const mark = tid && !isHovered && !isSelected && !isTarget
               ? getTerrainTextureMark(tid, x, 2 * y)
               : "";
             cell = {

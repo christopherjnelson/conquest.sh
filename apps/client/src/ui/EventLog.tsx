@@ -23,6 +23,22 @@ export interface FormattedEventItem {
   category: "Game" | "Chat" | "System";
 }
 
+/**
+ * Separates the first real occurrence of a sender name from an event message.
+ * Event copy has prefixes (icons, battle locations, etc.), so sender text is
+ * not reliably at offset zero.
+ */
+export function splitEventSender(text: string, senderName?: string) {
+  if (!senderName) return { before: text, sender: "", after: "" };
+  const senderAt = text.indexOf(senderName);
+  if (senderAt < 0) return { before: text, sender: "", after: "" };
+  return {
+    before: text.slice(0, senderAt),
+    sender: senderName,
+    after: text.slice(senderAt + senderName.length),
+  };
+}
+
 
 
 /**
@@ -209,7 +225,10 @@ export function EventLog({
 
   // An empty chronicle is intentionally short so the tactical map keeps the spare rows.
   const baseLogHeight = layoutMode === "compact" ? 4 : layoutMode === "standard" ? 5 : 6;
-  const logHeight = chatOpen ? baseLogHeight + 4 : baseLogHeight;
+  // The main tactical area owns all spare terminal rows. Chat borrows a row
+  // from the existing chronicle content instead of growing the outer panel and
+  // squeezing the map underneath it.
+  const logHeight = baseLogHeight;
   const sliceCount = layoutMode === "compact" ? 1 : layoutMode === "standard" ? 2 : 3;
   const displayedItems = filteredItems.slice(-sliceCount);
 
@@ -262,21 +281,25 @@ export function EventLog({
       {/* Event list with scrollbar on the right */}
       <box flexDirection="row" justifyContent="space-between" flexGrow={1}>
         <box flexDirection="column" gap={0} flexGrow={1}>
-          {displayedItems.map((item, idx) => (
-            <box key={idx} flexDirection="row" gap={1}>
-              <text fg="#64748b">[{item.timestamp}]</text>
-              <text fg={item.color}>
-                {item.senderName && item.senderColor ? (
-                  <>
-                    <span fg={item.senderColor}><b>{item.senderName}</b></span>
-                    <span fg="#e2e8f0">{item.text.slice(item.senderName.length)}</span>
-                  </>
-                ) : (
-                  <span>{item.text}</span>
-                )}
-              </text>
-            </box>
-          ))}
+          {displayedItems.map((item, idx) => {
+            const sender = splitEventSender(item.text, item.senderName);
+            return (
+              <box key={idx} flexDirection="row" gap={1}>
+                <text fg="#64748b">[{item.timestamp}]</text>
+                <text fg={item.color}>
+                  {sender.sender && item.senderColor ? (
+                    <>
+                      <span>{sender.before}</span>
+                      <span fg={item.senderColor}><b>{sender.sender}</b></span>
+                      <span fg="#e2e8f0">{sender.after}</span>
+                    </>
+                  ) : (
+                    <span>{item.text}</span>
+                  )}
+                </text>
+              </box>
+            );
+          })}
           {events.length === 0 ? (
             <text fg="#64748b">
               <i>No events yet.</i>
@@ -300,16 +323,12 @@ export function EventLog({
       {/* Chat Input Field if open */}
       {chatOpen && (
         <box
-          border
-          borderStyle="single"
-          borderColor="#00ffff"
           backgroundColor="#0c2b3d"
-          height={3}
           paddingLeft={1}
           paddingRight={1}
-          marginTop={1}
           alignItems="center"
           flexDirection="row"
+          style={{ height: 1, flexShrink: 0 }}
         >
           <text fg="#00ffff">
             <b>Chat: </b>

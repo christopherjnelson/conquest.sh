@@ -1149,6 +1149,21 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     // In a 140 width terminal, EventLog title/border line spans across the screen
     expect(eventLogLine!.length).toBeGreaterThanOrEqual(130);
 
+    // Measure the raster against the pane App actually laid out. The map's
+    // land crop deliberately excludes ocean decorations from this occupancy.
+    const rootNode = setupTyp.renderer.root;
+    const appContainer = rootNode.getChildren?.()[0]?.getChildren?.().length === 4
+      ? rootNode.getChildren()[0]
+      : rootNode;
+    const [leftCol] = appContainer.getChildren()[1].getChildren();
+    const compactRaster = renderedMapBounds(MAP_GRID_IRONREACH_COMPACT);
+    expect(leftCol.width).toBe(99);
+    expect(leftCol.height).toBe(34);
+    expect(compactRaster.width).toBeLessThanOrEqual(leftCol.width);
+    expect(compactRaster.height).toBeLessThanOrEqual(leftCol.height);
+    expect(compactRaster.width / leftCol.width).toBeGreaterThanOrEqual(0.75);
+    expect(compactRaster.height / leftCol.height).toBeGreaterThanOrEqual(0.70);
+
     await act(async () => {
       setupTyp.renderer.destroy();
     });
@@ -1231,6 +1246,15 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     expect(innerMap.width).toBeGreaterThan(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
     expect(innerMap.height).toBe(wideRaster.height);
 
+    // Use the rendered App pane, not a synthetic terminal-sized rectangle.
+    // `wideRaster` is land-only, so decorations cannot inflate occupancy.
+    expect(leftCol.width).toBe(149);
+    expect(leftCol.height).toBe(41);
+    expect(wideRaster.width).toBeLessThanOrEqual(leftCol.width);
+    expect(wideRaster.height).toBeLessThanOrEqual(leftCol.height);
+    expect(wideRaster.width / leftCol.width).toBeGreaterThanOrEqual(0.78);
+    expect(wideRaster.height / leftCol.height).toBeGreaterThanOrEqual(0.72);
+
     // 3. Bounding box usage on wide map: width ratio >= 0.80 and height ratio >= 0.75
     const bbox = getGeographyBoundingBox(MAP_GRID_IRONREACH_WIDE);
     expect(bbox.width / MAP_GRID_IRONREACH_WIDE.width).toBeGreaterThanOrEqual(0.80);
@@ -1289,8 +1313,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
 
     const innerMap = findInnerMap(leftCol);
     expect(innerMap).not.toBeNull();
-    // In a short terminal (30 rows), available content height is (30 - 17 - 2) = 11 < 36
-    // So canonical decision chooses COMPACT map (104x30) rather than overflowing 36-row wide map
+    // The compact viewport is selected below the supported responsive height,
+    // so the wide 36-row raster cannot be chosen.
     expect(innerMap.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
     expect(innerMap.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
     // Raster width strictly fits inside leftCol width
@@ -1319,7 +1343,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     const [leftCol35] = app35.getChildren()[1].getChildren();
     const innerMap35 = findInnerMap(leftCol35);
     expect(innerMap35).not.toBeNull();
-    // Content height at 35 rows is (35 - 17 - 2) = 16 < 36 -> Compact map
+    // At 35 rows the compact responsive viewport remains in effect.
     expect(innerMap35.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
     expect(innerMap35.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
     expect(innerMap35.width).toBeLessThanOrEqual(leftCol35.width);
@@ -1349,7 +1373,60 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       return null;
     }
 
-    // 1. 184x55: the 132-column wide land crop fits the 135-column content pane.
+    // The responsive mode boundary and map selection share the App pane
+    // geometry. At 179x50 standard's 5:2 pane is only 127 columns, while
+    // 180x50 wide's 3:1 pane is 134x37 and fits the 132x36 land raster.
+    const setup179 = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 179, rows: 50 },
+      }),
+      { width: 179, height: 50 }
+    );
+    await act(async () => {
+      await setup179.renderOnce();
+    });
+    const root179 = setup179.renderer.root;
+    const appContainer179 = root179.getChildren?.()[0]?.getChildren?.().length === 4
+      ? root179.getChildren()[0]
+      : root179;
+    const [leftCol179] = appContainer179.getChildren()[1].getChildren();
+    const innerMap179 = findInnerMap(leftCol179);
+    expect(leftCol179.width).toBe(127);
+    expect(leftCol179.height).toBe(39);
+    expect(innerMap179.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
+    expect(innerMap179.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
+    await act(async () => {
+      setup179.renderer.destroy();
+    });
+
+    const setup180 = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 180, rows: 50 },
+      }),
+      { width: 180, height: 50 }
+    );
+    await act(async () => {
+      await setup180.renderOnce();
+    });
+    const root180 = setup180.renderer.root;
+    const appContainer180 = root180.getChildren?.()[0]?.getChildren?.().length === 4
+      ? root180.getChildren()[0]
+      : root180;
+    const [leftCol180] = appContainer180.getChildren()[1].getChildren();
+    const innerMap180 = findInnerMap(leftCol180);
+    expect(leftCol180.width).toBe(134);
+    expect(leftCol180.height).toBe(37);
+    expect(innerMap180.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
+    expect(innerMap180.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
+    expect(innerMap180.width).toBeLessThanOrEqual(leftCol180.width);
+    expect(innerMap180.height).toBeLessThanOrEqual(leftCol180.height);
+    await act(async () => {
+      setup180.renderer.destroy();
+    });
+
+    // 1. 184x55: the 132-column wide land crop fits the App's wide map pane.
     const setup184 = await testRender(
       React.createElement(App, {
         client: mockClient,
