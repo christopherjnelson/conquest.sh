@@ -941,25 +941,29 @@ export const MAP_GRID_IRONREACH_WIDE: GridMapDefinition = {
  * Calculates the available content width and height inside the World Map pane
  * from the total terminal dimensions. These calculations mirror App's flex
  * ratios and fixed chrome: standard uses a 5:2 tactical split, while wide
- * uses 3:1. The map raster is painted directly in that pane, so pane borders
- * are not deducted here.
+ * uses 3:1. The returned dimensions are the bordered pane's interior, where
+ * the raster is painted.
  */
 export function getMapContentDimensionsForTerminal(
   terminalCols: number,
   terminalRows: number
 ): { width: number; height: number } {
   const isCompact = terminalCols < 130 || terminalRows < 38;
-  const isWide = !isCompact && terminalCols >= 180 && terminalRows >= 50;
+  const isWide = !isCompact && terminalCols >= 180 && terminalRows >= 51;
   const tacticalWidth = Math.max(0, terminalCols - 1); // one column row gap
-  const paneWidth = isCompact
+  const outerPaneWidth = isCompact
     ? terminalCols
-    : Math.floor(tacticalWidth * (isWide ? 3 / 4 : 5 / 7));
-  // Header, EventLog, and Footer consume 14 rows in wide mode and 11 in
-  // standard mode. Compact supplies its own full-width map viewport.
-  const paneHeight = Math.max(0, terminalRows - (isCompact ? 0 : isWide ? 14 : 11));
+    : isWide
+    ? Math.floor(tacticalWidth * 3 / 4)
+    : Math.round(tacticalWidth * 5 / 7);
+  // The wide header is compressed to four rows at 51–54 terminal rows and
+  // reaches its five-row presentation at 55+. EventLog and Footer use six
+  // and three rows. The World Map border consumes one cell on each axis.
+  const chromeRows = isCompact ? 0 : isWide ? (terminalRows >= 55 ? 14 : 13) : 11;
+  const outerPaneHeight = Math.max(0, terminalRows - chromeRows);
   return {
-    width: paneWidth,
-    height: paneHeight,
+    width: Math.max(0, outerPaneWidth - 2),
+    height: Math.max(0, outerPaneHeight - 2),
   };
 }
 

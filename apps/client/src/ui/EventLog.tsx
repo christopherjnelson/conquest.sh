@@ -46,9 +46,11 @@ export function splitEventSender(text: string, senderName?: string) {
  */
 export function formatEvent(
   e: GameEvent,
-  players: Player[]
+  players: Player[],
+  historicalPlayerNames: ReadonlyMap<string, string> = new Map()
 ): { text: string; color: string } {
-  const getPlayerName = (id: string) => players.find((p) => p.id === id)?.name ?? id;
+  const getPlayerName = (id: string) =>
+    players.find((p) => p.id === id)?.name ?? historicalPlayerNames.get(id) ?? id;
   const getTerritoryName = (id: string) => {
     const norm = id.toLowerCase().replace(/[_\s-]+/g, "");
     const found =
@@ -171,6 +173,18 @@ function formatTimestamp(ts?: number): string {
   return `${h}:${m}`;
 }
 
+function getHistoricalPlayerNames(events: GameEvent[], players: Player[]): Map<string, string> {
+  // Snapshots omit departed players, while the chronicle retains their events.
+  // Player joins are therefore the durable name record for those entries.
+  const names = new Map<string, string>();
+  for (const event of events) {
+    if (event.type === "player_joined") names.set(event.player.id, event.player.name);
+  }
+  // A current snapshot is authoritative if a player rejoined with a new name.
+  for (const player of players) names.set(player.id, player.name);
+  return names;
+}
+
 export function EventLog({
   events,
   chatOpen,
@@ -180,11 +194,12 @@ export function EventLog({
   layoutMode,
 }: EventLogProps) {
   const [activeTab, setActiveTab] = useState<EventTab>("All");
+  const historicalPlayerNames = getHistoricalPlayerNames(events, players);
 
   const formattedItems: FormattedEventItem[] =
     events.length > 0
       ? events.map((e) => {
-          const { text, color } = formatEvent(e, players);
+          const { text, color } = formatEvent(e, players, historicalPlayerNames);
           const category = getEventCategory(e);
           let senderName: string | undefined;
           let senderColor: string | undefined;
@@ -194,12 +209,16 @@ export function EventLog({
             if (p) {
               senderName = p.name;
               senderColor = p.colorHex;
+            } else {
+              senderName = historicalPlayerNames.get(e.playerId);
             }
           } else if ("attackerId" in e && typeof e.attackerId === "string") {
             const p = players.find((p) => p.id === e.attackerId);
             if (p) {
               senderName = p.name;
               senderColor = p.colorHex;
+            } else {
+              senderName = historicalPlayerNames.get(e.attackerId);
             }
           } else if (e.type === "chat_message") {
             senderName = e.senderName;

@@ -519,15 +519,16 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
 
     // Terminal content dimensions mirror App's actual tactical pane rather
     // than treating every layout as a 75% split.
-    expect(getMapContentDimensionsForTerminal(140, 45)).toEqual({ width: 99, height: 34 });
-    expect(getMapContentDimensionsForTerminal(180, 50)).toEqual({ width: 134, height: 36 });
-    expect(getMapContentDimensionsForTerminal(200, 55)).toEqual({ width: 149, height: 41 });
+    expect(getMapContentDimensionsForTerminal(140, 45)).toEqual({ width: 97, height: 32 });
+    expect(getMapContentDimensionsForTerminal(180, 51)).toEqual({ width: 132, height: 36 });
+    expect(getMapContentDimensionsForTerminal(200, 55)).toEqual({ width: 147, height: 39 });
 
-    // Exact wide boundary: its 132x36 land crop fits at 180x50, while either
+    // Exact wide boundary: its 132x36 land crop fits at 180x51, while either
     // preceding terminal dimension remains in the standard pane and selects compact.
     expect(getMapForTerminalDimensions(179, 50)).toBe(MAP_GRID_IRONREACH_COMPACT);
     expect(getMapForTerminalDimensions(180, 49)).toBe(MAP_GRID_IRONREACH_COMPACT);
-    expect(getMapForTerminalDimensions(180, 50)).toBe(MAP_GRID_IRONREACH_WIDE);
+    expect(getMapForTerminalDimensions(180, 50)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    expect(getMapForTerminalDimensions(180, 51)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(184, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(185, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(200, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
@@ -552,9 +553,10 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
     expect(getLayoutMode(179, 45)).toBe("standard");
     expect(getLayoutMode(185, 45)).toBe("standard");
 
-    // Wide: cols >= 180 and rows >= 50. The same boundary now has a
-    // 134x36 App map pane, which fits the 132x36 wide land raster.
-    expect(getLayoutMode(180, 50)).toBe("wide");
+    // Wide: cols >= 180 and rows >= 51. At 180x50 the bordered map interior
+    // is only 132x35; 180x51 supplies the exact 132x36 wide land raster fit.
+    expect(getLayoutMode(180, 50)).toBe("standard");
+    expect(getLayoutMode(180, 51)).toBe("wide");
     expect(getLayoutMode(200, 55)).toBe("wide");
     expect(getLayoutMode(240, 60)).toBe("wide");
   });

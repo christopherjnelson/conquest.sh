@@ -4,14 +4,14 @@ This is a direct, side-by-side visual review of [ref.png](ref.png) against five 
 
 ## Capture coverage
 
-| Capture | State | Terminal size | Rendered occupancy |
+| Capture | State | Terminal size | Land / bordered World Map content |
 | --- | --- | --- | --- |
-| [visual_wide_lobby.png](visual_wide_lobby.png) | One-player lobby | 200 x 55 | land 132/149 width, 36/41 height |
-| [visual_standard_lobby.png](visual_standard_lobby.png) | One-player lobby | 140 x 45 | land 97/99 width, 30/34 height |
-| [visual_wide_active.png](visual_wide_active.png) | Two-player deployment | 200 x 55 | land 132/149 width, 36/41 height |
-| [visual_standard_active.png](visual_standard_active.png) | Two-player deployment | 140 x 45 | land 97/99 width, 30/34 height |
-| [visual_selected_territory.png](visual_selected_territory.png) | Standard active, real Tab selection | 140 x 45 | land 97/99 width, 30/34 height |
-| [visual_four_player_active.png](visual_four_player_active.png) | Custom four-player deployment | 200 x 55 | land 132/149 width, 36/41 height |
+| [visual_wide_lobby.png](visual_wide_lobby.png) | One-player lobby | 200 x 55 | land 132/147 width, 36/39 height |
+| [visual_standard_lobby.png](visual_standard_lobby.png) | One-player lobby | 140 x 45 | land 97/97 width, 30/32 height |
+| [visual_wide_active.png](visual_wide_active.png) | Two-player deployment | 200 x 55 | land 132/147 width, 36/39 height |
+| [visual_standard_active.png](visual_standard_active.png) | Two-player deployment | 140 x 45 | land 97/97 width, 30/32 height |
+| [visual_selected_territory.png](visual_selected_territory.png) | Standard active, real Tab selection | 140 x 45 | land 97/97 width, 30/32 height |
+| [visual_four_player_active.png](visual_four_player_active.png) | Custom four-player deployment | 200 x 55 | land 132/147 width, 36/39 height |
 
 ## Chat-open evidence
 
@@ -21,7 +21,7 @@ The actual-client chat-open frames show the fixed map pane and a visible `Chat:`
 
 ### map scale — PASS
 
-The final map uses the available map pane decisively at both terminal sizes and keeps the legend inside the geography. The revised wide macro now carries the central and eastern territory mass across the map while preserving readable labels and the scale legend (`visual_wide_active.png`); standard land occupies 97 of the rendered App pane's 99 columns.
+The final map uses the available bordered World Map content decisively at both terminal sizes and keeps the legend inside the geography. The revised wide macro now carries the central and eastern territory mass across the map while preserving readable labels and the scale legend (`visual_wide_active.png`); standard land occupies all 97 content columns.
 
 ### landmass silhouette — PASS
 

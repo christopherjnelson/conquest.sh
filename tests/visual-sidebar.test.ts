@@ -169,6 +169,35 @@ describe("visual sidebar composition", () => {
     }
   });
 
+  it("keeps departed players named throughout the historical chronicle", async () => {
+    const departedPlayer: Player = {
+      id: "usr_departed",
+      name: "Baroness Ilyra",
+      colorIndex: 2,
+      colorHex: "#9966ff",
+      connected: false,
+      isAlive: false,
+      ready: false,
+    };
+    const events: GameEvent[] = [
+      { type: "player_joined", player: departedPlayer, timestamp: 1 },
+      { type: "units_deployed", playerId: departedPlayer.id, territoryId: "B2", count: 3, remainingReinforcements: 2, timestamp: 2 },
+      { type: "player_left", playerId: departedPlayer.id, timestamp: 3 },
+    ];
+    const setup = await testRender(
+      React.createElement(EventLog, {
+        events, chatOpen: false, players: [players[0]], onToggleChat: () => {}, onSendChat: () => {}, layoutMode: "wide",
+      }),
+      { width: 120, height: 10 }
+    );
+    await act(async () => { await setup.renderOnce(); });
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Baroness Ilyra reinforced The Marches");
+    expect(frame).toContain("Lord Baroness Ilyra retreated from the council");
+    expect(frame).not.toContain("usr_departed");
+    await act(async () => { setup.renderer.destroy(); });
+  });
+
   for (const [columns, rows] of [[140, 45], [200, 55]] as const) {
     it(`opens chat in the actual ${columns}x${rows} App without stealing map rows`, async () => {
       const map = columns === 140 ? MAP_GRID_IRONREACH_COMPACT : MAP_GRID_IRONREACH_WIDE;

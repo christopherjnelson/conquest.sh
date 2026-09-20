@@ -413,7 +413,10 @@ export function Sidebar({
           flexDirection="column"
           paddingLeft={1}
           paddingRight={1}
-          flexGrow={1}
+          // Lobby has only the session facts below; allowing this card to grow
+          // makes its border consume the otherwise unused sidebar height.
+          flexGrow={isLobby ? 0 : 1}
+          style={isLobby ? { height: 9 } : undefined}
         >
           <box flexDirection="column" gap={0} marginTop={0}>
             <box flexDirection="row" justifyContent="space-between">

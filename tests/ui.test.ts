@@ -1265,6 +1265,46 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     });
   });
 
+  it("responsive layout: wide 200x55 lobby keeps session intel to its content height", async () => {
+    // @ts-ignore Test renderer is intentionally imported from the client workspace.
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore Test renderer is intentionally imported from the client workspace.
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore Test renderer is intentionally imported from the client workspace.
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+    const lobbyPlayer: Player = {
+      id: "p1", name: "Alice", colorIndex: 0, colorHex: "#00d2ff",
+      connected: true, isAlive: true, ready: true,
+    };
+    const lobbyPeer: Player = {
+      id: "p2", name: "Bob", colorIndex: 1, colorHex: "#ff4444",
+      connected: true, isAlive: true, ready: false,
+    };
+    const lobbyState = createInitialGameState(
+      "wide-lobby-session-intel", "LOBB", [lobbyPlayer, lobbyPeer], MAP_GRID_IRONREACH, 2
+    );
+    lobbyState.phase = "lobby";
+    const client = { ...mockClient, state: lobbyState, myPlayerId: lobbyPlayer.id, roomCode: "LOBB" };
+
+    const setup = await testRender(
+      React.createElement(App, { client, terminalDimensions: { columns: 200, rows: 55 } }),
+      { width: 200, height: 55 }
+    );
+    await act(async () => { await setup.renderOnce(); });
+
+    const lines = setup.captureCharFrame().split("\n");
+    const intelTop = lines.findIndex((line: string) => line.includes("! REALM & SESSION INTEL"));
+    expect(intelTop).toBeGreaterThanOrEqual(0);
+    // Seven content rows plus the card's top and bottom borders: this should
+    // stay a nine-row card rather than expanding to fill the sidebar.
+    expect(lines[intelTop + 8]).toContain("└");
+    expect(lines.slice(intelTop, intelTop + 9).join("\n")).toContain("Connection");
+    expect(lines.slice(intelTop, intelTop + 9).join("\n")).toContain("Total Armies");
+
+    await act(async () => { setup.renderer.destroy(); });
+  });
+
   it("regression: wide-but-short terminal (200x30) selects compact map and raster never exceeds pane bounds", async () => {
     // @ts-ignore
     const React = (await import("../apps/client/node_modules/react/index.js")).default;
@@ -1353,7 +1393,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     });
   });
 
-  it("regression: cropped wide geography fills 180–185 column panes without exceeding them", async () => {
+  it("regression: responsive geography changes at the 180x51 wide boundary and never exceeds its pane", async () => {
     // @ts-ignore
     const React = (await import("../apps/client/node_modules/react/index.js")).default;
     // @ts-ignore
@@ -1374,8 +1414,9 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     }
 
     // The responsive mode boundary and map selection share the App pane
-    // geometry. At 179x50 standard's 5:2 pane is only 127 columns, while
-    // 180x50 wide's 3:1 pane is 134x37 and fits the 132x36 land raster.
+    // geometry. 180x50 remains standard because its bordered map content is
+    // one row short of the wide 132x36 geography; 180x51 is the first wide
+    // terminal that gives the raster room to fit.
     const setup179 = await testRender(
       React.createElement(App, {
         client: mockClient,
@@ -1416,14 +1457,36 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       : root180;
     const [leftCol180] = appContainer180.getChildren()[1].getChildren();
     const innerMap180 = findInnerMap(leftCol180);
-    expect(leftCol180.width).toBe(134);
-    expect(leftCol180.height).toBe(37);
-    expect(innerMap180.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
-    expect(innerMap180.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
+    expect(innerMap180.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
+    expect(innerMap180.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
     expect(innerMap180.width).toBeLessThanOrEqual(leftCol180.width);
     expect(innerMap180.height).toBeLessThanOrEqual(leftCol180.height);
     await act(async () => {
       setup180.renderer.destroy();
+    });
+
+    const setup180wide = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 180, rows: 51 },
+      }),
+      { width: 180, height: 51 }
+    );
+    await act(async () => {
+      await setup180wide.renderOnce();
+    });
+    const root180wide = setup180wide.renderer.root;
+    const appContainer180wide = root180wide.getChildren?.()[0]?.getChildren?.().length === 4
+      ? root180wide.getChildren()[0]
+      : root180wide;
+    const [leftCol180wide] = appContainer180wide.getChildren()[1].getChildren();
+    const innerMap180wide = findInnerMap(leftCol180wide);
+    expect(innerMap180wide.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
+    expect(innerMap180wide.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
+    expect(innerMap180wide.width).toBeLessThanOrEqual(leftCol180wide.width);
+    expect(innerMap180wide.height).toBeLessThanOrEqual(leftCol180wide.height);
+    await act(async () => {
+      setup180wide.renderer.destroy();
     });
 
     // 1. 184x55: the 132-column wide land crop fits the App's wide map pane.

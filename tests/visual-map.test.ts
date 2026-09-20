@@ -28,8 +28,8 @@ describe("visual map: rendered geography occupancy", () => {
     // measurement.
     const standardPane = getMapContentDimensionsForTerminal(140, 45);
     const widePane = getMapContentDimensionsForTerminal(200, 55);
-    expect(standardPane).toEqual({ width: 99, height: 34 });
-    expect(widePane).toEqual({ width: 149, height: 41 });
+    expect(standardPane).toEqual({ width: 97, height: 32 });
+    expect(widePane).toEqual({ width: 147, height: 39 });
     const standard = getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT, standardPane);
     const wide = getMapRenderLayout(MAP_GRID_IRONREACH_WIDE, widePane);
     expect(wide.width).toBe(wide.land.width);
@@ -83,6 +83,58 @@ describe("visual map: rendered geography occupancy", () => {
       expect(findRaster(setup.renderer.root)).not.toBeNull();
       await act(async () => { setup.renderer.destroy(); });
     }
+  });
+
+  it("keeps the 180x50/180x51 layout boundary inside App's bordered World Map content", async () => {
+    // @ts-ignore runtime-only OpenTUI modules
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+    const client: any = {
+      state: null, myPlayerId: "p1", status: "connected", roomCode: "BORD",
+      onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {},
+      onError: () => () => {}, sendChat: () => {}, deploy: () => {}, attack: () => {},
+      fortify: () => {}, skipPhase: () => {}, endTurn: () => {}, ready: () => {},
+    };
+
+    const render = async (columns: number, rows: number) => {
+      const setup = await testRender(
+        React.createElement(App, { client, terminalDimensions: { columns, rows } }),
+        { width: columns, height: rows }
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const root = setup.renderer.root;
+      const app = root.getChildren?.()[0]?.getChildren?.().length === 4
+        ? root.getChildren()[0]
+        : root;
+      const worldMap = app.getChildren()[1].getChildren()[0].getChildren()[0];
+      const raster = worldMap.getChildren()[0];
+      return { setup, worldMap, raster };
+    };
+
+    // 180x50 has a 132x35 World Map interior. Wide land is 132x36, so App
+    // keeps the standard split and compact raster rather than drawing over a border.
+    const at50 = await render(180, 50);
+    expect(at50.worldMap.width - 2).toBe(126);
+    expect(at50.worldMap.height - 2).toBe(37);
+    expect(at50.raster.width).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT).width);
+    expect(at50.raster.height).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT).height);
+    expect(at50.raster.width).toBeLessThanOrEqual(at50.worldMap.width - 2);
+    expect(at50.raster.height).toBeLessThanOrEqual(at50.worldMap.height - 2);
+    await act(async () => { at50.setup.renderer.destroy(); });
+
+    // At 180x51 the wide pane's actual bordered content is exactly 132x36.
+    const at51 = await render(180, 51);
+    expect(at51.worldMap.width - 2).toBe(132);
+    expect(at51.worldMap.height - 2).toBe(36);
+    expect(at51.raster.width).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).width);
+    expect(at51.raster.height).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).height);
+    expect(at51.raster.width).toBeLessThanOrEqual(at51.worldMap.width - 2);
+    expect(at51.raster.height).toBeLessThanOrEqual(at51.worldMap.height - 2);
+    await act(async () => { at51.setup.renderer.destroy(); });
   });
 
   it("keeps standard-pane territory labels inside their own land shapes", async () => {
