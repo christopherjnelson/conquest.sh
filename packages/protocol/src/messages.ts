@@ -43,6 +43,12 @@ export const ClientAttackSchema = z.object({
 });
 export type ClientAttack = z.infer<typeof ClientAttackSchema>;
 
+export const ClientCompleteConquestMoveSchema = z.object({
+  type: z.literal("client:complete_conquest_move"),
+  units: z.number().int().min(1),
+});
+export type ClientCompleteConquestMove = z.infer<typeof ClientCompleteConquestMoveSchema>;
+
 export const ClientFortifySchema = z.object({
   type: z.literal("client:fortify"),
   sourceTerritoryId: z.string(),
@@ -92,6 +98,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   ClientRematchSchema,
   ClientDeploySchema,
   ClientAttackSchema,
+  ClientCompleteConquestMoveSchema,
   ClientFortifySchema,
   ClientSkipPhaseSchema,
   ClientEndTurnSchema,

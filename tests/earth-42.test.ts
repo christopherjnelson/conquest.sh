@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
-import { attackTerritory, calculateReinforcements, createInitialGameState } from "../packages/game-core/src/index.js";
+import { attackTerritory, calculateReinforcements, completeConquestMove, createInitialGameState } from "../packages/game-core/src/index.js";
 import { EARTH_42_BUNDLE } from "../packages/map-engine/src/maps/earth-42.js";
 import { getDefaultMap, getMap, getRenderVariant, selectRenderVariant, type MapBundle } from "../packages/map-engine/src/registry.js";
 import { getGeographyBoundingBox, getNextTerritoryInDirection, getTerritoryAt } from "../packages/map-engine/src/grid-engine.js";
@@ -98,6 +98,10 @@ describe("Earth-42 logical topology", () => {
       expect(result.ok).toBe(true);
       if (!result.ok) break;
       state = result.state;
+      const move = completeConquestMove(state, "p0", state.pendingConquestMove!.minimumUnits);
+      expect(move.ok).toBe(true);
+      if (!move.ok) break;
+      state = move.state;
       expect(state.territories[frontier.to].ownerId).toBe("p0");
       conquered.add(frontier.to);
       attacks++;

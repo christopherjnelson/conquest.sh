@@ -12,13 +12,28 @@ export interface CompactInspectorProps {
   roomCode?: string | null;
   phase: GamePhase;
   onDeploy: () => void;
+  deploymentCount?: number;
+  onDecreaseDeployment?: () => void;
+  onIncreaseDeployment?: () => void;
+  onSelectAllDeployments?: () => void;
+  onSelectMinimumDeployment?: () => void;
+  pendingConquestMove?: GameState["pendingConquestMove"];
+  conquestMoveUnits?: number;
+  onDecreaseConquestMove?: () => void;
+  onIncreaseConquestMove?: () => void;
+  onConfirmConquestMove?: () => void;
   onAttack: () => void;
   onFortify: () => void;
   onSkipPhase: () => void;
   onEndTurn: () => void;
+  pendingPhaseAction?: "skip-attack" | "end-turn" | null;
   onReady?: () => void;
   onSelectTarget?: (territoryId: string) => void;
   onSelectTerritory?: (territoryId: string) => void;
+}
+
+function fitCompactText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, Math.max(1, maxLength - 1))}…` : value;
 }
 
 export function CompactInspector({
@@ -30,10 +45,21 @@ export function CompactInspector({
   targetTerritoryId,
   phase,
   onDeploy,
+  deploymentCount,
+  onDecreaseDeployment,
+  onIncreaseDeployment,
+  onSelectAllDeployments,
+  onSelectMinimumDeployment,
+  pendingConquestMove,
+  conquestMoveUnits,
+  onDecreaseConquestMove,
+  onIncreaseConquestMove,
+  onConfirmConquestMove,
   onAttack,
   onFortify,
   onSkipPhase,
   onEndTurn,
+  pendingPhaseAction,
   onReady,
 }: CompactInspectorProps) {
   const territories = state?.territories ?? {};
@@ -64,7 +90,7 @@ export function CompactInspector({
   const sectorName = region?.name ?? mapBundle.metadata.regionSingular;
   const bonus = region?.bonusReinforcements ?? 0;
   const neighbors = gridDef?.neighbors ?? territoryState?.neighbors ?? [];
-  const neighborsStr = neighbors.map(id => mapBundle.metadata.displayCodes[id] ?? id).join(", ");
+  const neighborsStr = neighbors.map(id => mapBundle.metadata.displayCodes[id] ?? id).join(",");
 
   const ownerId = territoryState?.ownerId;
   const owner = ownerId ? players.find((p) => p.id === ownerId) : undefined;
@@ -81,9 +107,14 @@ export function CompactInspector({
   const isTargetFriendly = Boolean(targetTerritory && targetTerritory.ownerId === myPlayerId);
 
   const canDeploy = isMyTurn && phase === "deployment" && isActionSourceOwnedByMe && pendingReinforcements > 0;
-  const canAttack = isMyTurn && phase === "attack" && isActionSourceOwnedByMe && isTargetEnemy && (selectedTerritoryState?.units ?? 0) >= 2;
+  const selectedDeploymentCount = Math.min(Math.max(1, deploymentCount ?? pendingReinforcements), pendingReinforcements);
+  const canAttack = isMyTurn && !pendingConquestMove && phase === "attack" && isActionSourceOwnedByMe && isTargetEnemy && (selectedTerritoryState?.units ?? 0) >= 2;
   const canFortify = isMyTurn && phase === "fortify" && isActionSourceOwnedByMe && isTargetFriendly && (selectedTerritoryState?.units ?? 0) >= 2;
-  const canSkipOrEnd = isMyTurn && (phase === "attack" || phase === "fortify");
+  const canSkipOrEnd = isMyTurn && !pendingConquestMove && (phase === "attack" || phase === "fortify");
+  // A mandatory conquest-move control needs the extra right-side cells. In
+  // every other phase, give the inspector a wider lane for readable names.
+  const compactInfoWidth = pendingConquestMove && isMyTurn ? 55 : 65;
+  const compactNameLimit = pendingConquestMove && isMyTurn ? 10 : 14;
 
   const myPlayer = players.find((p) => p.id === myPlayerId);
   const isReady = myPlayer?.ready ?? false;
@@ -110,34 +141,13 @@ export function CompactInspector({
       alignItems="center"
     >
       {/* Left Info: Territory or Players summary */}
-      <box flexDirection="row" alignItems="center" gap={1} flexGrow={1}>
+      <box flexDirection="row" alignItems="center" gap={0} style={{ width: compactInfoWidth }} flexShrink={1}>
         {inspectionMode !== "none" && displayTid ? (
           <>
-            {/* Status Badge */}
-            <box
-              border
-              borderStyle="single"
-              borderColor={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}
-              backgroundColor={inspectionMode === "selected" ? "#0c2b3d" : "#291c06"}
-              paddingLeft={1}
-              paddingRight={1}
-            >
-              <text fg={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}>
-                <b>{inspectionMode.toUpperCase()}</b>
-              </text>
-            </box>
-
-            {/* Territory ID & Name */}
+            {/* Keep the compact lane to the facts that fit beside its actions. */}
             <text>
               <span fg="#ffffff"><b>[{mapBundle.metadata.displayCodes[displayTid] ?? displayTid}]</b> </span>
-              <span fg="#00d2ff"><b>{territoryName}</b></span>
-            </text>
-
-            <text fg="#334155">│</text>
-
-            {/* Sector & Bonus */}
-            <text fg="#64748b">
-              {sectorName} <span fg="#00ff66">(+{bonus})</span>
+              <span fg="#00d2ff"><b>{fitCompactText(territoryName, compactNameLimit)}</b></span>
             </text>
 
             <text fg="#334155">│</text>
@@ -145,16 +155,17 @@ export function CompactInspector({
             {/* Owner & Armies */}
             <text>
               <span fg={ownerColor}>● </span>
-              <span fg="#e2e8f0"><b>{ownerName}</b></span>
-              <span fg="#94a3b8"> ({armiesCount} armies)</span>
+              <span fg="#e2e8f0"><b>{fitCompactText(ownerName, compactNameLimit)}</b></span>
+              <span fg="#94a3b8"> ({armiesCount})</span>
             </text>
 
             <text fg="#334155">│</text>
 
-            {/* Neighbors */}
-            <text fg="#64748b">
-              Borders: <span fg="#cbd5e1">{neighborsStr || "-"}</span>
-            </text>
+            <text fg="#64748b">{fitCompactText(sectorName, pendingConquestMove && isMyTurn ? 7 : 9)} <span fg="#00ff66">+{bonus}</span></text>
+
+            <text fg="#334155">│</text>
+
+            <text fg="#64748b"><span fg="#cbd5e1">{fitCompactText(neighborsStr || "-", pendingConquestMove && isMyTurn ? 5 : 7)}</span></text>
           </>
         ) : (
           /* Honest Players Summary when no territory is hovered or selected */
@@ -220,25 +231,41 @@ export function CompactInspector({
           </box>
         ) : (
           <>
-            {/* Deploy */}
+            {/* Deployment amount and action */}
             {phase === "deployment" && (
-              <box
-                border
-                borderStyle="single"
-                borderColor={canDeploy ? "#00d2ff" : "#334155"}
-                backgroundColor={canDeploy ? "#0c2b3d" : undefined}
-                paddingLeft={1}
-                paddingRight={1}
-                onMouseDown={canDeploy ? onDeploy : undefined}
-              >
-                <text fg={canDeploy ? "#00d2ff" : "#64748b"}>
-                  <b>[ ➜ Deploy ]</b>
-                </text>
+              <box flexDirection="row" alignItems="center" gap={1}>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onDecreaseDeployment : undefined}><b>[−]</b></text>
+                <text fg={canDeploy ? "#e2e8f0" : "#64748b"}><b>{pendingReinforcements > 0 ? `${selectedDeploymentCount}/${pendingReinforcements}` : "-"}</b></text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onIncreaseDeployment : undefined}><b>[+]</b></text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onSelectMinimumDeployment : undefined}><b>[1]</b></text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onSelectAllDeployments : undefined}><b>[All]</b></text>
+                <box
+                  border
+                  borderStyle="single"
+                  borderColor={canDeploy ? "#00d2ff" : "#334155"}
+                  backgroundColor={canDeploy ? "#0c2b3d" : undefined}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onMouseDown={canDeploy ? onDeploy : undefined}
+                >
+                  <text fg={canDeploy ? "#00d2ff" : "#64748b"}>
+                    <b>[D] ➜ Deploy</b>
+                  </text>
+                </box>
               </box>
             )}
 
-            {/* Attack */}
-            {phase === "attack" && (
+            {/* Attack or mandatory post-conquest troop move */}
+            {phase === "attack" && pendingConquestMove && isMyTurn ? (
+              <box flexDirection="row" alignItems="center" gap={1}>
+                <text fg="#a78bfa" onMouseDown={onDecreaseConquestMove}><b>[−]</b></text>
+                <text fg="#e9d5ff"><b>Move {conquestMoveUnits} / {pendingConquestMove.maximumUnits}</b></text>
+                <text fg="#a78bfa" onMouseDown={onIncreaseConquestMove}><b>[+]</b></text>
+                <box border borderStyle="single" borderColor="#a78bfa" paddingLeft={1} paddingRight={1} onMouseDown={onConfirmConquestMove}>
+                  <text fg="#e9d5ff"><b>[Enter] Confirm</b></text>
+                </box>
+              </box>
+            ) : phase === "attack" && (
               <box
                 border
                 borderStyle="single"
@@ -272,7 +299,7 @@ export function CompactInspector({
             )}
 
             {/* Skip / End Turn */}
-            <box
+            {(phase === "attack" || phase === "fortify") && <box
               border
               borderStyle="single"
               borderColor={canSkipOrEnd ? "#ffaa00" : "#334155"}
@@ -288,9 +315,11 @@ export function CompactInspector({
               }
             >
               <text fg={canSkipOrEnd ? "#ffaa00" : "#64748b"}>
-                <b>{phase === "attack" ? "[ » Skip ]" : "[ » End Turn ]"}</b>
+                <b>{phase === "attack"
+                  ? (pendingPhaseAction === "skip-attack" ? "[ Confirm Skip ]" : "[ » Skip ]")
+                  : (pendingPhaseAction === "end-turn" ? "[ Confirm End Turn ]" : "[ » End Turn ]")}</b>
               </text>
-            </box>
+            </box>}
           </>
         )}
       </box>

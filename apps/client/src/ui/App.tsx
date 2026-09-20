@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { GameEvent, GameState } from "@conquest/protocol";
 import {
@@ -41,6 +41,26 @@ export interface TerminalSizeWarningProps {
   minimumDimensions?: { columns: number; rows: number };
   onIgnore?: () => void;
   onExit?: () => void;
+}
+
+export function getAttackSourceError(territoryName: string): string {
+  return `You don't control ${territoryName}. Select a territory you own to attack from.`;
+}
+
+export type PendingPhaseAction = "skip-attack" | "end-turn";
+
+export function getPhaseActionConfirmationMessage(action: PendingPhaseAction): string {
+  const label = action === "skip-attack" ? "Skip attack" : "End turn";
+  return `${label}? Enter confirms; Esc cancels.`;
+}
+
+export function advancePhaseActionConfirmation(
+  pending: PendingPhaseAction | null,
+  action: PendingPhaseAction,
+): { pending: PendingPhaseAction | null; confirmed: boolean } {
+  return pending === action
+    ? { pending: null, confirmed: true }
+    : { pending: action, confirmed: false };
 }
 
 export function TerminalSizeWarning({
@@ -183,11 +203,23 @@ export function App({
   const [hoveredTerritoryId, setHoveredTerritoryId] = useState<string | null>(
     initialHoveredTerritoryId ?? null
   );
+  // Start each reinforcement pool with every army selected, while allowing the
+  // player to split that pool across any of their territories.
+  const [deploymentCount, setDeploymentCount] = useState(client.state?.pendingReinforcements ?? 0);
+  const [conquestMoveUnits, setConquestMoveUnits] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(1);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"info" | "success" | "error">("info");
+  const [pendingPhaseAction, setPendingPhaseAction] = useState<PendingPhaseAction | null>(null);
+  // OpenTUI keeps a keyboard listener alive between renders. Keep the armed
+  // action in a ref as well so a rapid Enter observes the first E immediately.
+  const pendingPhaseActionRef = useRef<PendingPhaseAction | null>(null);
+  const setPhaseActionConfirmation = useCallback((action: PendingPhaseAction | null) => {
+    pendingPhaseActionRef.current = action;
+    setPendingPhaseAction(action);
+  }, []);
 
   const showToast = useCallback((msg: string, type: "info" | "success" | "error" = "info") => {
     setToastMessage(msg);
@@ -200,6 +232,7 @@ export function App({
       setState(newState);
       setMyPlayerId(newPlayerId);
       setEvents(newState.history ?? []);
+      setDeploymentCount(newState.pendingReinforcements);
     });
 
     const unsubEvent = client.onEvent((newEvent) => {
@@ -225,6 +258,11 @@ export function App({
     };
   }, [client, showToast]);
 
+  const pendingConquestMove = state?.pendingConquestMove;
+  useEffect(() => {
+    if (pendingConquestMove) setConquestMoveUnits(pendingConquestMove.minimumUnits);
+  }, [pendingConquestMove?.sourceTerritoryId, pendingConquestMove?.targetTerritoryId, pendingConquestMove?.minimumUnits]);
+
   const activePlayer = state ? state.players[state.activePlayerIndex] : undefined;
   const isMyTurn = Boolean(activePlayer && activePlayer.id === myPlayerId);
   const myPlayer = state?.players.find((p) => p.id === myPlayerId);
@@ -233,6 +271,19 @@ export function App({
   const paneDimensions = getMapContentDimensionsForLayout(dimensions.columns, dimensions.rows, layoutMode);
   const sidebarWidth = getSidebarWidthForTerminal(dimensions.columns, dimensions.rows, layoutMode);
   const activeMapDef = selectRenderVariant(mapBundle, paneDimensions).grid;
+
+  // A confirmation only belongs to this exact player and phase. Snapshots are
+  // authoritative, so never carry a stale confirmation into the next action.
+  useEffect(() => {
+    if (
+      pendingPhaseAction &&
+      (!isMyTurn ||
+        (pendingPhaseAction === "skip-attack" && phase !== "attack") ||
+        (pendingPhaseAction === "end-turn" && phase !== "fortify"))
+    ) {
+      setPhaseActionConfirmation(null);
+    }
+  }, [pendingPhaseAction, phase, isMyTurn, activePlayer?.id, setPhaseActionConfirmation]);
 
   const allTerritoryIds = useMemo(() => {
     if (state?.territories && Object.keys(state.territories).length > 0) {
@@ -248,6 +299,15 @@ export function App({
       ?? mapBundle.metadata.displayCodes[territoryId]
       ?? "selected territory";
   }, [mapBundle]);
+
+  const handleInvalidAttackTarget = useCallback((sourceTerritoryId: string, targetTerritoryId: string) => {
+    setPhaseActionConfirmation(null);
+    setTargetTerritoryId(null);
+    showToast(
+      `${territoryName(targetTerritoryId)} is not adjacent to ${territoryName(sourceTerritoryId)}. Select an adjacent enemy territory to attack.`,
+      "error",
+    );
+  }, [showToast, territoryName, setPhaseActionConfirmation]);
 
   // Action Dispatchers
   const handleDeploy = useCallback(() => {
@@ -273,9 +333,24 @@ export function App({
       return;
     }
 
-    client.deploy(selectedTerritoryId, state.pendingReinforcements);
-    showToast(`Deploying ${state.pendingReinforcements} reinforcements to ${territoryName(selectedTerritoryId)}...`, "info");
-  }, [client, state, selectedTerritoryId, myPlayerId, isMyTurn, showToast, territoryName]);
+    const count = Math.min(Math.max(1, deploymentCount), state.pendingReinforcements);
+    client.deploy(selectedTerritoryId, count);
+    showToast(`Deploying ${count} reinforcement${count === 1 ? "" : "s"} to ${territoryName(selectedTerritoryId)}...`, "info");
+  }, [client, state, selectedTerritoryId, myPlayerId, isMyTurn, deploymentCount, showToast, territoryName]);
+
+  const adjustDeploymentCount = useCallback((delta: number) => {
+    const available = state?.pendingReinforcements ?? 0;
+    if (available <= 0) return;
+    setDeploymentCount((current) => Math.min(available, Math.max(1, current + delta)));
+  }, [state?.pendingReinforcements]);
+
+  const selectAllDeployments = useCallback(() => {
+    setDeploymentCount(state?.pendingReinforcements ?? 0);
+  }, [state?.pendingReinforcements]);
+
+  const selectMinimumDeployment = useCallback(() => {
+    if ((state?.pendingReinforcements ?? 0) > 0) setDeploymentCount(1);
+  }, [state?.pendingReinforcements]);
 
   const handleAttack = useCallback(() => {
     if (!state || !selectedTerritoryId) {
@@ -284,7 +359,7 @@ export function App({
     }
     const source = state.territories[selectedTerritoryId];
     if (!source || source.ownerId !== myPlayerId) {
-      showToast("You must control the attacking territory", "error");
+      showToast(getAttackSourceError(territoryName(selectedTerritoryId)), "error");
       return;
     }
     if (source.units < 2) {
@@ -308,6 +383,19 @@ export function App({
     client.attack(selectedTerritoryId, targetTerritoryId);
     showToast(`Attacking ${territoryName(targetTerritoryId)} from ${territoryName(selectedTerritoryId)}...`, "info");
   }, [client, state, selectedTerritoryId, targetTerritoryId, myPlayerId, showToast, territoryName]);
+
+  const adjustConquestMove = useCallback((delta: number) => {
+    if (!pendingConquestMove) return;
+    setConquestMoveUnits((current) => Math.min(
+      pendingConquestMove.maximumUnits,
+      Math.max(pendingConquestMove.minimumUnits, current + delta)
+    ));
+  }, [pendingConquestMove]);
+
+  const confirmConquestMove = useCallback(() => {
+    if (!pendingConquestMove) return;
+    client.completeConquestMove(conquestMoveUnits);
+  }, [client, conquestMoveUnits, pendingConquestMove]);
 
   const handleFortify = useCallback(() => {
     if (!state || !selectedTerritoryId) {
@@ -340,17 +428,42 @@ export function App({
     setTargetTerritoryId(null);
   }, [client, state, selectedTerritoryId, targetTerritoryId, myPlayerId, showToast, territoryName]);
 
-  const handleSkipPhase = useCallback(() => {
+  const skipPhase = useCallback(() => {
     client.skipPhase();
     showToast("Skipped phase", "info");
   }, [client, showToast]);
 
-  const handleEndTurn = useCallback(() => {
+  const endTurn = useCallback(() => {
     client.endTurn();
     showToast("Ended turn", "info");
     setSelectedTerritoryId(null);
     setTargetTerritoryId(null);
   }, [client, showToast]);
+
+  const requestPhaseAction = useCallback((action: PendingPhaseAction, confirm = false) => {
+    if (pendingConquestMove) {
+      showToast("Choose how many troops move into the conquered territory first", "error");
+      return;
+    }
+    if ((action === "skip-attack" && phase !== "attack") ||
+        (action === "end-turn" && phase !== "fortify") || !isMyTurn) {
+      setPhaseActionConfirmation(null);
+      return;
+    }
+    const confirmation = confirm
+      ? advancePhaseActionConfirmation(pendingPhaseActionRef.current, action)
+      : { pending: action, confirmed: false };
+    setPhaseActionConfirmation(confirmation.pending);
+    if (confirmation.confirmed) {
+      if (action === "skip-attack") skipPhase();
+      else endTurn();
+      return;
+    }
+    showToast(getPhaseActionConfirmationMessage(action), "info");
+  }, [pendingConquestMove, phase, isMyTurn, skipPhase, endTurn, showToast, setPhaseActionConfirmation]);
+
+  const handleSkipPhase = useCallback(() => requestPhaseAction("skip-attack", true), [requestPhaseAction]);
+  const handleEndTurn = useCallback(() => requestPhaseAction("end-turn", true), [requestPhaseAction]);
 
   const handleReady = useCallback(() => {
     client.ready(true);
@@ -398,9 +511,41 @@ export function App({
       return;
     }
 
+    if (pendingConquestMove && isMyTurn) {
+      if (key.name === "left" || key.name === "[") {
+        adjustConquestMove(-1);
+      } else if (key.name === "right" || key.name === "]") {
+        adjustConquestMove(1);
+      } else if (key.name === "return" || key.name === "enter") {
+        confirmConquestMove();
+      }
+      return;
+    }
+
+    if (pendingPhaseActionRef.current) {
+      if (key.name === "escape") {
+        setPhaseActionConfirmation(null);
+        showToast("Phase action cancelled", "info");
+        return;
+      }
+      if (key.name === "return" || key.name === "enter" || key.name === "e" || key.name === "E") {
+        if (key.name === "return" || key.name === "enter") requestPhaseAction(pendingPhaseActionRef.current, true);
+        else requestPhaseAction(pendingPhaseActionRef.current);
+        return;
+      }
+      // Any other keyboard intent abandons the armed phase action before it
+      // is processed, so a later E can never confirm a stale request.
+      setPhaseActionConfirmation(null);
+    }
+
     // Number keys 1-5 for bottom pill tabs
     if (["1", "2", "3", "4", "5"].includes(key.name)) {
       setActiveTab(parseInt(key.name, 10));
+      return;
+    }
+
+    if (phase === "deployment" && key.name === "0") {
+      selectMinimumDeployment();
       return;
     }
 
@@ -443,6 +588,16 @@ export function App({
     if (!isEliminated) {
       if (key.name === "d" || key.name === "D") {
         handleDeploy();
+        return;
+      }
+
+      if (phase === "deployment" && key.name === "[") {
+        adjustDeploymentCount(-1);
+        return;
+      }
+
+      if (phase === "deployment" && key.name === "]") {
+        adjustDeploymentCount(1);
         return;
       }
 
@@ -545,11 +700,17 @@ export function App({
               hoveredTerritoryId={hoveredTerritoryId}
               onHoverTerritory={setHoveredTerritoryId}
               onSelectTerritory={(id) => {
+                setPhaseActionConfirmation(null);
                 setSelectedTerritoryId(id);
                 setTargetTerritoryId(null);
               }}
-              onSelectTarget={(id) => setTargetTerritoryId(id)}
+              onSelectTarget={(id) => {
+                setPhaseActionConfirmation(null);
+                setTargetTerritoryId(id);
+              }}
+              onInvalidAttackTarget={handleInvalidAttackTarget}
               onDeselect={() => {
+                setPhaseActionConfirmation(null);
                 setSelectedTerritoryId(null);
                 setTargetTerritoryId(null);
               }}
@@ -567,13 +728,28 @@ export function App({
             roomCode={client.roomCode}
             phase={phase}
             onDeploy={handleDeploy}
+            deploymentCount={deploymentCount}
+            onDecreaseDeployment={() => adjustDeploymentCount(-1)}
+            onIncreaseDeployment={() => adjustDeploymentCount(1)}
+            onSelectAllDeployments={selectAllDeployments}
+            pendingConquestMove={pendingConquestMove}
+            conquestMoveUnits={conquestMoveUnits}
+            onDecreaseConquestMove={() => adjustConquestMove(-1)}
+            onIncreaseConquestMove={() => adjustConquestMove(1)}
+            onConfirmConquestMove={confirmConquestMove}
+            onSelectMinimumDeployment={selectMinimumDeployment}
             onAttack={handleAttack}
             onFortify={handleFortify}
             onSkipPhase={handleSkipPhase}
             onEndTurn={handleEndTurn}
+            pendingPhaseAction={pendingPhaseAction}
             onReady={handleReady}
-            onSelectTarget={(id) => setTargetTerritoryId(id)}
+            onSelectTarget={(id) => {
+              setPhaseActionConfirmation(null);
+              setTargetTerritoryId(id);
+            }}
             onSelectTerritory={(id) => {
+              setPhaseActionConfirmation(null);
               setSelectedTerritoryId(id);
               setTargetTerritoryId(null);
             }}
@@ -601,11 +777,17 @@ export function App({
               hoveredTerritoryId={hoveredTerritoryId}
               onHoverTerritory={setHoveredTerritoryId}
               onSelectTerritory={(id) => {
+                setPhaseActionConfirmation(null);
                 setSelectedTerritoryId(id);
                 setTargetTerritoryId(null);
               }}
-              onSelectTarget={(id) => setTargetTerritoryId(id)}
+              onSelectTarget={(id) => {
+                setPhaseActionConfirmation(null);
+                setTargetTerritoryId(id);
+              }}
+              onInvalidAttackTarget={handleInvalidAttackTarget}
               onDeselect={() => {
+                setPhaseActionConfirmation(null);
                 setSelectedTerritoryId(null);
                 setTargetTerritoryId(null);
               }}
@@ -624,12 +806,26 @@ export function App({
               hoveredTerritoryId={hoveredTerritoryId}
               targetTerritoryId={targetTerritoryId}
               onDeploy={handleDeploy}
+              deploymentCount={deploymentCount}
+              onDecreaseDeployment={() => adjustDeploymentCount(-1)}
+              onIncreaseDeployment={() => adjustDeploymentCount(1)}
+              onSelectAllDeployments={selectAllDeployments}
+              pendingConquestMove={pendingConquestMove}
+              conquestMoveUnits={conquestMoveUnits}
+              onDecreaseConquestMove={() => adjustConquestMove(-1)}
+              onIncreaseConquestMove={() => adjustConquestMove(1)}
+              onConfirmConquestMove={confirmConquestMove}
+              onSelectMinimumDeployment={selectMinimumDeployment}
               onAttack={handleAttack}
               onFortify={handleFortify}
               onSkipPhase={handleSkipPhase}
               onEndTurn={handleEndTurn}
+              pendingPhaseAction={pendingPhaseAction}
               onReady={handleReady}
-              onSelectTarget={(id) => setTargetTerritoryId(id)}
+              onSelectTarget={(id) => {
+                setPhaseActionConfirmation(null);
+                setTargetTerritoryId(id);
+              }}
               layoutMode={layoutMode}
             />
           </box>

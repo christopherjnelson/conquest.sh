@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   attackTerritory,
+  completeConquestMove,
   calculateReinforcements,
   createInitialGameState,
   deployUnits,
@@ -141,8 +142,39 @@ describe("game-core: attack & conquest", () => {
 
     expect(attackRes.data?.conquered).toBe(true);
     expect(attackRes.state.territories["A2"].ownerId).toBe("p1");
-    expect(attackRes.state.territories["A2"].units).toBe(3); // 3 dice moved in
+    expect(attackRes.state.territories["A2"].units).toBe(3); // attacking dice moved in
     expect(attackRes.state.territories["A1"].units).toBe(7); // 10 - 3 = 7
+    expect(attackRes.state.pendingConquestMove).toMatchObject({ minimumUnits: 3, maximumUnits: 9 });
+
+    const moveRes = completeConquestMove(attackRes.state, "p1", 8);
+    expect(moveRes.ok).toBe(true);
+    if (!moveRes.ok) return;
+    expect(moveRes.state.territories["A1"].units).toBe(2);
+    expect(moveRes.state.territories["A2"].units).toBe(8);
+    expect(moveRes.state.pendingConquestMove).toBeNull();
+  });
+
+  it("requires and bounds the post-conquest troop move before another attack", () => {
+    const players: Player[] = [
+      { id: "p1", name: "Alice", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
+      { id: "p2", name: "Bob", colorIndex: 1, colorHex: "#ffaa00", connected: true, isAlive: true, ready: true },
+    ];
+    let state = createInitialGameState("g1", "TEST", players, MAP_SECTOR_07, 3);
+    state.phase = "attack";
+    state.territories["A1"] = { ...state.territories["A1"], ownerId: "p1", units: 6 };
+    state.territories["A2"] = { ...state.territories["A2"], ownerId: "p2", units: 1 };
+    const rolls = [0.99, 0.99, 0.99, 0.1];
+    let index = 0;
+    const conquered = attackTerritory(state, "p1", "A1", "A2", 3, () => rolls[index++]!);
+    expect(conquered.ok).toBe(true);
+    if (!conquered.ok) return;
+
+    expect(attackTerritory(conquered.state, "p1", "A1", "A2").ok).toBe(false);
+    expect(skipPhase(conquered.state, "p1").ok).toBe(false);
+    expect(completeConquestMove(conquered.state, "p2", 3).ok).toBe(false);
+    expect(completeConquestMove(conquered.state, "p1", 2).ok).toBe(false);
+    expect(completeConquestMove(conquered.state, "p1", 6).ok).toBe(false);
+    expect(completeConquestMove(conquered.state, "p1", 5).ok).toBe(true);
   });
 
   it("detects game victory when attacker captures all territories", () => {
@@ -170,8 +202,12 @@ describe("game-core: attack & conquest", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
 
-    expect(res.state.winnerId).toBe("p1");
-    expect(res.state.phase).toBe("game_over");
+    expect(res.state.winnerId).toBeNull();
+    const confirmed = completeConquestMove(res.state, "p1", 3);
+    expect(confirmed.ok).toBe(true);
+    if (!confirmed.ok) return;
+    expect(confirmed.state.winnerId).toBe("p1");
+    expect(confirmed.state.phase).toBe("game_over");
   });
 });
 

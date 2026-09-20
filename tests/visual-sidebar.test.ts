@@ -19,6 +19,7 @@ import { getMapRenderLayout } from "../apps/client/src/ui/MapCanvas.js";
 import type { GameEvent, Player } from "../packages/protocol/src/index.js";
 import { EventLog } from "../apps/client/src/ui/EventLog.js";
 import { Sidebar } from "../apps/client/src/ui/Sidebar.js";
+import { CompactInspector } from "../apps/client/src/ui/CompactInspector.js";
 import { App } from "../apps/client/src/ui/App.js";
 
 const players: Player[] = [
@@ -72,6 +73,91 @@ function findNodeWithSize(node: any, width: number, height: number): any | null 
 }
 
 describe("visual sidebar composition", () => {
+  it("keeps long territory and owner names in their own inspector lanes at every responsive width", async () => {
+    const mapBundle = structuredClone(ironreachBundle);
+    const territory = mapBundle.definition.territories.find((entry) => entry.id === "B2")!;
+    territory.name = "The Extremely Long Territory Name That Must Stay Above Owner";
+    const state = selectedState();
+    state.players[0].name = "Commander Alexandria With An Extremely Long Name";
+
+    for (const [layoutMode, width] of [["standard", 32], ["wide", 42]] as const) {
+      const setup = await testRender(
+        React.createElement(Sidebar, {
+          mapBundle, state, myPlayerId: "p1", selectedTerritoryId: "B2", targetTerritoryId: null,
+          onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {}, layoutMode,
+        }),
+        { width, height: 38 }
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const lines = setup.captureCharFrame().split("\n");
+      const ownerLine = lines.find((line: string) => line.includes("Owner"))!;
+      expect(ownerLine).toContain("●");
+      expect(ownerLine).toContain("Commander");
+      expect(ownerLine).toContain("…");
+      expect(ownerLine).not.toContain("Territory Name");
+      expect(ownerLine).not.toContain("Alexandria With");
+      await act(async () => { setup.renderer.destroy(); });
+    }
+
+    const compact = await testRender(
+      React.createElement(CompactInspector, {
+        mapBundle, state, myPlayerId: "p1", selectedTerritoryId: "B2", targetTerritoryId: null, phase: "deployment",
+        onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {},
+      }),
+      { width: 100, height: 4 }
+    );
+    await act(async () => { await compact.renderOnce(); });
+    const compactFrame = compact.captureCharFrame();
+    expect(compactFrame).toContain("The Extremely");
+    expect(compactFrame).toContain("Commander Ale…");
+    expect(compactFrame).not.toContain("Territory Name That");
+    await act(async () => { compact.renderer.destroy(); });
+  });
+
+  it("renders the post-conquest move amount without a dollar sign", async () => {
+    const state = selectedState();
+    state.phase = "attack";
+    state.pendingConquestMove = { sourceTerritoryId: "B2", targetTerritoryId: "B1", defenderId: "p2", minimumUnits: 3, maximumUnits: 7 };
+    for (const [Component, width, props] of [
+      [Sidebar, 42, { layoutMode: "wide" }],
+      [CompactInspector, 100, {}],
+    ] as const) {
+      const setup = await testRender(
+        React.createElement(Component, {
+          mapBundle: ironreachBundle, state, myPlayerId: "p1", selectedTerritoryId: "B2", targetTerritoryId: "B1", phase: "attack",
+          pendingConquestMove: state.pendingConquestMove, conquestMoveUnits: 5,
+          onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {}, ...props,
+        }),
+        { width, height: 38 }
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("Move 5 / 7");
+      expect(frame).not.toContain("$");
+      await act(async () => { setup.renderer.destroy(); });
+    }
+  });
+
+  it("keeps the compact inspector readable at 105 columns", async () => {
+    const state = selectedState();
+    state.players[0].name = "Commander Alexandria With An Extremely Long Name";
+    const setup = await testRender(
+      React.createElement(CompactInspector, {
+        state, myPlayerId: "p1", selectedTerritoryId: "B2", targetTerritoryId: null, phase: "deployment",
+        onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {},
+      }),
+      { width: 105, height: 38 }
+    );
+    await act(async () => { await setup.renderOnce(); });
+    const frame = setup.captureCharFrame();
+    const inspectorLine = frame.split("\n").find((line: string) => line.includes("[B2]"))!;
+    expect(inspectorLine).toContain("Commander Ale…");
+    expect(inspectorLine).toContain("(7)");
+    expect(inspectorLine).toContain("+");
+    expect(inspectorLine).not.toContain("$ ");
+    await act(async () => { setup.renderer.destroy(); });
+  });
+
   for (const columns of [130, 140, 180, 200, 220, 240]) {
     it(`keeps selected-territory lanes distinct at ${columns} columns`, async () => {
       const layoutMode = getLayoutMode(columns, 55);

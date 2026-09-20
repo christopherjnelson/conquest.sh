@@ -11,10 +11,21 @@ export interface SidebarProps {
   hoveredTerritoryId?: string | null;
   targetTerritoryId: string | null;
   onDeploy: () => void;
+  deploymentCount?: number;
+  onDecreaseDeployment?: () => void;
+  onIncreaseDeployment?: () => void;
+  onSelectAllDeployments?: () => void;
+  onSelectMinimumDeployment?: () => void;
+  pendingConquestMove?: GameState["pendingConquestMove"];
+  conquestMoveUnits?: number;
+  onDecreaseConquestMove?: () => void;
+  onIncreaseConquestMove?: () => void;
+  onConfirmConquestMove?: () => void;
   onAttack: () => void;
   onFortify: () => void;
   onSkipPhase: () => void;
   onEndTurn: () => void;
+  pendingPhaseAction?: "skip-attack" | "end-turn" | null;
   onReady?: () => void;
   onSelectTarget?: (territoryId: string) => void;
   roomCode?: string | null;
@@ -34,10 +45,21 @@ export function Sidebar({
   hoveredTerritoryId = null,
   targetTerritoryId,
   onDeploy,
+  deploymentCount,
+  onDecreaseDeployment,
+  onIncreaseDeployment,
+  onSelectAllDeployments,
+  onSelectMinimumDeployment,
+  pendingConquestMove,
+  conquestMoveUnits,
+  onDecreaseConquestMove,
+  onIncreaseConquestMove,
+  onConfirmConquestMove,
   onAttack,
   onFortify,
   onSkipPhase,
   onEndTurn,
+  pendingPhaseAction,
   onReady,
   onSelectTarget,
   roomCode,
@@ -90,9 +112,10 @@ export function Sidebar({
   const isTargetFriendly = Boolean(targetTerritory && targetTerritory.ownerId === myPlayerId);
 
   const canDeploy = isMyTurn && phase === "deployment" && isActionSourceOwnedByMe && pendingReinforcements > 0;
-  const canAttack = isMyTurn && phase === "attack" && isActionSourceOwnedByMe && isTargetEnemy && (selectedTerritoryState?.units ?? 0) >= 2;
+  const selectedDeploymentCount = Math.min(Math.max(1, deploymentCount ?? pendingReinforcements), pendingReinforcements);
+  const canAttack = isMyTurn && !pendingConquestMove && phase === "attack" && isActionSourceOwnedByMe && isTargetEnemy && (selectedTerritoryState?.units ?? 0) >= 2;
   const canFortify = isMyTurn && phase === "fortify" && isActionSourceOwnedByMe && isTargetFriendly && (selectedTerritoryState?.units ?? 0) >= 2;
-  const canSkipOrEnd = isMyTurn && (phase === "attack" || phase === "fortify");
+  const canSkipOrEnd = isMyTurn && !pendingConquestMove && (phase === "attack" || phase === "fortify");
 
   // Ready status in lobby
   const myPlayer = state?.players.find((p) => p.id === myPlayerId);
@@ -103,6 +126,11 @@ export function Sidebar({
   // The inspector is intentionally terse. At the supported 110-column width its
   // panel has only about 30 inner cells, so values must never push into labels.
   const valueLimit = layoutMode === "wide" ? 30 : 17;
+  // The identity and owner rows have less room than a plain value row. Keeping
+  // their text within those lanes prevents terminal wrapping from painting a
+  // territory name over the Owner row.
+  const identityLimit = layoutMode === "wide" ? 34 : 24;
+  const ownerValueLimit = layoutMode === "wide" ? 22 : 14;
   const flavorLimit = layoutMode === "wide" ? 34 : 22;
 
   return (
@@ -245,7 +273,7 @@ export function Sidebar({
                 )}
               </box>
               <text fg="#00d2ff">
-                <b>{fitSidebarText(territoryName, valueLimit + 8)}</b>
+                <b>{fitSidebarText(territoryName, identityLimit)}</b>
               </text>
             </box>
 
@@ -253,9 +281,9 @@ export function Sidebar({
             <box flexDirection="column" style={{ height: 4 }} flexShrink={0}>
               <box flexDirection="row" style={{ height: 1 }}>
                 <text fg="#64748b" style={{ width: 10 }}>Owner</text>
-                <text flexGrow={1}>
+                <text flexGrow={1} flexShrink={1}>
                   <span fg={ownerColor}>● </span>
-                  <span fg="#e2e8f0"><b>{fitSidebarText(ownerName, valueLimit)}</b></span>
+                  <span fg="#e2e8f0"><b>{fitSidebarText(ownerName, ownerValueLimit)}</b></span>
                 </text>
               </box>
               <box flexDirection="row" style={{ height: 1 }}>
@@ -318,7 +346,7 @@ export function Sidebar({
         paddingLeft={1}
         paddingRight={1}
         gap={0}
-        style={{ height: isLobby ? 8 : 7 }}
+        style={{ height: isLobby || phase === "deployment" ? 8 : 7 }}
       >
         {myPlayer && !myPlayer.isAlive ? (
           <box flexDirection="column" gap={1} justifyContent="center" alignItems="center" flexGrow={1}>
@@ -357,18 +385,27 @@ export function Sidebar({
         ) : (
           <box flexDirection="column" gap={0}>
             {/* Compact one-line controls preserve four actions inside the active card. */}
-            <box
-              flexDirection="row"
-              justifyContent="space-between"
-              onMouseDown={canDeploy ? onDeploy : undefined}
-            >
-              <text fg={canDeploy ? "#00d2ff" : "#e2e8f0"}>
-                <b>[D] ➜ Deploy</b>
-              </text>
-              <text fg="#64748b">
-                {pendingReinforcements > 0 ? `+${pendingReinforcements}` : "-"}
-              </text>
-            </box>
+            {pendingConquestMove && isMyTurn ? (
+              <box flexDirection="row" justifyContent="space-between">
+                <text fg="#a78bfa" onMouseDown={onDecreaseConquestMove}><b>[−]</b></text>
+                <text fg="#e9d5ff"><b>Move {conquestMoveUnits} / {pendingConquestMove.maximumUnits}</b></text>
+                <text fg="#a78bfa" onMouseDown={onIncreaseConquestMove}><b>[+]</b></text>
+                <text fg="#e9d5ff" onMouseDown={onConfirmConquestMove}><b>[Enter] Confirm</b></text>
+              </box>
+            ) : <>
+              <box flexDirection="row" gap={1}>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onDecreaseDeployment : undefined}><b>[−]</b></text>
+                <text fg={canDeploy ? "#e2e8f0" : "#64748b"}>{pendingReinforcements > 0 ? `${selectedDeploymentCount}/${pendingReinforcements}` : "-"}</text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onIncreaseDeployment : undefined}><b>[+]</b></text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onSelectMinimumDeployment : undefined}><b>[1]</b></text>
+                <text fg={canDeploy ? "#00d2ff" : "#64748b"} onMouseDown={canDeploy ? onSelectAllDeployments : undefined}><b>[All]</b></text>
+              </box>
+              {phase === "deployment" && <box onMouseDown={canDeploy ? onDeploy : undefined}>
+                <text fg={canDeploy ? "#00d2ff" : "#e2e8f0"}>
+                  <b>[D] ➜ Deploy</b><span fg="#64748b">  [/ adjust, 0 one]</span>
+                </text>
+              </box>}
+            </>}
 
             <box
               flexDirection="row"
@@ -403,7 +440,9 @@ export function Sidebar({
               }
             >
               <text fg={canSkipOrEnd ? "#ffaa00" : "#e2e8f0"}>
-                <b>{phase === "attack" ? "[E] » End Attack" : "[E] » End Turn"}</b>
+                <b>{phase === "attack"
+                  ? (pendingPhaseAction === "skip-attack" ? "[ Confirm Skip ]" : "[E] » End Attack")
+                  : (pendingPhaseAction === "end-turn" ? "[ Confirm End Turn ]" : "[E] » End Turn")}</b>
               </text>
             </box>
           </box>

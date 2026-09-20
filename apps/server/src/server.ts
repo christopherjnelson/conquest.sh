@@ -444,6 +444,12 @@ export class ConquestServer {
         break;
       }
 
+      case "client:complete_conquest_move": {
+        const res = room.completeConquestMove(playerId, msg.units);
+        if (!res.ok) this.sendError(ws, "ACTION_FAILED", res.error);
+        break;
+      }
+
       case "client:fortify": {
         const res = room.fortify(
           playerId,
