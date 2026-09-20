@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { GameState, Player, PlayerMatchResult } from "@conquest/protocol";
-import { getLayoutMode, type LayoutMode } from "@conquest/map-engine";
+import { getDefaultMap, getLayoutMode, type LayoutMode, type MapBundle } from "@conquest/map-engine";
 
 export interface MatchResultsScreenProps {
+  mapBundle?: MapBundle;
   state: GameState;
   myPlayerId: string | null;
   onRematch?: (ready: boolean) => void;
@@ -21,6 +22,7 @@ function formatDuration(ms: number): string {
 }
 
 export function MatchResultsScreen({
+  mapBundle = getDefaultMap(),
   state,
   myPlayerId,
   onRematch,
@@ -165,7 +167,7 @@ export function MatchResultsScreen({
           </text>
           {!isCompact && (
             <text fg="#6ee7b7">
-              <b>Sovereign {winnerName}, you have brought all realms of the Ironreach under your banner!</b>
+              <b>Sovereign {winnerName}, you have brought {mapBundle.definition.name} under your banner!</b>
             </text>
           )}
         </box>
@@ -188,7 +190,7 @@ export function MatchResultsScreen({
           </text>
           {!isCompact && (
             <text fg="#fca5a5">
-              <b>{winnerName} has achieved total domination over the Ironreach.</b>
+              <b>{winnerName} has achieved total domination over {mapBundle.definition.name}.</b>
             </text>
           )}
         </box>
@@ -321,7 +323,7 @@ export function MatchResultsScreen({
             {!isCompact && (
               <box flexDirection="row" justifyContent="space-between">
                 <text fg="#94a3b8">
-                  Battleground: <span fg="#e2e8f0"><b>Ironreach Realm (Sector 07)</b></span>
+                  Battleground: <span fg="#e2e8f0"><b>{mapBundle.definition.name}</b></span>
                 </text>
                 <text fg="#94a3b8">
                   Room Code: <span fg="#00d2ff"><b>{state.roomCode}</b></span>

@@ -2,11 +2,13 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { GameEvent, GameState } from "@conquest/protocol";
 import {
-  MAP_GRID_IRONREACH,
+  getDefaultMap,
+  getMap,
+  selectRenderVariant,
   getTerritoryAt,
   getNextTerritoryInDirection,
+  getNextTabTerritoryId,
   getMapContentDimensionsForTerminal,
-  getMapForTerminalDimensions,
   getLayoutMode,
   type LayoutMode,
 } from "@conquest/map-engine";
@@ -220,13 +222,24 @@ export function App({
   const myPlayer = state?.players.find((p) => p.id === myPlayerId);
   const isEliminated = Boolean(myPlayer && !myPlayer.isAlive);
   const phase = state?.phase ?? "deployment";
+  const mapBundle = getMap(state?.mapId ?? getDefaultMap().definition.id) ?? getDefaultMap();
+  const paneDimensions = getMapContentDimensionsForTerminal(dimensions.columns, dimensions.rows);
+  const activeMapDef = selectRenderVariant(mapBundle, paneDimensions).grid;
 
   const allTerritoryIds = useMemo(() => {
     if (state?.territories && Object.keys(state.territories).length > 0) {
       return Object.keys(state.territories);
     }
-    return MAP_GRID_IRONREACH.territories.map((t) => t.id);
-  }, [state]);
+    return mapBundle.definition.territories.map((t) => t.id);
+  }, [state, mapBundle]);
+
+  // Logical IDs are deliberately opaque to players.  The active bundle owns
+  // their human-readable names, including for maps added after this client.
+  const territoryName = useCallback((territoryId: string) => {
+    return mapBundle.definition.territories.find((territory) => territory.id === territoryId)?.name
+      ?? mapBundle.metadata.displayCodes[territoryId]
+      ?? "selected territory";
+  }, [mapBundle]);
 
   // Action Dispatchers
   const handleDeploy = useCallback(() => {
@@ -245,8 +258,8 @@ export function App({
     }
 
     client.deploy(selectedTerritoryId, state.pendingReinforcements);
-    showToast(`Deployed ${state.pendingReinforcements} reinforcements to ${selectedTerritoryId}`, "success");
-  }, [client, state, selectedTerritoryId, myPlayerId, showToast]);
+    showToast(`Deployed ${state.pendingReinforcements} reinforcements to ${territoryName(selectedTerritoryId)}`, "success");
+  }, [client, state, selectedTerritoryId, myPlayerId, showToast, territoryName]);
 
   const handleAttack = useCallback(() => {
     if (!state || !selectedTerritoryId) {
@@ -277,8 +290,8 @@ export function App({
     }
 
     client.attack(selectedTerritoryId, targetTerritoryId);
-    showToast(`Attacking ${targetTerritoryId} from ${selectedTerritoryId}...`, "info");
-  }, [client, state, selectedTerritoryId, targetTerritoryId, myPlayerId, showToast]);
+    showToast(`Attacking ${territoryName(targetTerritoryId)} from ${territoryName(selectedTerritoryId)}...`, "info");
+  }, [client, state, selectedTerritoryId, targetTerritoryId, myPlayerId, showToast, territoryName]);
 
   const handleFortify = useCallback(() => {
     if (!state || !selectedTerritoryId) {
@@ -306,10 +319,10 @@ export function App({
 
     const unitsToMove = Math.max(1, source.units - 1);
     client.fortify(selectedTerritoryId, targetTerritoryId, unitsToMove);
-    showToast(`Fortified ${unitsToMove} units to ${targetTerritoryId}`, "success");
+    showToast(`Fortified ${unitsToMove} units to ${territoryName(targetTerritoryId)}`, "success");
     setSelectedTerritoryId(null);
     setTargetTerritoryId(null);
-  }, [client, state, selectedTerritoryId, targetTerritoryId, myPlayerId, showToast]);
+  }, [client, state, selectedTerritoryId, targetTerritoryId, myPlayerId, showToast, territoryName]);
 
   const handleSkipPhase = useCallback(() => {
     client.skipPhase();
@@ -387,24 +400,9 @@ export function App({
 
     // Tab territory cycling
     if (key.name === "tab") {
-      if (allTerritoryIds.length === 0) return;
-      if (key.shift) {
-        if (!selectedTerritoryId) {
-          setSelectedTerritoryId(allTerritoryIds[allTerritoryIds.length - 1]);
-        } else {
-          const idx = allTerritoryIds.indexOf(selectedTerritoryId);
-          const prevIdx = (idx - 1 + allTerritoryIds.length) % allTerritoryIds.length;
-          setSelectedTerritoryId(allTerritoryIds[prevIdx]);
-        }
-      } else {
-        if (!selectedTerritoryId) {
-          setSelectedTerritoryId(allTerritoryIds[0]);
-        } else {
-          const idx = allTerritoryIds.indexOf(selectedTerritoryId);
-          const nextIdx = (idx + 1) % allTerritoryIds.length;
-          setSelectedTerritoryId(allTerritoryIds[nextIdx]);
-        }
-      }
+      const nextId = getNextTabTerritoryId(allTerritoryIds, selectedTerritoryId, key.shift);
+      if (!nextId) return;
+      setSelectedTerritoryId(nextId);
       setTargetTerritoryId(null);
       return;
     }
@@ -413,11 +411,10 @@ export function App({
     if (["up", "down", "left", "right"].includes(key.name)) {
       if (allTerritoryIds.length === 0) return;
       if (!selectedTerritoryId) {
-        setSelectedTerritoryId("C2");
+        setSelectedTerritoryId(mapBundle.metadata.navigationAnchorTerritoryId);
         return;
       }
       const dir = key.name as "up" | "down" | "left" | "right";
-      const activeMapDef = getMapForTerminalDimensions(dimensions.columns, dimensions.rows);
       const nextId = getNextTerritoryInDirection(selectedTerritoryId, dir, activeMapDef);
       if (nextId) {
         setSelectedTerritoryId(nextId);
@@ -465,6 +462,7 @@ export function App({
   if (state && state.phase === "game_over") {
     return (
       <MatchResultsScreen
+        mapBundle={mapBundle}
         state={state}
         myPlayerId={myPlayerId}
         onRematch={(ready) => client.requestRematch(ready)}
@@ -518,6 +516,7 @@ export function App({
           {/* Top: Full-width MapCanvas */}
           <box flexGrow={1} flexDirection="column" style={{ width: "100%" }}>
             <MapCanvas
+              mapBundle={mapBundle}
               viewport="compact"
               terminalDimensions={dimensions}
               territories={state?.territories ?? {}}
@@ -542,6 +541,7 @@ export function App({
 
           {/* Compact Inspector Strip beneath Map */}
           <CompactInspector
+            mapBundle={mapBundle}
             state={state}
             myPlayerId={myPlayerId}
             selectedTerritoryId={selectedTerritoryId}
@@ -572,6 +572,7 @@ export function App({
           {/* The standard pane favors readable inspector columns; wide keeps the canonical map raster at full width. */}
           <box flexGrow={layoutMode === "wide" ? 3 : 5} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
             <MapCanvas
+              mapBundle={mapBundle}
               contentDimensions={getMapContentDimensionsForTerminal(dimensions.columns, dimensions.rows)}
               terminalDimensions={dimensions}
               territories={state?.territories ?? {}}
@@ -597,6 +598,7 @@ export function App({
           {/* Right: Sidebar (~29% standard, preserving the wide map's 25% raster contract) */}
           <box flexGrow={layoutMode === "wide" ? 1 : 2} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
             <Sidebar
+              mapBundle={mapBundle}
               state={state}
               myPlayerId={myPlayerId}
               roomCode={client.roomCode}
@@ -619,6 +621,7 @@ export function App({
 
       {/* EventLog beneath Map + Sidebar (width 100%) */}
       <EventLog
+        mapBundle={mapBundle}
         events={events}
         chatOpen={chatOpen}
         players={state?.players ?? []}

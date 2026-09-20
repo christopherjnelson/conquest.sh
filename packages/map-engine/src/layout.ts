@@ -30,14 +30,14 @@ export const NODE_HEIGHT = 5;
 
 export interface TerritoryLike {
   id?: string;
-  position: { x: number; y: number };
+  position?: { x: number; y: number };
   render?: TerritoryRender;
 }
 
 export function getTerritoryBounds(territory: TerritoryLike): BoundingBox {
   return {
-    x: territory.position.x,
-    y: territory.position.y,
+    x: territory.position?.x ?? 0,
+    y: territory.position?.y ?? 0,
     width: territory.render?.width ?? NODE_WIDTH,
     height: territory.render?.height ?? NODE_HEIGHT,
   };

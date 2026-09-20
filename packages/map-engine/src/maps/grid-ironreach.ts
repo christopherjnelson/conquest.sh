@@ -1,64 +1,9 @@
-import type { MapDefinition, TerritoryDefinition } from "@conquest/game-core";
+
+import type { GridMapDefinition, GridTerritoryMetadata, GridSeaRoute, GridMapDecoration, GridMapDecorations } from "../types.js";
 import type { Sector } from "@conquest/protocol";
-
-export interface GridTerritoryMetadata extends TerritoryDefinition {
-  id: string;
-  name: string;
-  char: string;
-  sectorId: string;
-  regionId: string;
-  regionName: string;
-  regionBonus: number;
-  regionColor: string;
-  neighbors: string[];
-  labelPos: { x: number; y: number };
-  position: { x: number; y: number };
-  icon: string;
-  flavor: string;
-  render: {
-    width?: number;
-    height?: number;
-    flavor: string;
-  };
-}
-
-export interface GridSeaRoute {
-  from: string;
-  to: string;
-  path: Array<{ x: number; y: number }>;
-}
-
-export interface GridMapDecoration {
-  x: number;
-  y: number;
-  text: string;
-}
-
-export interface GridMapDecorations {
-  waves: GridMapDecoration[];
-  mountains: GridMapDecoration[];
-  trees: GridMapDecoration[];
-  compass: { x: number; y: number };
-  scaleBar: { x: number; y: number };
-  oceanLabels?: GridMapDecoration[];
-}
-
-export interface GridMapDefinition extends MapDefinition {
-  id: string;
-  name: string;
-  description: string;
-  width: number;
-  height: number;
-  recommendedPlayers: { min: number; max: number };
-  template: string[];
-  microTemplate: string[];
-  charToTerritoryId: Record<string, string>;
-  territoryIdToChar: Record<string, string>;
-  territories: GridTerritoryMetadata[];
-  sectors: Sector[];
-  seaRoutes: GridSeaRoute[];
-  decorations: GridMapDecorations;
-}
+import { deriveCoarseTemplateFromMicro } from "../raster.js";
+export { deriveCoarseTemplateFromMicro } from "../raster.js";
+export type { GridMapDefinition, GridTerritoryMetadata, GridSeaRoute, GridMapDecoration, GridMapDecorations } from "../types.js";
 
 export const GRID_CANVAS_COMPACT_WIDTH = 104;
 export const GRID_CANVAS_COMPACT_HEIGHT = 30;
@@ -144,34 +89,6 @@ export const GRID_SECTORS: Sector[] = [
 /**
  * Derives a legacy coarse 2D character template (height/2) from the canonical microcell raster.
  */
-export function deriveCoarseTemplateFromMicro(microTemplate: string[]): string[] {
-  const height = Math.floor(microTemplate.length / 2);
-  const width = microTemplate[0].length;
-  const coarseRows: string[] = [];
-
-  for (let y = 0; y < height; y++) {
-    let row = "";
-    const top = microTemplate[2 * y];
-    const bot = microTemplate[2 * y + 1];
-    for (let x = 0; x < width; x++) {
-      const tc = top[x];
-      const bc = bot[x];
-      if (tc === bc) {
-        row += tc;
-      } else if (tc !== "." && bc === ".") {
-        row += tc;
-      } else if (tc === "." && bc !== ".") {
-        row += bc;
-      } else {
-        row += tc;
-      }
-    }
-    coarseRows.push(row);
-  }
-
-  return coarseRows;
-}
-
 export const MICRO_TEMPLATE_COMPACT: string[] = [
   ".........BBB..........AAA...................GG..........................................................", // 0
   ".......BBBBBBB......AAAAAAA...............GGGGGG........................................................", // 1

@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import type { GameEvent, Player } from "@conquest/protocol";
-import type { LayoutMode } from "@conquest/map-engine";
-import { MAP_GRID_IRONREACH, MAP_IRONREACH } from "@conquest/map-engine";
+import { getDefaultMap, type LayoutMode, type MapBundle } from "@conquest/map-engine";
 
 export interface EventLogProps {
+  mapBundle?: MapBundle;
   events: GameEvent[];
   chatOpen: boolean;
   players: Player[];
@@ -47,14 +47,15 @@ export function splitEventSender(text: string, senderName?: string) {
 export function formatEvent(
   e: GameEvent,
   players: Player[],
-  historicalPlayerNames: ReadonlyMap<string, string> = new Map()
+  historicalPlayerNames: ReadonlyMap<string, string> = new Map(),
+  mapBundle: MapBundle = getDefaultMap()
 ): { text: string; color: string } {
   const getPlayerName = (id: string) =>
     players.find((p) => p.id === id)?.name ?? historicalPlayerNames.get(id) ?? id;
   const getTerritoryName = (id: string) => {
     const norm = id.toLowerCase().replace(/[_\s-]+/g, "");
     const found =
-      MAP_GRID_IRONREACH.territories.find(
+      mapBundle.definition.territories.find(
         (t) =>
           t.id === id ||
           t.id.toLowerCase() === id.toLowerCase() ||
@@ -81,7 +82,7 @@ export function formatEvent(
       };
     case "game_started":
       return {
-        text: `⚔ WAR FOR THE IRONREACH HAS BEGUN ── Turn 1 ⚔`,
+        text: `⚔ WAR FOR ${mapBundle.definition.name.toUpperCase()} HAS BEGUN ── Turn 1 ⚔`,
         color: "#ffaa00",
       };
     case "phase_changed":
@@ -186,6 +187,7 @@ function getHistoricalPlayerNames(events: GameEvent[], players: Player[]): Map<s
 }
 
 export function EventLog({
+  mapBundle = getDefaultMap(),
   events,
   chatOpen,
   players,
@@ -199,7 +201,7 @@ export function EventLog({
   const formattedItems: FormattedEventItem[] =
     events.length > 0
       ? events.map((e) => {
-          const { text, color } = formatEvent(e, players, historicalPlayerNames);
+          const { text, color } = formatEvent(e, players, historicalPlayerNames, mapBundle);
           const category = getEventCategory(e);
           let senderName: string | undefined;
           let senderColor: string | undefined;

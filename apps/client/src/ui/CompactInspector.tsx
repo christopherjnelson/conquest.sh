@@ -1,8 +1,9 @@
 import React from "react";
 import type { GamePhase, GameState } from "@conquest/protocol";
-import { MAP_GRID_IRONREACH } from "@conquest/map-engine";
+import { getDefaultMap, type MapBundle } from "@conquest/map-engine";
 
 export interface CompactInspectorProps {
+  mapBundle?: MapBundle;
   state: GameState | null;
   myPlayerId: string | null;
   selectedTerritoryId: string | null;
@@ -21,6 +22,7 @@ export interface CompactInspectorProps {
 }
 
 export function CompactInspector({
+  mapBundle = getDefaultMap(),
   state,
   myPlayerId,
   selectedTerritoryId,
@@ -52,13 +54,14 @@ export function CompactInspector({
       : "none";
 
   const territoryState = displayTid ? territories[displayTid] : undefined;
-  const gridDef = displayTid ? MAP_GRID_IRONREACH.territories.find((t) => t.id === displayTid) : undefined;
+  const gridDef = displayTid ? mapBundle.definition.territories.find((t) => t.id === displayTid) : undefined;
+  const region = mapBundle.definition.sectors.find(s => s.id === gridDef?.sectorId);
 
   const territoryName = gridDef?.name ?? territoryState?.name ?? displayTid ?? "";
-  const sectorName = gridDef?.regionName ?? "Sector";
-  const bonus = gridDef?.regionBonus ?? 2;
+  const sectorName = region?.name ?? mapBundle.metadata.regionSingular;
+  const bonus = region?.bonusReinforcements ?? 0;
   const neighbors = gridDef?.neighbors ?? territoryState?.neighbors ?? [];
-  const neighborsStr = neighbors.join(", ");
+  const neighborsStr = neighbors.map(id => mapBundle.metadata.displayCodes[id] ?? id).join(", ");
 
   const ownerId = territoryState?.ownerId;
   const owner = ownerId ? players.find((p) => p.id === ownerId) : undefined;
@@ -121,7 +124,7 @@ export function CompactInspector({
 
             {/* Territory ID & Name */}
             <text>
-              <span fg="#ffffff"><b>[{displayTid}]</b> </span>
+              <span fg="#ffffff"><b>[{mapBundle.metadata.displayCodes[displayTid] ?? displayTid}]</b> </span>
               <span fg="#00d2ff"><b>{territoryName}</b></span>
             </text>
 
@@ -241,7 +244,7 @@ export function CompactInspector({
                 onMouseDown={canAttack ? onAttack : undefined}
               >
                 <text fg={canAttack ? "#00ffff" : "#64748b"}>
-                  <b>{targetTerritoryId ? `[ ⚔ Attack ${targetTerritoryId} ]` : "[ ⚔ Attack ]"}</b>
+                  <b>{targetTerritoryId ? `[ ⚔ Attack ${mapBundle.metadata.displayCodes[targetTerritoryId] ?? targetTerritoryId} ]` : "[ ⚔ Attack ]"}</b>
                 </text>
               </box>
             )}

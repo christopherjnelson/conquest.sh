@@ -65,6 +65,8 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       if (parsed.success) {
         expect(parsed.data.serverName).toBe("Apex-Ironreach-Prime");
         expect(parsed.data.defaultMap).toBe("The Ironreach");
+        expect(parsed.data.availableMaps.map(map => map.id)).toContain("earth-42");
+        expect(parsed.data.availableMaps.map(map => map.id)).toContain("ironreach");
         expect(parsed.data.roomsCount).toBeGreaterThanOrEqual(0);
       }
     });
@@ -83,6 +85,16 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
   });
 
   describe("Room Creation, Visibility & Joining", () => {
+    it("accepts a valid requested map and keeps its ID in lobby state", async () => {
+      const client = new GameClient({ host: `localhost:${port}`, sessionFilePath: sessionFile1,
+        forceNewSession: true, autoReconnect: false });
+      await client.connect();
+      client.createRoom({ playerName: "EarthHost", displayName: "Earth Test", mapId: "earth-42" });
+      const state = await client.waitForSnapshot(s => s.phase === "lobby" && s.mapId === "earth-42");
+      expect(state.mapId).toBe("earth-42");
+      expect(server.roomManager.getRoom(state.roomCode)?.map.id).toBe("earth-42");
+      client.disconnect();
+    });
     it("joining a non-existent room code returns ROOM_NOT_FOUND without creating a room", async () => {
       const client = new GameClient({
         host: `localhost:${port}`,

@@ -762,6 +762,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     const gridServer = new ConquestServer({
       port: 0,
       serverName: "test-grid-server",
+      defaultMap: MAP_IRONREACH,
       maxPlayersPerRoom: 2,
     });
     gridServer.start();

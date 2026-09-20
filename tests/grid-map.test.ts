@@ -42,7 +42,7 @@ import defaultMap, {
 
 describe("grid-map: 2D Ironreach territory grid engine", () => {
   it("exports MAP_GRID_IRONREACH and matches wide canvas dimensions (136x36)", () => {
-    expect(defaultMap).toBe(MAP_GRID_IRONREACH);
+    expect(defaultMap.id).toBe("earth-42");
     expect(MAP_IRONREACH).toBe(MAP_GRID_IRONREACH);
     expect(MAP_GRID_IRONREACH).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(MAP_GRID_IRONREACH.width).toBe(136);
@@ -294,13 +294,13 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
     expect(getTerritoryAt(72, 15, MAP_GRID_IRONREACH)).toBeNull(); // Eastern Sound strait
 
     // Out of bounds resolution
-    expect(getTerritoryAt(-1, 0)).toBeNull();
-    expect(getTerritoryAt(0, -1)).toBeNull();
+    expect(getTerritoryAt(-1, 0, MAP_GRID_IRONREACH)).toBeNull();
+    expect(getTerritoryAt(0, -1, MAP_GRID_IRONREACH)).toBeNull();
     expect(getTerritoryAt(136, 0, MAP_GRID_IRONREACH)).toBeNull();
     expect(getTerritoryAt(0, 36, MAP_GRID_IRONREACH)).toBeNull();
     expect(getTerritoryAt(104, 0, MAP_GRID_IRONREACH_COMPACT)).toBeNull();
     expect(getTerritoryAt(0, 30, MAP_GRID_IRONREACH_COMPACT)).toBeNull();
-    expect(getTerritoryAt(999, 999)).toBeNull();
+    expect(getTerritoryAt(999, 999, MAP_GRID_IRONREACH)).toBeNull();
   });
 
   it("detects border cells and orientation flags correctly", () => {
@@ -322,10 +322,10 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
     expect(isBorderCell(7, 0, MAP_GRID_IRONREACH_COMPACT)).toBe(true);
 
     // Water cell (0, 0)
-    const water = getBorderInfo(0, 0);
+    const water = getBorderInfo(0, 0, MAP_GRID_IRONREACH);
     expect(water.territoryId).toBeNull();
     expect(water.isBorder).toBe(false);
-    expect(isBorderCell(0, 0)).toBe(false);
+    expect(isBorderCell(0, 0, MAP_GRID_IRONREACH)).toBe(false);
   });
 
   it("defines sea routes connecting coastal territories across water", () => {

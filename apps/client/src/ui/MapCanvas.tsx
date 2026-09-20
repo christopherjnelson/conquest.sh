@@ -1,21 +1,20 @@
 import React from "react";
 import type { GamePhase, Player, TerritoryState } from "@conquest/protocol";
 import {
-  MAP_GRID_IRONREACH,
-  MAP_GRID_IRONREACH_COMPACT,
-  MAP_GRID_IRONREACH_WIDE,
+  getDefaultMap,
+  selectRenderVariant,
+  type MapBundle,
   type GridMapDefinition,
   getBorderInfo,
   getGeographyBoundingBox,
   getTerritoryAt,
   getMicroTerritoryAt,
   getTerritoryAtCell,
-  getMapForDimensions,
   getMapContentDimensionsForTerminal,
-  getMapForTerminalDimensions,
 } from "@conquest/map-engine";
 
 export interface MapCanvasProps {
+  mapBundle?: MapBundle;
   territories: Record<string, TerritoryState>;
   players: Player[];
   myPlayerId: string | null;
@@ -83,9 +82,17 @@ function mixColors(c1: string, c2: string, weight1: number): string {
   );
 }
 
+export function stableIdHash(id: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
+  }
+  return hash >>> 0;
+}
+
 // Background tint based on owner/region color
 function getDarkTint(color: string, tid?: string | null): string {
-  const isOdd = tid ? (tid.charCodeAt(1) || 0) % 2 === 1 : false;
+  const isOdd = tid ? stableIdHash(tid) % 2 === 1 : false;
   // Owned interiors need enough chroma to read as connected realms at a
   // whole-screen glance, while coastlines and selected cyan stay brighter.
   const weight = isOdd ? 0.42 : 0.36;
@@ -115,7 +122,7 @@ function getHoverTint(color: string): string {
 }
 
 function getPoliticalBorderTint(color: string, tid?: string | null): string {
-  const isOdd = tid ? (tid.charCodeAt(1) || 0) % 2 === 1 : false;
+  const isOdd = tid ? stableIdHash(tid) % 2 === 1 : false;
   const weight = isOdd ? 0.65 : 0.55;
   return mixColors(color, "#080f1a", weight);
 }
@@ -137,7 +144,7 @@ export function getTerrainTextureMark(
   // modulus creates visible diagonals/columns on a grid, which reads like a
   // circuit trace rather than terrain. This mix has no repeating row or
   // column relationship at the map's scale.
-  const territorySeed = territoryId.charCodeAt(0) * 0x9e37 + territoryId.charCodeAt(1) * 0x85eb;
+  const territorySeed = stableIdHash(territoryId);
   let value = Math.imul(x + territorySeed, 0x85ebca6b) ^ Math.imul(microY + territorySeed, 0xc2b2ae35);
   value ^= value >>> 16;
   value = Math.imul(value, 0x7feb352d);
@@ -279,11 +286,8 @@ function buildDecorationsGrid(mapDef: GridMapDefinition) {
   return grid;
 }
 
-// Module-level precomputed sea routes and decorations for compact and wide
-const COMPACT_SEA_ROUTES = buildSeaRoutesGrid(MAP_GRID_IRONREACH_COMPACT);
-const WIDE_SEA_ROUTES = buildSeaRoutesGrid(MAP_GRID_IRONREACH_WIDE);
-const COMPACT_DECORATIONS = buildDecorationsGrid(MAP_GRID_IRONREACH_COMPACT);
-const WIDE_DECORATIONS = buildDecorationsGrid(MAP_GRID_IRONREACH_WIDE);
+const seaRouteCache = new WeakMap<GridMapDefinition, ReturnType<typeof buildSeaRoutesGrid>>();
+const decorationCache = new WeakMap<GridMapDefinition, ReturnType<typeof buildDecorationsGrid>>();
 
 export interface MapRenderLayout {
   width: number;
@@ -331,6 +335,7 @@ export function mouseEventToMapCell(event: any): { x: number; y: number } | null
 }
 
 export function MapCanvas({
+  mapBundle = getDefaultMap(),
   territories,
   players,
   myPlayerId,
@@ -346,21 +351,21 @@ export function MapCanvas({
   onSelectTarget,
   onDeselect,
 }: MapCanvasProps) {
-  const activeMap: GridMapDefinition =
-    viewport === "compact"
-      ? MAP_GRID_IRONREACH_COMPACT
-      : viewport === "wide"
-      ? MAP_GRID_IRONREACH_WIDE
-      : contentDimensions
-      ? getMapForDimensions(contentDimensions.width, contentDimensions.height)
-      : terminalDimensions
-      ? getMapForTerminalDimensions(terminalDimensions.columns, terminalDimensions.rows)
-      : MAP_GRID_IRONREACH_COMPACT;
-
-  const staticSeaRoutes =
-    activeMap.width === MAP_GRID_IRONREACH_WIDE.width ? WIDE_SEA_ROUTES : COMPACT_SEA_ROUTES;
-  const staticDecorations =
-    activeMap.width === MAP_GRID_IRONREACH_WIDE.width ? WIDE_DECORATIONS : COMPACT_DECORATIONS;
+  const pane = contentDimensions ?? (terminalDimensions
+    ? viewport === "compact"
+      ? { width: Math.max(0, terminalDimensions.columns - 2), height: Math.max(0, terminalDimensions.rows - 15) }
+      : getMapContentDimensionsForTerminal(terminalDimensions.columns, terminalDimensions.rows)
+    : { width: Infinity, height: Infinity });
+  const explicitProfile = !terminalDimensions && !contentDimensions && viewport
+    ? mapBundle.renderVariants.find(variant => variant.profile === viewport)
+    : undefined;
+  const activeMap: GridMapDefinition = (explicitProfile ?? (!terminalDimensions && !contentDimensions
+    ? mapBundle.renderVariants[0]
+    : selectRenderVariant(mapBundle, pane))).grid;
+  let staticSeaRoutes = seaRouteCache.get(activeMap);
+  if (!staticSeaRoutes) { staticSeaRoutes = buildSeaRoutesGrid(activeMap); seaRouteCache.set(activeMap, staticSeaRoutes); }
+  let staticDecorations = decorationCache.get(activeMap);
+  if (!staticDecorations) { staticDecorations = buildDecorationsGrid(activeMap); decorationCache.set(activeMap, staticDecorations); }
   const availableContentW = contentDimensions
     ? contentDimensions.width
     : terminalDimensions
@@ -454,13 +459,14 @@ export function MapCanvas({
       Math.round(run.minX + (run.maxX - run.minX + 1 - textWidth) / 2);
 
     const nameWords = t.name.toUpperCase().split(" ");
+    const displayCode = t.displayCode ?? t.id;
     const shortName = nameWords[0].slice(0, 4);
-    const nameCandidates = [
+    const nameCandidates = t.displayLabel ? [t.displayLabel, displayCode] : [
       t.name.toUpperCase(),
       nameWords.length > 1 ? `${nameWords[0][0]}. ${nameWords.slice(1).join(" ")}` : "",
       nameWords[0],
       shortName,
-      t.id,
+      displayCode,
     ].filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
     const candidateRows = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]
       .map((offset) => t.labelPos.y + offset)
@@ -468,10 +474,10 @@ export function MapCanvas({
     const line1Placement = nameCandidates
       .flatMap((text) => candidateRows.map((row) => ({ text, row, run: findSafeRun(row, text.length) })))
       .find((placement) => placement.run !== null);
-    const line1Text = line1Placement?.text ?? t.id;
-    const line1Y = line1Placement?.row ?? t.labelPos.y;
+    const line1Text = line1Placement?.text ?? displayCode;
+    let line1Y = line1Placement?.row ?? t.labelPos.y;
     const line1Run = line1Placement?.run ?? null;
-    const line1StartX = line1Run ? startInRun(line1Run, line1Text.length) : t.labelPos.x;
+    let line1StartX = line1Run ? startInRun(line1Run, line1Text.length) : t.labelPos.x;
 
     // Line 1 is the visual anchor. The name is primary; the concise ID and
     // army count sit beneath it so dense territories remain scannable.
@@ -485,11 +491,39 @@ export function MapCanvas({
           true
         );
       }
+    } else if (t.displayCode) {
+      // Small islands and dense straits may have no all-interior text run.
+      // Place their authored code across nearby water while keeping the
+      // anchor on its territory, as a conventional cartographic label.
+      const candidates: Array<{ x: number; y: number; score: number }> = [];
+      for (const row of candidateRows) for (let x = t.labelPos.x - displayCode.length - 4; x <= t.labelPos.x + 4; x++) {
+        if (x < 0 || x + displayCode.length > activeMap.width) continue;
+        let own = 0;
+        let foreign = 0;
+        let occupied = 0;
+        for (let i = 0; i < displayCode.length; i++) {
+          const id = getTerritoryAt(x + i, row, activeMap);
+          if (id === t.id) own++;
+          else if (id) foreign++;
+          if (labelMap[row]?.[x + i]) occupied++;
+        }
+        if (own > 0 && occupied === 0) candidates.push({ x, y: row,
+          score: foreign * 100 + Math.abs(row - t.labelPos.y) * 5 + Math.abs(x + displayCode.length / 2 - t.labelPos.x) - own });
+      }
+      candidates.sort((a, b) => a.score - b.score);
+      const chosen = candidates[0];
+      if (chosen) {
+        line1Y = chosen.y;
+        line1StartX = chosen.x;
+        for (let i = 0; i < displayCode.length; i++) {
+          setLabelPoint(chosen.x + i, chosen.y, displayCode[i], "#f8fafc", true);
+        }
+      }
     }
 
     // Line 2: secondary ID, icon and immediately readable unit count.
     const unitDigits = String(units);
-    const line2TextWidth = t.id.length + 3 + unitDigits.length;
+    const line2TextWidth = displayCode.length + 3 + unitDigits.length;
     const line2Rows = [line1Y + 1, line1Y - 1, ...candidateRows]
       .filter((row, index, rows) => row >= 0 && row < activeMap.height && row !== line1Y && rows.indexOf(row) === index);
     const line2Placement = line2Rows
@@ -498,7 +532,7 @@ export function MapCanvas({
     const line2Run = line2Placement?.run ?? null;
     // If a narrow territory cannot carry the icon, keep the compact ID/count
     // on owned land rather than allowing any label glyph to cross a coastline.
-    const compactLine2Width = t.id.length + 1 + unitDigits.length;
+    const compactLine2Width = displayCode.length + 1 + unitDigits.length;
     const compactLine2Placement = line2Run
       ? null
       : line2Rows
@@ -512,18 +546,18 @@ export function MapCanvas({
       ? startInRun(compactLine2Run, compactLine2Width)
       : null;
     if (line2StartX === null || line2Y === null) continue;
-    for (let i = 0; i < t.id.length; i++) {
-      setLabelPoint(line2StartX + i, line2Y, t.id[i], "#67e8f9", true);
+    for (let i = 0; i < displayCode.length; i++) {
+      setLabelPoint(line2StartX + i, line2Y, displayCode[i], "#67e8f9", true);
     }
     if (line2Run) {
-      setLabelPoint(line2StartX + t.id.length, line2Y, " ", "#94a3b8", false);
-      setLabelPoint(line2StartX + t.id.length + 1, line2Y, t.icon, ownerColor, true);
-      setLabelPoint(line2StartX + t.id.length + 2, line2Y, " ", "#ffffff", false);
+      setLabelPoint(line2StartX + displayCode.length, line2Y, " ", "#94a3b8", false);
+      setLabelPoint(line2StartX + displayCode.length + 1, line2Y, t.icon, ownerColor, true);
+      setLabelPoint(line2StartX + displayCode.length + 2, line2Y, " ", "#ffffff", false);
     } else {
-      setLabelPoint(line2StartX + t.id.length, line2Y, " ", "#94a3b8", false);
+      setLabelPoint(line2StartX + displayCode.length, line2Y, " ", "#94a3b8", false);
     }
     for (let i = 0; i < unitDigits.length; i++) {
-      setLabelPoint(line2StartX + t.id.length + (line2Run ? 3 : 1) + i, line2Y, unitDigits[i], "#ffffff", true);
+      setLabelPoint(line2StartX + displayCode.length + (line2Run ? 3 : 1) + i, line2Y, unitDigits[i], "#ffffff", true);
     }
   }
 

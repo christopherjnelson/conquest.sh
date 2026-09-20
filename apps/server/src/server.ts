@@ -11,7 +11,7 @@ import {
   type ServerWelcome,
 } from "@conquest/protocol";
 import type { MapDefinition } from "@conquest/game-core";
-import { MAP_GRID_IRONREACH, MAP_IRONREACH } from "@conquest/map-engine";
+import { getDefaultMap, getMap, listMaps } from "@conquest/map-engine";
 import { logger } from "@conquest/shared";
 import { RoomManager, type GameRoom } from "./room.js";
 import { SessionStore, type SessionRecord } from "./session.js";
@@ -48,7 +48,7 @@ export class ConquestServer {
     this.serverName = options?.serverName ?? "conquest.sh-server";
     this.sessionStore = options?.sessionStore ?? new SessionStore(options?.dbPath ?? ":memory:");
     this.roomManager = new RoomManager({
-      defaultMap: options?.defaultMap ?? MAP_GRID_IRONREACH,
+      defaultMap: options?.defaultMap ?? getDefaultMap().definition,
       defaultMaxPlayers: options?.maxPlayersPerRoom ?? 4,
     });
   }
@@ -81,6 +81,11 @@ export class ConquestServer {
             roomsCount: self.roomManager.getRoomsCount(),
             playersCount: self.roomManager.getTotalPlayersCount(),
             defaultMap: self.roomManager.defaultMap.name,
+            availableMaps: listMaps().map(({ definition }) => ({
+              id: definition.id, name: definition.name,
+              territoryCount: definition.territories.length,
+              recommendedPlayers: definition.recommendedPlayers,
+            })),
             maxPlayersPerRoom: self.roomManager.defaultMaxPlayers,
           });
         }
@@ -357,10 +362,16 @@ export class ConquestServer {
       ws.data.playerId = undefined;
     }
 
+    const requestedMap = msg.mapId ? getMap(msg.mapId) : undefined;
+    if (msg.mapId && !requestedMap) {
+      this.sendError(ws, "UNKNOWN_MAP", `Unknown map: ${msg.mapId}`);
+      return;
+    }
     const room = this.roomManager.createCustomRoom({
       displayName: msg.displayName,
       visibility: msg.visibility,
       maxPlayers: msg.maxPlayers,
+      map: requestedMap?.definition,
     });
 
     const newSession = this.sessionStore.create(msg.playerName, room.roomCode);

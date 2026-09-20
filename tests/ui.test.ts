@@ -1,3 +1,5 @@
+import { getMap } from "../packages/map-engine/src/registry.js";
+const ironreachBundle = getMap("ironreach")!;
 import { describe, expect, it } from "bun:test";
 import { formatEvent } from "../apps/client/src/ui/EventLog.js";
 import {
@@ -73,7 +75,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("⚔ Alice captured Highwatch from Bob!");
     expect(formatted.color).toBe("#ff3399");
   });
@@ -93,7 +95,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("🎲 Battle at Highwatch: Alice vs Bob (-1 att, -0 def)");
     expect(formatted.color).toBe("#f97316");
   });
@@ -108,7 +110,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("🛡 Alice reinforced Frostfell (+3 armies)");
     expect(formatted.color).toBe("#00ff66");
   });
@@ -123,7 +125,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("🛡 Alice fortified 2 armies to Iron Hollow");
     expect(formatted.color).toBe("#9966ff");
   });
@@ -136,7 +138,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("💀 Bob has fallen in battle!");
     expect(formatted.color).toBe("#ff4444");
   });
@@ -149,7 +151,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("👑 Alice has conquered the entire realm!");
     expect(formatted.color).toBe("#ffaa00");
   });
@@ -227,6 +229,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
   it("renders MapCanvas as a 2D cellular grid without rectangular territory boxes", async () => {
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const el: any = MapCanvas({
+      mapBundle: ironreachBundle,
       territories: {},
       players: testPlayers,
       myPlayerId: "p1",
@@ -261,6 +264,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
 
     // 1. Lobby phase: unclaimed interiors retain a subdued regional wash.
     const lobbyEl: any = MapCanvas({
+      mapBundle: ironreachBundle,
       territories: {},
       players: testPlayers,
       myPlayerId: "p1",
@@ -288,6 +292,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
 
     // 2. Active game phase: territory owned by p1 (colorHex: "#00d2ff")
     const activeEl: any = MapCanvas({
+      mapBundle: ironreachBundle,
       territories: {
         A1: {
           id: "A1",
@@ -327,6 +332,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
   it("renders Sidebar with 4 cards matching ref.png", async () => {
     const { Sidebar } = await import("../apps/client/src/ui/Sidebar.js");
     const el: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "C2",
@@ -684,6 +690,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         { flexDirection: "column", style: { width: 150, height: 45 } },
         React.createElement("box", { style: { width: 150, height: headerHeight } }),
         React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
           territories: {},
           players: testPlayers,
           myPlayerId: "p1",
@@ -758,6 +765,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         { flexDirection: "column", style: { width: 160, height: 50 } },
         React.createElement("box", { style: { width: 160, height: headerHeight } }),
         React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
           territories: {},
           players: testPlayers,
           myPlayerId: "p1",
@@ -905,6 +913,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     // 1. No territory selected: honest prompt, no fake Casey or Frostfell defaults
     const unselectedEl: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: null,
@@ -921,6 +930,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     // 2. Territory selected (e.g. A1): shows real name, sector, owner 'Unclaimed'
     const selectedEl: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -947,6 +957,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
       pendingReinforcements: 0,
     };
     const lobbySidebar: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: lobbyState,
       myPlayerId: "p1",
       selectedTerritoryId: null,
@@ -984,6 +995,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     const setup = await testRender(
       React.createElement(EventLog, {
+          mapBundle: ironreachBundle,
         events: [],
         chatOpen: false,
         players: samplePlayers,
@@ -1034,6 +1046,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
         territories: {},
         players: [],
         myPlayerId: "p1",
@@ -1064,7 +1077,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
 describe("ui: Responsive fullscreen layout & terminal size tests", () => {
   const mockClient: any = {
-    state: null,
+    state: { mapId: "ironreach", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 },
     myPlayerId: "p1",
     status: "connected",
     roomCode: "H5CM",
@@ -1560,6 +1573,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 1. Uninspected: Displays player summary and lobby ready button
     const uninspected: any = CompactInspector({
+      mapBundle: ironreachBundle,
       state: {
         phase: "lobby",
         turnNumber: 0,
@@ -1591,6 +1605,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 2. Hovered territory A1 without selection: displays [HOVERED]
     const hoveredEl: any = CompactInspector({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: null,
@@ -1611,6 +1626,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 3. Selected territory A1: displays [SELECTED]
     const selectedEl: any = CompactInspector({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -1630,6 +1646,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 4. Hovering B1 while A1 is selected: displays B1 with [HOVERED]
     const hoverWhileSelectedEl: any = CompactInspector({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -1649,6 +1666,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 5. Reverting to A1 when hover cleared
     const revertedEl: any = CompactInspector({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -1671,6 +1689,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // Standard mode: Cards 1-3 rendered, Card 4 omitted
     const standardEl: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -1692,6 +1711,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // Wide mode: All 4 cards rendered with updated terminology
     const wideEl: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -1711,7 +1731,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     const wideStr = JSON.stringify(wideEl);
     expect(wideStr).toContain("The Ironreach");
-    expect(wideStr).toContain("20 Territories");
+    expect(wideStr).toContain('20," Territories"');
     expect(wideStr).not.toContain("20 Realms");
   });
 
@@ -1773,6 +1793,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
         territories: {},
         players: testPlayers,
         myPlayerId: "p1",
@@ -1820,6 +1841,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
         territories,
         players: testPlayers,
         myPlayerId: "p1",
@@ -1867,6 +1889,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
         territories,
         players: testPlayers,
         myPlayerId: "p1",

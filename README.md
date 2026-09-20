@@ -12,17 +12,19 @@
 
 A modern, multiplayer-first terminal territorial strategy game built with **OpenTUI** (`@opentui/core` + `@opentui/react`), **TypeScript**, and **Bun**.
 
-Inspired by classic grand strategy territory-control loops, reimagined as a terminal-native, clickable, keyboard-first tactical battle for continental dominion.
+Inspired by classic grand strategy territory-control loops, reimagined as a terminal-native, clickable, keyboard-first tactical battle for global dominion.
 
 ---
 
 ## Features
 
 - **Server-Authoritative Multiplayer**: All dice rolls, reinforcements, combat resolutions, and state transitions are verified and resolved authoritatively on the server. Clients emit typed intents; the server broadcasts canonical state snapshots.
-- **Canonical Microcell Realm Map**: Built on sub-pixel half-block raster rendering (`▀`, `▄`, `▌`, `▐`, `█`, `·`) producing organic coastlines, staggered boundaries, and high-contrast territorial silhouettes that occupy the full tactical viewport.
+- **Canonical Earth-42 Map**: The default map, **Earth — Global Front**, has 42 strategic territories across 6 continents. Its original terminal artwork uses recognizable world geography, strategic regional borders, and explicit sea routes.
+- **Map Platform**: Logical game topology is separate from terminal render variants. A map bundle supplies its definition, metadata, and one or more authored render profiles, so future maps do not require changes to the game core or UI.
+- **Canonical Microcell Rendering**: Sub-pixel half-block rendering (`▀`, `▄`, `▌`, `▐`, `█`, `·`) produces organic coastlines, staggered boundaries, and high-contrast territorial silhouettes that occupy the tactical viewport.
 - **Responsive Terminal Presentation**:
-  - **Wide Mode** ($\ge 180$ cols and $\ge 50$ rows): Full 3-line ASCII banner, expansive tactical map, and deep 4-card strategic sidebar.
-  - **Standard Mode** ($130\text{--}179$ cols and $38\text{--}49$ rows): Compact branding bar maximizing vertical space for the map and sidebar.
+  - **Wide Mode** ($\ge 180$ cols and $\ge 51$ rows): Full 3-line ASCII banner, expansive tactical map, and deep 4-card strategic sidebar.
+  - **Standard Mode** ($130\text{--}179$ cols and $38\text{--}50$ rows): Compact branding bar maximizing vertical space for the map and sidebar.
   - **Compact Mode** ($< 130$ cols or $< 38$ rows): Full-width map canvas paired with an integrated bottom tactical inspector strip.
 - **Multiplayer Front Door**:
   - **Quick Match**: Immediate matchmaking into available public lobbies.
@@ -31,13 +33,8 @@ Inspired by classic grand strategy territory-control loops, reimagined as a term
   - **Join by Code**: Direct entry for private or unlisted matches using exactly 4-character uppercase alphanumeric room codes.
   - **Session Resume**: Automatic detection of cached sessions with instant reconnection to ongoing matches.
 - **Dual Mouse & Keyboard Controls**: Click territories and action buttons directly with the mouse (with full hover inspector preview), or navigate spatially with geometric cardinal arrow keys, `Tab` cycling, and hotkeys.
-- **The Ironreach Realm**: 20 canonical territories partitioned across 6 strategic regions:
-  - 🌲 **Verdant Fringe** (+2 bonus armies): *Highwatch (A1), Whispering Woods (A2), Stoneveil (A3)*
-  - 🌾 **Amber Steppes** (+2 bonus armies): *Sunken Pass (B1), The Marches (B2), Golden Vale (B3)*
-  - ❄ **Northreach** (+3 bonus armies): *Frostfell (C1), Crown Citadel (C2), Glacier Bay (C3), White Cliff (C4)*
-  - 🌋 **Crimson Caldera** (+3 bonus armies): *Ember Coast (D1), Ashmoor (D2), Red Basin (D3), Iron Hollow (D4)*
-  - 🏜 **The Blackfen** (+2 bonus armies): *Hollowmere (E1), Blackfen (E2), Duskfall (E3)*
-  - 🌊 **Emerald Isles** (+2 bonus armies): *Mossgate (F1), Verdant Reach (F2), Mist Isle (F3)*
+- **Six Continent Bonuses**: North America (+5), South America (+2), Europe (+5), Africa (+3), Asia (+7), and Oceania (+2).
+- **Additional Built-in Map**: The 20-territory fictional **Ironreach** map remains available for existing servers and games.
 - **Resilient Reconnection**: Per-player session tokens are stored locally. If your connection drops or terminal closes, launching the client seamlessly reconnects you with full match state.
 - **Self-Hosting First**: Run your own community server with Docker Compose or standalone Bun, complete with configurable ports, persistence paths, and server metadata.
 
@@ -157,7 +154,7 @@ The server supports CLI arguments and environment variables (CLI arguments take 
 | :--- | :--- | :--- | :--- |
 | `-p, --port` | `CONQUEST_PORT` | `4000` | Port to bind HTTP & WebSocket server |
 | `-n, --name` | `CONQUEST_SERVER_NAME` | `conquest.sh-server` | Server name displayed in lobbies and browser |
-| `-m, --map` | `CONQUEST_MAP` | `ironreach` | Map id to load: `ironreach`, `ironreach-legacy`, `sector-07` |
+| `-m, --map` | `CONQUEST_MAP` | `earth-42` | Default map for new rooms. Built-ins: `earth-42`, `ironreach`, `sector-07`; compatibility aliases include `grid-ironreach` and `ironreach-legacy`. |
 | `-d, --db` | `CONQUEST_DB_PATH` | `:memory:` | SQLite session database path (e.g. `/data/conquest.sqlite`) |
 | `--max-players` | `CONQUEST_MAX_PLAYERS` | `4` | Default maximum players per room |
 
@@ -168,6 +165,23 @@ export CONQUEST_SERVER="localhost:4000"
 ```
 
 Resolution order: `--server <host>` > `CONQUEST_SERVER` env > `localhost:4000`.
+
+For example, start a server with the retained Ironreach map:
+
+```bash
+./conquest-server.sh --map ironreach
+```
+
+## Adding a Map
+
+Maps are registered bundles. The game core receives only a logical `MapDefinition`; terminal artwork is supplied as independent render variants.
+
+1. Define the logical map: stable semantic territory IDs, names, regions, bonuses, and bidirectional adjacency.
+2. Define one or more authored render variants, including raster geometry, labels, decorations, and sea routes.
+3. Register the bundle with its metadata (region terminology, display codes, and navigation anchor).
+4. Add topology and geometry tests, including route validation for non-land adjacencies.
+
+Built-in registration belongs in `packages/map-engine`; client components, server routing, and game rules resolve maps through the registry. See [the architecture guide](docs/ARCHITECTURE.md#5-map-platform-and-built-in-maps) for the API boundary.
 
 ---
 

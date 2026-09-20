@@ -58,7 +58,7 @@ export const TerritoryStateSchema = z.object({
   position: z.object({
     x: z.number(),
     y: z.number(),
-  }),
+  }).optional(),
   render: TerritoryRenderSchema.optional(),
 });
 export type TerritoryState = z.infer<typeof TerritoryStateSchema>;
@@ -181,6 +181,7 @@ export type GameEvent = z.infer<typeof GameEventSchema>;
 
 export const GameStateSchema = z.object({
   gameId: z.string(),
+  mapId: z.string(),
   roomCode: z.string(),
   turnNumber: z.number(),
   activePlayerIndex: z.number(),

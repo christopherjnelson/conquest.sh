@@ -1,3 +1,5 @@
+import { getMap } from "../packages/map-engine/src/registry.js";
+const ironreachBundle = getMap("ironreach")!;
 import { describe, expect, it } from "bun:test";
 // @ts-ignore Test renderer is intentionally imported from the client workspace.
 import React from "../apps/client/node_modules/react/index.js";
@@ -75,6 +77,7 @@ describe("visual sidebar composition", () => {
       const width = Math.floor((columns - 1) * (layoutMode === "wide" ? 1 / 4 : 2 / 7));
       const setup = await testRender(
         React.createElement(Sidebar, {
+          mapBundle: ironreachBundle,
           state: selectedState(),
           myPlayerId: "p1",
           selectedTerritoryId: "B2",
@@ -132,6 +135,7 @@ describe("visual sidebar composition", () => {
     for (const [layoutMode, expectedHeight] of heights) {
       const setup = await testRender(
         React.createElement(EventLog, {
+          mapBundle: ironreachBundle,
           events: [], chatOpen: false, players: [], onToggleChat: () => {}, onSendChat: () => {}, layoutMode,
         }),
         { width: 80, height: 12 }
@@ -156,6 +160,7 @@ describe("visual sidebar composition", () => {
     for (const { event, expected } of events) {
       const setup = await testRender(
         React.createElement(EventLog, {
+          mapBundle: ironreachBundle,
           events: [event], chatOpen: false, players, onToggleChat: () => {}, onSendChat: () => {}, layoutMode: "wide",
         }),
         { width: 120, height: 10 }
@@ -186,6 +191,7 @@ describe("visual sidebar composition", () => {
     ];
     const setup = await testRender(
       React.createElement(EventLog, {
+          mapBundle: ironreachBundle,
         events, chatOpen: false, players: [players[0]], onToggleChat: () => {}, onSendChat: () => {}, layoutMode: "wide",
       }),
       { width: 120, height: 10 }

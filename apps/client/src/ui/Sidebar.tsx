@@ -1,9 +1,10 @@
 import React from "react";
 import type { GameState } from "@conquest/protocol";
-import type { LayoutMode } from "@conquest/map-engine";
-import { MAP_GRID_IRONREACH } from "@conquest/map-engine";
+import type { LayoutMode, MapBundle } from "@conquest/map-engine";
+import { getDefaultMap } from "@conquest/map-engine";
 
 export interface SidebarProps {
+  mapBundle?: MapBundle;
   state: GameState | null;
   myPlayerId: string | null;
   selectedTerritoryId: string | null;
@@ -26,6 +27,7 @@ function fitSidebarText(value: string, maxLength: number): string {
 }
 
 export function Sidebar({
+  mapBundle = getDefaultMap(),
   state,
   myPlayerId,
   selectedTerritoryId = null,
@@ -59,12 +61,13 @@ export function Sidebar({
       ? "selected"
       : "none";
   const selectedTerritory = activeTid ? territories[activeTid] : undefined;
-  const gridDef = activeTid ? MAP_GRID_IRONREACH.territories.find((t) => t.id === activeTid) : undefined;
+  const gridDef = activeTid ? mapBundle.definition.territories.find((t) => t.id === activeTid) : undefined;
+  const region = mapBundle.definition.sectors.find(s => s.id === gridDef?.sectorId);
 
   // Territory details
   const territoryName = gridDef?.name ?? selectedTerritory?.name ?? activeTid ?? "";
-  const sectorName = gridDef?.regionName ?? "Sector";
-  const flavorQuote = gridDef?.flavor ?? "";
+  const sectorName = region?.name ?? mapBundle.metadata.regionSingular;
+  const flavorQuote = gridDef?.description ?? "";
 
   // Owner resolution
   const ownerId = selectedTerritory?.ownerId;
@@ -229,7 +232,7 @@ export function Sidebar({
             {/* Keep identity on two short rows so the data columns below remain stable. */}
             <box flexDirection="column" style={{ height: 2 }} flexShrink={0}>
               <box flexDirection="row" alignItems="center" gap={1}>
-                <text fg="#ffffff"><b>[{activeTid}]</b></text>
+                <text fg="#ffffff"><b>[{mapBundle.metadata.displayCodes[activeTid] ?? activeTid}]</b></text>
                 {inspectionMode !== "none" && (
                   <text fg={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}>
                     <b>{inspectionMode === "selected" ? "SEL" : "HOV"}</b>
@@ -260,7 +263,7 @@ export function Sidebar({
               </box>
               <box flexDirection="row" style={{ height: 1 }}>
                 <text fg="#64748b" style={{ width: 10 }}>Bonus</text>
-                <text fg="#00ff66" flexGrow={1}><b>+{gridDef?.regionBonus ?? 0} armies</b></text>
+                <text fg="#00ff66" flexGrow={1}><b>+{region?.bonusReinforcements ?? 0} armies</b></text>
               </box>
             </box>
 
@@ -268,10 +271,11 @@ export function Sidebar({
             <box flexDirection="row" flexWrap="wrap" gap={1} style={{ height: 2 }} flexShrink={0}>
               {neighborIds.map((nId) => {
                 const isTarget = targetTerritoryId === nId;
-                const nDef = MAP_GRID_IRONREACH.territories.find((t) => t.id === nId);
+                const nDef = mapBundle.definition.territories.find((t) => t.id === nId);
+                const nRegion = mapBundle.definition.sectors.find(s => s.id === nDef?.sectorId);
                 const nState = territories[nId];
                 const nOwner = nState ? state?.players.find((p) => p.id === nState.ownerId) : undefined;
-                const nColor = isTarget ? "#00ffff" : nOwner?.colorHex ?? nDef?.regionColor ?? "#94a3b8";
+                const nColor = isTarget ? "#00ffff" : nOwner?.colorHex ?? nRegion?.colorHex ?? "#94a3b8";
 
                 return (
                   <text
@@ -279,7 +283,7 @@ export function Sidebar({
                     fg={nColor}
                     onMouseDown={() => onSelectTarget?.(nId)}
                   >
-                    <b>[{nId}{isTarget ? "*" : ""}]</b>
+                    <b>[{mapBundle.metadata.displayCodes[nId] ?? nId}{isTarget ? "*" : ""}]</b>
                   </text>
                 );
               })}
@@ -428,13 +432,19 @@ export function Sidebar({
             <box flexDirection="row" justifyContent="space-between">
               <text fg="#64748b">Map</text>
               <text fg="#e2e8f0">
-                <b>The Ironreach</b>
+                <b>{fitSidebarText(mapBundle.definition.name, valueLimit + 4)}</b>
               </text>
             </box>
             <box flexDirection="row" justifyContent="space-between">
               <text fg="#64748b">Territories</text>
               <text fg="#e2e8f0">
-                <b>20 Territories</b>
+                <b>{mapBundle.definition.territories.length} Territories</b>
+              </text>
+            </box>
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg="#64748b">Regions</text>
+              <text fg="#e2e8f0">
+                <b>{mapBundle.definition.sectors.length} {mapBundle.metadata.regionPlural}</b>
               </text>
             </box>
             <box flexDirection="row" justifyContent="space-between">

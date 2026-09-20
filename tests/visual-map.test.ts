@@ -1,3 +1,5 @@
+import { getMap } from "../packages/map-engine/src/registry.js";
+const ironreachBundle = getMap("ironreach")!;
 import { describe, expect, it } from "bun:test";
 import {
   MAP_GRID_IRONREACH_COMPACT,
@@ -63,6 +65,7 @@ describe("visual map: rendered geography occupancy", () => {
       const layout = getMapRenderLayout(map);
       const setup = await testRender(
         React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
           viewport,
           territories: {}, players: [], myPlayerId: null, phase: "lobby",
           selectedTerritoryId: null, targetTerritoryId: null,
@@ -94,7 +97,7 @@ describe("visual map: rendered geography occupancy", () => {
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { App } = await import("../apps/client/src/ui/App.js");
     const client: any = {
-      state: null, myPlayerId: "p1", status: "connected", roomCode: "BORD",
+      state: { mapId: "ironreach", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 }, myPlayerId: "p1", status: "connected", roomCode: "BORD",
       onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {},
       onError: () => () => {}, sendChat: () => {}, deploy: () => {}, attack: () => {},
       fortify: () => {}, skipPhase: () => {}, endTurn: () => {}, ready: () => {},
@@ -146,6 +149,7 @@ describe("visual map: rendered geography occupancy", () => {
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const setup = await testRender(React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
       viewport: "compact", territories: {}, players: [], myPlayerId: null, phase: "lobby",
       selectedTerritoryId: null, targetTerritoryId: null,
       onSelectTerritory: () => {}, onSelectTarget: () => {}, onDeselect: () => {},
@@ -173,6 +177,7 @@ describe("visual map: rendered geography occupancy", () => {
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const setup = await testRender(React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
       viewport: "wide",
       territories: {
         C1: { id: "C1", ownerId: "p1", units: 3 },
@@ -199,6 +204,7 @@ describe("visual map: rendered geography occupancy", () => {
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const renderInteractionFrame = async (selectedTerritoryId: string | null, targetTerritoryId: string | null) => {
       const setup = await testRender(React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
       viewport: "wide",
       territories: {
         C2: { id: "C2", ownerId: "p1", units: 3 },

@@ -44,6 +44,7 @@ export function createInitialGameState(
 
   const initialStateWithoutReinforcements: GameState = {
     gameId,
+    mapId: map.id,
     roomCode,
     turnNumber: 1,
     activePlayerIndex: startingPlayerIndex,
