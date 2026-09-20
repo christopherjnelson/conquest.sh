@@ -6,6 +6,7 @@ import {
   MAP_GRID_IRONREACH_WIDE,
   type GridMapDefinition,
   getBorderInfo,
+  getGeographyBoundingBox,
   getTerritoryAt,
   getMicroTerritoryAt,
   getTerritoryAtCell,
@@ -85,8 +86,28 @@ function mixColors(c1: string, c2: string, weight1: number): string {
 // Background tint based on owner/region color
 function getDarkTint(color: string, tid?: string | null): string {
   const isOdd = tid ? (tid.charCodeAt(1) || 0) % 2 === 1 : false;
-  const weight = isOdd ? 0.28 : 0.20;
+  // Owned interiors need enough chroma to read as connected realms at a
+  // whole-screen glance, while coastlines and selected cyan stay brighter.
+  const weight = isOdd ? 0.42 : 0.36;
   return mixColors(color, "#080f1a", weight);
+}
+
+/**
+ * Neutral regions still carry a little of their sector identity.  Keeping this
+ * darker than owned land makes ownership the first thing the eye reads.
+ */
+function getUnclaimedTint(color: string, tid?: string | null): string {
+  // Explicit xterm-cube shades prevent RGB blending from being quantized into
+  // a shared charcoal while keeping every unclaimed sector very dark.
+  const xtermTint: Record<string, string> = {
+    "#00ff66": "#005f00", // Verdant Fringe
+    "#ffaa00": "#5f5f00", // Amber Steppes
+    "#00d2ff": "#005f87", // Northreach
+    "#ff4444": "#5f0000", // Crimson Caldera
+    "#9966ff": "#5f005f", // The Blackfen
+    "#22c55e": "#005f5f", // Emerald Isles
+  };
+  return xtermTint[color.toLowerCase()] ?? mixColors(color, "#080f1a", 0.34);
 }
 
 function getHoverTint(color: string): string {
@@ -97,6 +118,42 @@ function getPoliticalBorderTint(color: string, tid?: string | null): string {
   const isOdd = tid ? (tid.charCodeAt(1) || 0) % 2 === 1 : false;
   const weight = isOdd ? 0.65 : 0.55;
   return mixColors(color, "#080f1a", weight);
+}
+
+/**
+ * A small, stable terrain grain for otherwise flat territory interiors.  The
+ * seed uses authored map coordinates, so it neither flickers nor turns into a
+ * screen-aligned checkerboard when a pane is resized.  It deliberately uses a
+ * sparse pair of low-contrast marks instead of lines or repeated tiles: this
+ * reads as printed terrain texture at a glance and stays secondary to owners,
+ * borders, and tactical highlights.
+ */
+export function getTerrainTextureMark(
+  territoryId: string,
+  x: number,
+  microY: number
+): "" | "·" | "░" {
+  // Avalanche the two coordinates before reducing them. A simple linear
+  // modulus creates visible diagonals/columns on a grid, which reads like a
+  // circuit trace rather than terrain. This mix has no repeating row or
+  // column relationship at the map's scale.
+  const territorySeed = territoryId.charCodeAt(0) * 0x9e37 + territoryId.charCodeAt(1) * 0x85eb;
+  let value = Math.imul(x + territorySeed, 0x85ebca6b) ^ Math.imul(microY + territorySeed, 0xc2b2ae35);
+  value ^= value >>> 16;
+  value = Math.imul(value, 0x7feb352d);
+  value ^= value >>> 15;
+  value = Math.imul(value, 0x846ca68b);
+  value ^= value >>> 16;
+  const bucket = (value >>> 0) % 71;
+  if (bucket === 0) return "░";
+  if (bucket === 1) return "·";
+  return "";
+}
+
+function getTerrainTextureColor(ownerColor: string, base: string, mark: "·" | "░"): string {
+  // Keep the texture within the territory's palette. The denser mark is only
+  // slightly stronger, which avoids giving quiet land a noisy, tiled surface.
+  return mixColors(ownerColor, base, mark === "░" ? 0.42 : 0.28);
 }
 
 function buildSeaRoutesGrid(mapDef: GridMapDefinition) {
@@ -147,6 +204,28 @@ function buildSeaRoutesGrid(mapDef: GridMapDefinition) {
 
 function buildDecorationsGrid(mapDef: GridMapDefinition) {
   const grid: Record<number, Record<number, { char: string; fg: string; bold?: boolean }>> = {};
+  const land = getGeographyBoundingBox(mapDef);
+
+  const findOceanPocket = (width: number, height: number, preferredX: number, preferredY: number) => {
+    let best: { x: number; y: number; score: number } | null = null;
+    for (let y = land.minY; y <= land.maxY - height + 1; y++) {
+      for (let x = land.minX; x <= land.maxX - width + 1; x++) {
+        let waterOnly = true;
+        for (let my = 2 * y; my < 2 * (y + height) && waterOnly; my++) {
+          for (let mx = x; mx < x + width; mx++) {
+            if (mapDef.microTemplate[my]?.[mx] !== ".") {
+              waterOnly = false;
+              break;
+            }
+          }
+        }
+        if (!waterOnly) continue;
+        const score = Math.abs(x - preferredX) + 2 * Math.abs(y - preferredY);
+        if (!best || score < best.score) best = { x, y, score };
+      }
+    }
+    return best;
+  };
 
   const setStr = (x: number, y: number, str: string, fg: string, bold = false) => {
     if (!grid[y]) grid[y] = {};
@@ -173,14 +252,22 @@ function buildDecorationsGrid(mapDef: GridMapDefinition) {
 
   // Compass rose
   const { compass, scaleBar } = mapDef.decorations;
-  setStr(compass.x + 2, compass.y, "N", "#94a3b8", true);
-  setStr(compass.x, compass.y + 1, "W ┼ E", "#64748b");
-  setStr(compass.x + 2, compass.y + 1, "┼", "#38bdf8", true);
-  setStr(compass.x + 2, compass.y + 2, "S", "#94a3b8", true);
+  // Decorations must occupy a fully water-filled pocket; simply clamping an
+  // authored coordinate to the crop can place them under land and clip letters.
+  const compassPocket = findOceanPocket(5, 3, land.minX + 2, land.maxY - 3);
+  const compassX = compassPocket?.x ?? compass.x;
+  const compassY = compassPocket?.y ?? compass.y;
+  setStr(compassX + 2, compassY, "N", "#94a3b8", true);
+  setStr(compassX, compassY + 1, "W ┼ E", "#64748b");
+  setStr(compassX + 2, compassY + 1, "┼", "#38bdf8", true);
+  setStr(compassX + 2, compassY + 2, "S", "#94a3b8", true);
 
   // Scale bar
-  setStr(scaleBar.x, scaleBar.y, "0   250  500  750  1000 km", "#64748b");
-  setStr(scaleBar.x, scaleBar.y + 1, "├───┼────┼────┼────┤", "#475569");
+  const scalePocket = findOceanPocket(27, 2, scaleBar.x, land.maxY - 1);
+  const scaleX = scalePocket?.x ?? scaleBar.x;
+  const scaleY = scalePocket?.y ?? scaleBar.y;
+  setStr(scaleX, scaleY, "0   250  500  750  1000 km", "#64748b");
+  setStr(scaleX, scaleY + 1, "├───┼────┼────┼────┤", "#475569");
 
   // Ocean labels (naval chart water annotations)
   if (mapDef.decorations.oceanLabels) {
@@ -197,6 +284,40 @@ const COMPACT_SEA_ROUTES = buildSeaRoutesGrid(MAP_GRID_IRONREACH_COMPACT);
 const WIDE_SEA_ROUTES = buildSeaRoutesGrid(MAP_GRID_IRONREACH_WIDE);
 const COMPACT_DECORATIONS = buildDecorationsGrid(MAP_GRID_IRONREACH_COMPACT);
 const WIDE_DECORATIONS = buildDecorationsGrid(MAP_GRID_IRONREACH_WIDE);
+
+export interface MapRenderLayout {
+  width: number;
+  height: number;
+  sourceX: number;
+  sourceY: number;
+  land: ReturnType<typeof getGeographyBoundingBox>;
+  landWidthRatio: number;
+  landHeightRatio: number;
+}
+
+/**
+ * The renderer owns no magic placement offsets: its usable map extent is the
+ * geography extent supplied by map-engine.  Keeping this small, exported
+ * description lets visual regressions measure what is actually painted as
+ * land, while decoration remains deliberately outside that measurement.
+ */
+export function getMapRenderLayout(
+  map: GridMapDefinition,
+  available?: { width: number; height: number }
+): MapRenderLayout {
+  const land = getGeographyBoundingBox(map);
+  return {
+    // Crop only ocean margins. This makes the rendered raster track authored
+    // geography instead of relying on a hand-tuned screen offset.
+    width: land.width,
+    height: land.height,
+    sourceX: land.minX,
+    sourceY: land.minY,
+    land,
+    landWidthRatio: !available || available.width <= 0 ? 1 : land.width / available.width,
+    landHeightRatio: !available || available.height <= 0 ? 1 : land.height / available.height,
+  };
+}
 
 export function mouseEventToMapCell(event: any): { x: number; y: number } | null {
   const target = event?.currentTarget;
@@ -240,6 +361,20 @@ export function MapCanvas({
     activeMap.width === MAP_GRID_IRONREACH_WIDE.width ? WIDE_SEA_ROUTES : COMPACT_SEA_ROUTES;
   const staticDecorations =
     activeMap.width === MAP_GRID_IRONREACH_WIDE.width ? WIDE_DECORATIONS : COMPACT_DECORATIONS;
+  const availableContentW = contentDimensions
+    ? contentDimensions.width
+    : terminalDimensions
+    ? Math.max(0, Math.floor(Math.max(0, terminalDimensions.columns - 1) * 0.75) - 2)
+    : Infinity;
+  const availableContentH = contentDimensions
+    ? contentDimensions.height
+    : terminalDimensions
+    ? Math.max(0, terminalDimensions.rows - 19)
+    : Infinity;
+  const renderLayout = getMapRenderLayout(activeMap, {
+    width: Number.isFinite(availableContentW) ? availableContentW : activeMap.width,
+    height: Number.isFinite(availableContentH) ? availableContentH : activeMap.height,
+  });
 
   const selectedTerritory = selectedTerritoryId ? territories[selectedTerritoryId] : null;
 
@@ -294,75 +429,111 @@ export function MapCanvas({
       ? (t.regionColor ?? "#64748b")
       : (owner?.colorHex ?? t.regionColor ?? "#64748b");
 
-    // Check available non-border width of territory t.id on row t.labelPos.y
-    let minX = t.labelPos.x;
-    while (
-      minX > 0 &&
-      getTerritoryAt(minX - 1, t.labelPos.y, activeMap) === t.id &&
-      !getBorderInfo(minX - 1, t.labelPos.y, activeMap).isBorder
-    ) {
-      minX--;
-    }
-    let maxX = t.labelPos.x;
-    while (
-      maxX < activeMap.width - 1 &&
-      getTerritoryAt(maxX + 1, t.labelPos.y, activeMap) === t.id &&
-      !getBorderInfo(maxX + 1, t.labelPos.y, activeMap).isBorder
-    ) {
-      maxX++;
-    }
-    const availableWidth = maxX - minX + 1;
+    type SafeRun = { minX: number; maxX: number };
+    const findSafeRun = (row: number, needed: number): SafeRun | null => {
+      const candidates: SafeRun[] = [];
+      let start: number | null = null;
+      for (let x = 0; x <= activeMap.width; x++) {
+        const safe =
+          x < activeMap.width &&
+          getTerritoryAt(x, row, activeMap) === t.id &&
+          !getBorderInfo(x, row, activeMap).isBorder;
+        if (safe && start === null) start = x;
+        if (!safe && start !== null) {
+          if (x - start >= needed) candidates.push({ minX: start, maxX: x - 1 });
+          start = null;
+        }
+      }
+      return candidates.sort((a, b) => {
+        const distanceA = Math.abs((a.minX + a.maxX) / 2 - t.labelPos.x);
+        const distanceB = Math.abs((b.minX + b.maxX) / 2 - t.labelPos.x);
+        return distanceA - distanceB || (b.maxX - b.minX) - (a.maxX - a.minX);
+      })[0] ?? null;
+    };
+    const startInRun = (run: SafeRun, textWidth: number) =>
+      Math.round(run.minX + (run.maxX - run.minX + 1 - textWidth) / 2);
 
-    let line1Text = t.id;
-    let line1StartX = t.labelPos.x;
+    const nameWords = t.name.toUpperCase().split(" ");
+    const shortName = nameWords[0].slice(0, 4);
+    const nameCandidates = [
+      t.name.toUpperCase(),
+      nameWords.length > 1 ? `${nameWords[0][0]}. ${nameWords.slice(1).join(" ")}` : "",
+      nameWords[0],
+      shortName,
+      t.id,
+    ].filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
+    const candidateRows = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]
+      .map((offset) => t.labelPos.y + offset)
+      .filter((row, index, rows) => row >= 0 && row < activeMap.height && rows.indexOf(row) === index);
+    const line1Placement = nameCandidates
+      .flatMap((text) => candidateRows.map((row) => ({ text, row, run: findSafeRun(row, text.length) })))
+      .find((placement) => placement.run !== null);
+    const line1Text = line1Placement?.text ?? t.id;
+    const line1Y = line1Placement?.row ?? t.labelPos.y;
+    const line1Run = line1Placement?.run ?? null;
+    const line1StartX = line1Run ? startInRun(line1Run, line1Text.length) : t.labelPos.x;
 
-    const fullName = `${t.id} ${t.name.toUpperCase()}`;
-    if (availableWidth >= fullName.length) {
-      line1Text = fullName;
-      line1StartX = Math.max(
-        minX,
-        Math.min(maxX - fullName.length + 1, Math.round(minX + (availableWidth - fullName.length) / 2))
-      );
-    } else {
-      const firstWord = `${t.id} ${t.name.split(" ")[0].toUpperCase()}`;
-      if (availableWidth >= firstWord.length) {
-        line1Text = firstWord;
-        line1StartX = Math.max(
-          minX,
-          Math.min(maxX - firstWord.length + 1, Math.round(minX + (availableWidth - firstWord.length) / 2))
+    // Line 1 is the visual anchor. The name is primary; the concise ID and
+    // army count sit beneath it so dense territories remain scannable.
+    if (line1Run) {
+      for (let i = 0; i < line1Text.length; i++) {
+        setLabelPoint(
+          line1StartX + i,
+          line1Y,
+          line1Text[i],
+          "#f8fafc",
+          true
         );
       }
     }
 
-    // Line 1: ID + Name
-    for (let i = 0; i < line1Text.length; i++) {
-      const isIdChar = i < t.id.length;
-      setLabelPoint(
-        line1StartX + i,
-        t.labelPos.y,
-        line1Text[i],
-        isIdChar ? "#ffffff" : "#e2e8f0",
-        true
-      );
-    }
-
-    // Line 2: Icon + Unit count (e.g. ▲ 5 or ▲ 0)
+    // Line 2: secondary ID, icon and immediately readable unit count.
     const unitDigits = String(units);
-    const line2StartX = line1StartX;
-    setLabelPoint(line2StartX, t.labelPos.y + 1, t.icon, ownerColor, true);
-    setLabelPoint(line2StartX + 1, t.labelPos.y + 1, " ", "#ffffff", false);
+    const line2TextWidth = t.id.length + 3 + unitDigits.length;
+    const line2Rows = [line1Y + 1, line1Y - 1, ...candidateRows]
+      .filter((row, index, rows) => row >= 0 && row < activeMap.height && row !== line1Y && rows.indexOf(row) === index);
+    const line2Placement = line2Rows
+      .map((row) => ({ row, run: findSafeRun(row, line2TextWidth) }))
+      .find((placement) => placement.run !== null);
+    const line2Run = line2Placement?.run ?? null;
+    // If a narrow territory cannot carry the icon, keep the compact ID/count
+    // on owned land rather than allowing any label glyph to cross a coastline.
+    const compactLine2Width = t.id.length + 1 + unitDigits.length;
+    const compactLine2Placement = line2Run
+      ? null
+      : line2Rows
+          .map((row) => ({ row, run: findSafeRun(row, compactLine2Width) }))
+          .find((placement) => placement.run !== null);
+    const compactLine2Run = compactLine2Placement?.run ?? null;
+    const line2Y = line2Placement?.row ?? compactLine2Placement?.row ?? null;
+    const line2StartX = line2Run
+      ? startInRun(line2Run, line2TextWidth)
+      : compactLine2Run
+      ? startInRun(compactLine2Run, compactLine2Width)
+      : null;
+    if (line2StartX === null || line2Y === null) continue;
+    for (let i = 0; i < t.id.length; i++) {
+      setLabelPoint(line2StartX + i, line2Y, t.id[i], "#67e8f9", true);
+    }
+    if (line2Run) {
+      setLabelPoint(line2StartX + t.id.length, line2Y, " ", "#94a3b8", false);
+      setLabelPoint(line2StartX + t.id.length + 1, line2Y, t.icon, ownerColor, true);
+      setLabelPoint(line2StartX + t.id.length + 2, line2Y, " ", "#ffffff", false);
+    } else {
+      setLabelPoint(line2StartX + t.id.length, line2Y, " ", "#94a3b8", false);
+    }
     for (let i = 0; i < unitDigits.length; i++) {
-      setLabelPoint(line2StartX + 2 + i, t.labelPos.y + 1, unitDigits[i], "#ffffff", true);
+      setLabelPoint(line2StartX + t.id.length + (line2Run ? 3 : 1) + i, line2Y, unitDigits[i], "#ffffff", true);
     }
   }
 
   // Generate lines of cellular characters
   const rows: SpanRun[][] = [];
 
-  for (let y = 0; y < activeMap.height; y++) {
+  for (let y = renderLayout.sourceY; y <= renderLayout.land.maxY; y++) {
     const runs: SpanRun[] = [];
 
-    for (let x = 0; x < activeMap.width; x++) {
+    for (let x = renderLayout.sourceX; x <= renderLayout.land.maxX; x++) {
       const topTid = getMicroTerritoryAt(x, 2 * y, activeMap);
       const bottomTid = getMicroTerritoryAt(x, 2 * y + 1, activeMap);
       const cellTid = getTerritoryAt(x, y, activeMap) ?? topTid ?? bottomTid;
@@ -394,6 +565,7 @@ export function MapCanvas({
           const isEnemy = Boolean(hasOwner && rawOwnerId && myPlayerId && rawOwnerId !== myPlayerId);
           const hoverBg = isLobby || !hasOwner ? "#1e293b" : getHoverTint(ownerColor);
 
+          const neutralTint = getUnclaimedTint(territory?.regionColor ?? "#64748b", cellTid);
           labelBg = isSelected
             ? "#0c2b3d"
             : isTarget
@@ -403,7 +575,7 @@ export function MapCanvas({
             : isHovered
             ? hoverBg
             : isLobby || !hasOwner
-            ? "#0f172a"
+            ? neutralTint
             : getDarkTint(ownerColor, cellTid);
         }
 
@@ -481,7 +653,7 @@ export function MapCanvas({
 
           if (isSelected) {
             return {
-              color: isPerimeter ? "#00ffff" : "#0c2b3d",
+              color: isPerimeter ? "#00bcd4" : "#0b2735",
               isPerimeter,
               isPoliticalBorder,
               isOwner: true,
@@ -509,7 +681,11 @@ export function MapCanvas({
 
           if (isLobby || !hasOwner) {
             return {
-              color: isCoast ? "#475569" : isPoliticalBorder ? "#1e293b" : "#0f172a",
+              color: isCoast
+                ? mixColors(territory?.regionColor ?? "#64748b", "#080f1a", 0.54)
+                : isPoliticalBorder
+                ? mixColors(territory?.regionColor ?? "#64748b", "#080f1a", 0.39)
+                : getUnclaimedTint(territory?.regionColor ?? "#64748b", tid),
               isPerimeter,
               isPoliticalBorder,
               isOwner: false,
@@ -556,6 +732,7 @@ export function MapCanvas({
 
           const isSelected = selectedTerritoryId === tid;
           const isTarget = targetTerritoryId === tid;
+          const isHovered = hoveredTerritoryId === tid;
           const isEnemy = Boolean(hasOwner && territories[tid!]?.ownerId && myPlayerId && territories[tid!]?.ownerId !== myPlayerId);
 
           // Check if horizontally adjacent to another land territory
@@ -571,8 +748,8 @@ export function MapCanvas({
             // Selected perimeter: strongest neon
             cell = {
               char: isWestLandBorder ? "▌" : isEastLandBorder ? "▐" : "█",
-              fg: "#00ffff",
-              bg: topStyle.color,
+              fg: "#00bcd4",
+              bg: "#0b2735",
               bold: true,
             };
           } else if (isTarget && (isEastLandBorder || isWestLandBorder || topStyle.isPerimeter)) {
@@ -587,15 +764,33 @@ export function MapCanvas({
             // Political boundary: subtle but visible separator between adjacent territories
             cell = {
               char: "·",
-              fg: isLobby || !hasOwner ? "#64748b" : getPoliticalBorderTint(ownerColor, tid),
+              fg: isLobby || !hasOwner
+                ? mixColors(activeMap.territories.find((t) => t.id === tid)?.regionColor ?? "#64748b", "#080f1a", 0.48)
+                : getPoliticalBorderTint(ownerColor, tid),
               bg: topStyle.color,
               bold: true,
             };
           } else {
-            // Quiet interior land
+            // Quiet interior land gets a sparse, owner/region-derived grain.
+            // Interaction states remain clear solid fields so the cyan/red/
+            // green tactical signals are never diluted by the texture.
+            const territory = activeMap.territories.find((candidate) => candidate.id === tid);
+            const terrainColor = isLobby || !hasOwner
+              ? (territory?.regionColor ?? "#64748b")
+              : ownerColor;
+            // Tactical fills must stay genuinely solid throughout their
+            // interiors. A textured selected or target field makes a sparse
+            // terrain mark look like a state indicator at terminal scale.
+            const mark = tid && !isHovered && !isSelected && !isTarget
+              ? getTerrainTextureMark(tid, x, 2 * y)
+              : "";
             cell = {
-              char: " ",
-              fg: isLobby || !hasOwner ? "#475569" : ownerColor,
+              char: mark || " ",
+              fg: mark
+                ? getTerrainTextureColor(terrainColor, topStyle.color, mark)
+                : isLobby || !hasOwner
+                ? mixColors(terrainColor, "#080f1a", 0.44)
+                : ownerColor,
               bg: topStyle.color,
               bold: false,
             };
@@ -625,18 +820,8 @@ export function MapCanvas({
     rows.push(runs);
   }
 
-  const availableContentW = contentDimensions
-    ? contentDimensions.width
-    : terminalDimensions
-    ? Math.max(0, Math.floor(Math.max(0, terminalDimensions.columns - 1) * 0.75) - 2)
-    : Infinity;
-  const availableContentH = contentDimensions
-    ? contentDimensions.height
-    : terminalDimensions
-    ? Math.max(0, terminalDimensions.rows - 19)
-    : Infinity;
-  const canCenterH = availableContentW >= activeMap.width;
-  const canCenterV = availableContentH >= activeMap.height;
+  const canCenterH = availableContentW >= renderLayout.width;
+  const canCenterV = availableContentH >= renderLayout.height;
   const title =
     terminalDimensions && terminalDimensions.columns < 130
       ? "! WORLD MAP                  Territories • Connections • Empires"
@@ -656,12 +841,14 @@ export function MapCanvas({
     >
       <box
         flexDirection="column"
-        style={{ width: activeMap.width, height: activeMap.height }}
+        style={{ width: renderLayout.width, height: renderLayout.height }}
         onMouseDown={(event: any) => {
           const cell = mouseEventToMapCell(event);
           if (!cell) return;
+          const mapX = cell.x + renderLayout.sourceX;
+          const mapY = cell.y + renderLayout.sourceY;
           const clickedId =
-            getTerritoryAtCell(cell.x, cell.y, activeMap) ?? getTerritoryAt(cell.x, cell.y, activeMap);
+            getTerritoryAtCell(mapX, mapY, activeMap) ?? getTerritoryAt(mapX, mapY, activeMap);
           if (clickedId) {
             handleTerritoryClick(clickedId);
           }
@@ -672,8 +859,10 @@ export function MapCanvas({
             onHoverTerritory?.(null);
             return;
           }
+          const mapX = cell.x + renderLayout.sourceX;
+          const mapY = cell.y + renderLayout.sourceY;
           const hoveredId =
-            getTerritoryAtCell(cell.x, cell.y, activeMap) ?? getTerritoryAt(cell.x, cell.y, activeMap);
+            getTerritoryAtCell(mapX, mapY, activeMap) ?? getTerritoryAt(mapX, mapY, activeMap);
           onHoverTerritory?.(hoveredId);
         }}
         onMouseOut={() => {

@@ -23,6 +23,22 @@ export interface FormattedEventItem {
   category: "Game" | "Chat" | "System";
 }
 
+/**
+ * Separates the first real occurrence of a sender name from an event message.
+ * Event copy has prefixes (icons, battle locations, etc.), so sender text is
+ * not reliably at offset zero.
+ */
+export function splitEventSender(text: string, senderName?: string) {
+  if (!senderName) return { before: text, sender: "", after: "" };
+  const senderAt = text.indexOf(senderName);
+  if (senderAt < 0) return { before: text, sender: "", after: "" };
+  return {
+    before: text.slice(0, senderAt),
+    sender: senderName,
+    after: text.slice(senderAt + senderName.length),
+  };
+}
+
 
 
 /**
@@ -30,9 +46,11 @@ export interface FormattedEventItem {
  */
 export function formatEvent(
   e: GameEvent,
-  players: Player[]
+  players: Player[],
+  historicalPlayerNames: ReadonlyMap<string, string> = new Map()
 ): { text: string; color: string } {
-  const getPlayerName = (id: string) => players.find((p) => p.id === id)?.name ?? id;
+  const getPlayerName = (id: string) =>
+    players.find((p) => p.id === id)?.name ?? historicalPlayerNames.get(id) ?? id;
   const getTerritoryName = (id: string) => {
     const norm = id.toLowerCase().replace(/[_\s-]+/g, "");
     const found =
@@ -155,6 +173,18 @@ function formatTimestamp(ts?: number): string {
   return `${h}:${m}`;
 }
 
+function getHistoricalPlayerNames(events: GameEvent[], players: Player[]): Map<string, string> {
+  // Snapshots omit departed players, while the chronicle retains their events.
+  // Player joins are therefore the durable name record for those entries.
+  const names = new Map<string, string>();
+  for (const event of events) {
+    if (event.type === "player_joined") names.set(event.player.id, event.player.name);
+  }
+  // A current snapshot is authoritative if a player rejoined with a new name.
+  for (const player of players) names.set(player.id, player.name);
+  return names;
+}
+
 export function EventLog({
   events,
   chatOpen,
@@ -164,11 +194,12 @@ export function EventLog({
   layoutMode,
 }: EventLogProps) {
   const [activeTab, setActiveTab] = useState<EventTab>("All");
+  const historicalPlayerNames = getHistoricalPlayerNames(events, players);
 
   const formattedItems: FormattedEventItem[] =
     events.length > 0
       ? events.map((e) => {
-          const { text, color } = formatEvent(e, players);
+          const { text, color } = formatEvent(e, players, historicalPlayerNames);
           const category = getEventCategory(e);
           let senderName: string | undefined;
           let senderColor: string | undefined;
@@ -178,12 +209,16 @@ export function EventLog({
             if (p) {
               senderName = p.name;
               senderColor = p.colorHex;
+            } else {
+              senderName = historicalPlayerNames.get(e.playerId);
             }
           } else if ("attackerId" in e && typeof e.attackerId === "string") {
             const p = players.find((p) => p.id === e.attackerId);
             if (p) {
               senderName = p.name;
               senderColor = p.colorHex;
+            } else {
+              senderName = historicalPlayerNames.get(e.attackerId);
             }
           } else if (e.type === "chat_message") {
             senderName = e.senderName;
@@ -207,8 +242,13 @@ export function EventLog({
       ? formattedItems
       : formattedItems.filter((item) => item.category === activeTab);
 
-  const logHeight = layoutMode === "compact" ? 4 : layoutMode === "standard" ? 6 : 8;
-  const sliceCount = layoutMode === "compact" ? 2 : layoutMode === "standard" ? 4 : 5;
+  // An empty chronicle is intentionally short so the tactical map keeps the spare rows.
+  const baseLogHeight = layoutMode === "compact" ? 4 : layoutMode === "standard" ? 5 : 6;
+  // The main tactical area owns all spare terminal rows. Chat borrows a row
+  // from the existing chronicle content instead of growing the outer panel and
+  // squeezing the map underneath it.
+  const logHeight = baseLogHeight;
+  const sliceCount = layoutMode === "compact" ? 1 : layoutMode === "standard" ? 2 : 3;
   const displayedItems = filteredItems.slice(-sliceCount);
 
   return (
@@ -260,21 +300,25 @@ export function EventLog({
       {/* Event list with scrollbar on the right */}
       <box flexDirection="row" justifyContent="space-between" flexGrow={1}>
         <box flexDirection="column" gap={0} flexGrow={1}>
-          {displayedItems.map((item, idx) => (
-            <box key={idx} flexDirection="row" gap={1}>
-              <text fg="#64748b">[{item.timestamp}]</text>
-              <text fg={item.color}>
-                {item.senderName && item.senderColor ? (
-                  <>
-                    <span fg={item.senderColor}><b>{item.senderName}</b></span>
-                    <span fg="#e2e8f0">{item.text.slice(item.senderName.length)}</span>
-                  </>
-                ) : (
-                  <span>{item.text}</span>
-                )}
-              </text>
-            </box>
-          ))}
+          {displayedItems.map((item, idx) => {
+            const sender = splitEventSender(item.text, item.senderName);
+            return (
+              <box key={idx} flexDirection="row" gap={1}>
+                <text fg="#64748b">[{item.timestamp}]</text>
+                <text fg={item.color}>
+                  {sender.sender && item.senderColor ? (
+                    <>
+                      <span>{sender.before}</span>
+                      <span fg={item.senderColor}><b>{sender.sender}</b></span>
+                      <span fg="#e2e8f0">{sender.after}</span>
+                    </>
+                  ) : (
+                    <span>{item.text}</span>
+                  )}
+                </text>
+              </box>
+            );
+          })}
           {events.length === 0 ? (
             <text fg="#64748b">
               <i>No events yet.</i>
@@ -298,16 +342,12 @@ export function EventLog({
       {/* Chat Input Field if open */}
       {chatOpen && (
         <box
-          border
-          borderStyle="single"
-          borderColor="#00ffff"
           backgroundColor="#0c2b3d"
-          height={3}
           paddingLeft={1}
           paddingRight={1}
-          marginTop={1}
           alignItems="center"
           flexDirection="row"
+          style={{ height: 1, flexShrink: 0 }}
         >
           <text fg="#00ffff">
             <b>Chat: </b>

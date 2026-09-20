@@ -11,6 +11,18 @@ import {
 import { createInitialGameState, finalizeMatch } from "../packages/game-core/src/index.js";
 import type { GameEvent, GameState, Player } from "../packages/protocol/src/index.js";
 
+function renderedMapBounds(map: typeof MAP_GRID_IRONREACH_COMPACT | typeof MAP_GRID_IRONREACH_WIDE) {
+  const bbox = getGeographyBoundingBox(map);
+  return { width: bbox.width, height: bbox.height, sourceX: bbox.minX, sourceY: bbox.minY };
+}
+
+function isRenderedMapRaster(node: any): boolean {
+  return [MAP_GRID_IRONREACH_COMPACT, MAP_GRID_IRONREACH_WIDE].some((map) => {
+    const bounds = renderedMapBounds(map);
+    return node && node.width === bounds.width && node.height === bounds.height;
+  });
+}
+
 function createFinishedGameState(): GameState {
   const players: Player[] = [
     { id: "p1", name: "Alice", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
@@ -236,7 +248,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     const innerBox = el.props.children;
     expect(innerBox.type).toBe("box");
     const lines = innerBox.props.children;
-    expect(lines.length).toBe(MAP_GRID_IRONREACH_COMPACT.height);
+    expect(lines.length).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
 
     // Each line is a <text> element with styled <span> runs
     for (const line of lines) {
@@ -247,7 +259,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
   it("renders muted terrain styling in lobby phase and vibrant owner colors in active game", async () => {
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
 
-    // 1. Lobby phase: territories unclaimed, interior styled with #475569 fg and #0f172a bg
+    // 1. Lobby phase: unclaimed interiors retain a subdued regional wash.
     const lobbyEl: any = MapCanvas({
       territories: {},
       players: testPlayers,
@@ -265,7 +277,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     let foundLobbyMuted = false;
     for (const line of lobbyLines) {
       for (const span of line.props.children) {
-        if (span.props.fg === "#475569" && span.props.bg === "#0f172a") {
+        if (span.props.bg && span.props.bg !== "#080f1a" && span.props.bg !== "#0f172a") {
           foundLobbyMuted = true;
           break;
         }
@@ -655,11 +667,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
 
     // Locate the inner map content box to determine screen origins
     function findInnerMapBox(node: any): any {
-      if (
-        node &&
-        (node.width === MAP_GRID_IRONREACH_COMPACT.width || node.width === MAP_GRID_IRONREACH_WIDE.width) &&
-        (node.height === MAP_GRID_IRONREACH_COMPACT.height || node.height === MAP_GRID_IRONREACH_WIDE.height)
-      ) {
+      if (isRenderedMapRaster(node)) {
         return node;
       }
       for (const child of node?.getChildren?.() || []) {
@@ -708,7 +716,8 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
 
     // 1a. Compact: Hover A1
     const a1Compact = MAP_GRID_IRONREACH_COMPACT.territories.find((t) => t.id === "A1")!;
-    const cellA1Compact = { x: a1Compact.labelPos.x, y: a1Compact.labelPos.y };
+    const compactBounds = renderedMapBounds(MAP_GRID_IRONREACH_COMPACT);
+    const cellA1Compact = { x: a1Compact.labelPos.x - compactBounds.sourceX, y: a1Compact.labelPos.y - compactBounds.sourceY };
     expect(getTerritoryAt(cellA1Compact.x, cellA1Compact.y, MAP_GRID_IRONREACH_COMPACT)).toBe("A1");
     await act(async () => {
       await setupCompact.mockMouse.moveTo(cellA1Compact.x + compactOriginX, cellA1Compact.y + compactOriginY);
@@ -717,8 +726,8 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
 
     // 1b. Compact: Hover & Click D2
     const d2Compact = MAP_GRID_IRONREACH_COMPACT.territories.find((t) => t.id === "D2")!;
-    const cellD2Compact = { x: d2Compact.labelPos.x, y: d2Compact.labelPos.y };
-    expect(getTerritoryAt(cellD2Compact.x, cellD2Compact.y, MAP_GRID_IRONREACH_COMPACT)).toBe("D2");
+    const cellD2Compact = { x: d2Compact.labelPos.x - compactBounds.sourceX, y: d2Compact.labelPos.y - compactBounds.sourceY };
+    expect(getTerritoryAt(d2Compact.labelPos.x, d2Compact.labelPos.y, MAP_GRID_IRONREACH_COMPACT)).toBe("D2");
     await act(async () => {
       await setupCompact.mockMouse.moveTo(cellD2Compact.x + compactOriginX, cellD2Compact.y + compactOriginY);
     });
@@ -1140,6 +1149,21 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     // In a 140 width terminal, EventLog title/border line spans across the screen
     expect(eventLogLine!.length).toBeGreaterThanOrEqual(130);
 
+    // Measure the raster against the pane App actually laid out. The map's
+    // land crop deliberately excludes ocean decorations from this occupancy.
+    const rootNode = setupTyp.renderer.root;
+    const appContainer = rootNode.getChildren?.()[0]?.getChildren?.().length === 4
+      ? rootNode.getChildren()[0]
+      : rootNode;
+    const [leftCol] = appContainer.getChildren()[1].getChildren();
+    const compactRaster = renderedMapBounds(MAP_GRID_IRONREACH_COMPACT);
+    expect(leftCol.width).toBe(99);
+    expect(leftCol.height).toBe(34);
+    expect(compactRaster.width).toBeLessThanOrEqual(leftCol.width);
+    expect(compactRaster.height).toBeLessThanOrEqual(leftCol.height);
+    expect(compactRaster.width / leftCol.width).toBeGreaterThanOrEqual(0.75);
+    expect(compactRaster.height / leftCol.height).toBeGreaterThanOrEqual(0.70);
+
     await act(async () => {
       setupTyp.renderer.destroy();
     });
@@ -1205,11 +1229,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
 
     // 2. Dual Viewport wide mode selection: inner map width is 136 (> 104) and height is 36
     function findInnerMap(node: any): any {
-      if (
-        node &&
-        (node.width === MAP_GRID_IRONREACH_COMPACT.width || node.width === MAP_GRID_IRONREACH_WIDE.width) &&
-        (node.height === MAP_GRID_IRONREACH_COMPACT.height || node.height === MAP_GRID_IRONREACH_WIDE.height)
-      ) {
+      if (isRenderedMapRaster(node)) {
         return node;
       }
       for (const child of node?.getChildren?.() || []) {
@@ -1221,9 +1241,19 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
 
     const innerMap = findInnerMap(leftCol);
     expect(innerMap).not.toBeNull();
-    expect(innerMap.width).toBe(136);
-    expect(innerMap.width).toBeGreaterThan(104);
-    expect(innerMap.height).toBe(36);
+    const wideRaster = renderedMapBounds(MAP_GRID_IRONREACH_WIDE);
+    expect(innerMap.width).toBe(wideRaster.width);
+    expect(innerMap.width).toBeGreaterThan(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
+    expect(innerMap.height).toBe(wideRaster.height);
+
+    // Use the rendered App pane, not a synthetic terminal-sized rectangle.
+    // `wideRaster` is land-only, so decorations cannot inflate occupancy.
+    expect(leftCol.width).toBe(149);
+    expect(leftCol.height).toBe(41);
+    expect(wideRaster.width).toBeLessThanOrEqual(leftCol.width);
+    expect(wideRaster.height).toBeLessThanOrEqual(leftCol.height);
+    expect(wideRaster.width / leftCol.width).toBeGreaterThanOrEqual(0.78);
+    expect(wideRaster.height / leftCol.height).toBeGreaterThanOrEqual(0.72);
 
     // 3. Bounding box usage on wide map: width ratio >= 0.80 and height ratio >= 0.75
     const bbox = getGeographyBoundingBox(MAP_GRID_IRONREACH_WIDE);
@@ -1233,6 +1263,46 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     await act(async () => {
       setupWide.renderer.destroy();
     });
+  });
+
+  it("responsive layout: wide 200x55 lobby keeps session intel to its content height", async () => {
+    // @ts-ignore Test renderer is intentionally imported from the client workspace.
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore Test renderer is intentionally imported from the client workspace.
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore Test renderer is intentionally imported from the client workspace.
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+    const lobbyPlayer: Player = {
+      id: "p1", name: "Alice", colorIndex: 0, colorHex: "#00d2ff",
+      connected: true, isAlive: true, ready: true,
+    };
+    const lobbyPeer: Player = {
+      id: "p2", name: "Bob", colorIndex: 1, colorHex: "#ff4444",
+      connected: true, isAlive: true, ready: false,
+    };
+    const lobbyState = createInitialGameState(
+      "wide-lobby-session-intel", "LOBB", [lobbyPlayer, lobbyPeer], MAP_GRID_IRONREACH, 2
+    );
+    lobbyState.phase = "lobby";
+    const client = { ...mockClient, state: lobbyState, myPlayerId: lobbyPlayer.id, roomCode: "LOBB" };
+
+    const setup = await testRender(
+      React.createElement(App, { client, terminalDimensions: { columns: 200, rows: 55 } }),
+      { width: 200, height: 55 }
+    );
+    await act(async () => { await setup.renderOnce(); });
+
+    const lines = setup.captureCharFrame().split("\n");
+    const intelTop = lines.findIndex((line: string) => line.includes("! REALM & SESSION INTEL"));
+    expect(intelTop).toBeGreaterThanOrEqual(0);
+    // Seven content rows plus the card's top and bottom borders: this should
+    // stay a nine-row card rather than expanding to fill the sidebar.
+    expect(lines[intelTop + 8]).toContain("└");
+    expect(lines.slice(intelTop, intelTop + 9).join("\n")).toContain("Connection");
+    expect(lines.slice(intelTop, intelTop + 9).join("\n")).toContain("Total Armies");
+
+    await act(async () => { setup.renderer.destroy(); });
   });
 
   it("regression: wide-but-short terminal (200x30) selects compact map and raster never exceeds pane bounds", async () => {
@@ -1271,11 +1341,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     const [leftCol] = tacticalRowNode.getChildren();
 
     function findInnerMap(node: any): any {
-      if (
-        node &&
-        (node.width === MAP_GRID_IRONREACH_COMPACT.width || node.width === MAP_GRID_IRONREACH_WIDE.width) &&
-        (node.height === MAP_GRID_IRONREACH_COMPACT.height || node.height === MAP_GRID_IRONREACH_WIDE.height)
-      ) {
+      if (isRenderedMapRaster(node)) {
         return node;
       }
       for (const child of node?.getChildren?.() || []) {
@@ -1287,10 +1353,10 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
 
     const innerMap = findInnerMap(leftCol);
     expect(innerMap).not.toBeNull();
-    // In a short terminal (30 rows), available content height is (30 - 17 - 2) = 11 < 36
-    // So canonical decision chooses COMPACT map (104x30) rather than overflowing 36-row wide map
-    expect(innerMap.width).toBe(MAP_GRID_IRONREACH_COMPACT.width);
-    expect(innerMap.height).toBe(MAP_GRID_IRONREACH_COMPACT.height);
+    // The compact viewport is selected below the supported responsive height,
+    // so the wide 36-row raster cannot be chosen.
+    expect(innerMap.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
+    expect(innerMap.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
     // Raster width strictly fits inside leftCol width
     expect(innerMap.width).toBeLessThanOrEqual(leftCol.width);
 
@@ -1317,9 +1383,9 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     const [leftCol35] = app35.getChildren()[1].getChildren();
     const innerMap35 = findInnerMap(leftCol35);
     expect(innerMap35).not.toBeNull();
-    // Content height at 35 rows is (35 - 17 - 2) = 16 < 36 -> Compact map
-    expect(innerMap35.width).toBe(MAP_GRID_IRONREACH_COMPACT.width);
-    expect(innerMap35.height).toBe(MAP_GRID_IRONREACH_COMPACT.height);
+    // At 35 rows the compact responsive viewport remains in effect.
+    expect(innerMap35.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
+    expect(innerMap35.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
     expect(innerMap35.width).toBeLessThanOrEqual(leftCol35.width);
 
     await act(async () => {
@@ -1327,7 +1393,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     });
   });
 
-  it("regression: compact vs wide breakpoint (184x55 vs 185x55) switches cleanly and raster never exceeds pane", async () => {
+  it("regression: responsive geography changes at the 180x51 wide boundary and never exceeds its pane", async () => {
     // @ts-ignore
     const React = (await import("../apps/client/node_modules/react/index.js")).default;
     // @ts-ignore
@@ -1337,11 +1403,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     const { App } = await import("../apps/client/src/ui/App.js");
 
     function findInnerMap(node: any): any {
-      if (
-        node &&
-        (node.width === MAP_GRID_IRONREACH_COMPACT.width || node.width === MAP_GRID_IRONREACH_WIDE.width) &&
-        (node.height === MAP_GRID_IRONREACH_COMPACT.height || node.height === MAP_GRID_IRONREACH_WIDE.height)
-      ) {
+      if (isRenderedMapRaster(node)) {
         return node;
       }
       for (const child of node?.getChildren?.() || []) {
@@ -1351,8 +1413,83 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       return null;
     }
 
-    // 1. Below breakpoint: 184x55
-    // paneWidth = floor((184 - 1) * 0.75) = 137. contentWidth = 135 < 136 -> Compact map
+    // The responsive mode boundary and map selection share the App pane
+    // geometry. 180x50 remains standard because its bordered map content is
+    // one row short of the wide 132x36 geography; 180x51 is the first wide
+    // terminal that gives the raster room to fit.
+    const setup179 = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 179, rows: 50 },
+      }),
+      { width: 179, height: 50 }
+    );
+    await act(async () => {
+      await setup179.renderOnce();
+    });
+    const root179 = setup179.renderer.root;
+    const appContainer179 = root179.getChildren?.()[0]?.getChildren?.().length === 4
+      ? root179.getChildren()[0]
+      : root179;
+    const [leftCol179] = appContainer179.getChildren()[1].getChildren();
+    const innerMap179 = findInnerMap(leftCol179);
+    expect(leftCol179.width).toBe(127);
+    expect(leftCol179.height).toBe(39);
+    expect(innerMap179.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
+    expect(innerMap179.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
+    await act(async () => {
+      setup179.renderer.destroy();
+    });
+
+    const setup180 = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 180, rows: 50 },
+      }),
+      { width: 180, height: 50 }
+    );
+    await act(async () => {
+      await setup180.renderOnce();
+    });
+    const root180 = setup180.renderer.root;
+    const appContainer180 = root180.getChildren?.()[0]?.getChildren?.().length === 4
+      ? root180.getChildren()[0]
+      : root180;
+    const [leftCol180] = appContainer180.getChildren()[1].getChildren();
+    const innerMap180 = findInnerMap(leftCol180);
+    expect(innerMap180.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
+    expect(innerMap180.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
+    expect(innerMap180.width).toBeLessThanOrEqual(leftCol180.width);
+    expect(innerMap180.height).toBeLessThanOrEqual(leftCol180.height);
+    await act(async () => {
+      setup180.renderer.destroy();
+    });
+
+    const setup180wide = await testRender(
+      React.createElement(App, {
+        client: mockClient,
+        terminalDimensions: { columns: 180, rows: 51 },
+      }),
+      { width: 180, height: 51 }
+    );
+    await act(async () => {
+      await setup180wide.renderOnce();
+    });
+    const root180wide = setup180wide.renderer.root;
+    const appContainer180wide = root180wide.getChildren?.()[0]?.getChildren?.().length === 4
+      ? root180wide.getChildren()[0]
+      : root180wide;
+    const [leftCol180wide] = appContainer180wide.getChildren()[1].getChildren();
+    const innerMap180wide = findInnerMap(leftCol180wide);
+    expect(innerMap180wide.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
+    expect(innerMap180wide.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
+    expect(innerMap180wide.width).toBeLessThanOrEqual(leftCol180wide.width);
+    expect(innerMap180wide.height).toBeLessThanOrEqual(leftCol180wide.height);
+    await act(async () => {
+      setup180wide.renderer.destroy();
+    });
+
+    // 1. 184x55: the 132-column wide land crop fits the App's wide map pane.
     const setup184 = await testRender(
       React.createElement(App, {
         client: mockClient,
@@ -1372,16 +1509,15 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     const innerMap184 = findInnerMap(leftCol184);
 
     expect(innerMap184).not.toBeNull();
-    expect(innerMap184.width).toBe(MAP_GRID_IRONREACH_COMPACT.width);
-    expect(innerMap184.height).toBe(MAP_GRID_IRONREACH_COMPACT.height);
+    expect(innerMap184.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
+    expect(innerMap184.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
     expect(innerMap184.width).toBeLessThanOrEqual(leftCol184.width);
 
     await act(async () => {
       setup184.renderer.destroy();
     });
 
-    // 2. At/above breakpoint: 185x55
-    // paneWidth = floor((185 - 1) * 0.75) = 138. contentWidth = 136 >= 136 -> Wide map
+    // 2. 185x55 retains the same wide crop and fit.
     const setup185 = await testRender(
       React.createElement(App, {
         client: mockClient,
@@ -1401,8 +1537,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     const innerMap185 = findInnerMap(leftCol185);
 
     expect(innerMap185).not.toBeNull();
-    expect(innerMap185.width).toBe(MAP_GRID_IRONREACH_WIDE.width);
-    expect(innerMap185.height).toBe(MAP_GRID_IRONREACH_WIDE.height);
+    expect(innerMap185.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
+    expect(innerMap185.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
     expect(innerMap185.width).toBeLessThanOrEqual(leftCol185.width);
 
     await act(async () => {
@@ -1658,7 +1794,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     // Verify half-block characters exist in the output for microcell coastlines
     expect(frame).toContain("▀");
     // Verify territory name overlays cleanly on land
-    expect(frame).toContain("A1 HIGHWATCH");
+    expect(frame).toContain("HIGHWATCH");
 
     await act(async () => {
       setup.renderer.destroy();
@@ -1707,8 +1843,8 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     // Verify political boundary separator glyph "·" exists between same-owner territories
     expect(frame).toContain("·");
     // Verify both territory labels are visible
-    expect(frame).toContain("A1 HIGHWATCH");
-    expect(frame).toContain("A3 STONEVEIL");
+    expect(frame).toContain("HIGHWATCH");
+    expect(frame).toContain("STONEVEIL");
 
     await act(async () => {
       setup.renderer.destroy();
@@ -1755,8 +1891,8 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     expect(hasSelectionMarkers).toBe(true);
 
     // Selected territory and hovered territory are both rendered
-    expect(frame).toContain("A1 HIGHWATCH");
-    expect(frame).toContain("A3 STONEVEIL");
+    expect(frame).toContain("HIGHWATCH");
+    expect(frame).toContain("STONEVEIL");
 
     await act(async () => {
       setup.renderer.destroy();
