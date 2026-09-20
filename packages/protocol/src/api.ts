@@ -33,6 +33,12 @@ export const ServerInfoSchema = z.object({
   roomsCount: z.number().int().min(0),
   playersCount: z.number().int().min(0),
   defaultMap: z.string(),
+  availableMaps: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    territoryCount: z.number().int(),
+    recommendedPlayers: z.object({ min: z.number().int(), max: z.number().int() }),
+  })),
   maxPlayersPerRoom: z.number().int().min(2),
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;

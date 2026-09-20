@@ -1,16 +1,4 @@
-import {
-  MAP_GRID_IRONREACH,
-  MAP_GRID_IRONREACH_COMPACT,
-  MAP_GRID_IRONREACH_WIDE,
-  MICRO_TEMPLATE_COMPACT,
-  MICRO_TEMPLATE_WIDE,
-  deriveCoarseTemplateFromMicro,
-  type GridMapDefinition,
-  type GridTerritoryMetadata,
-  type GridSeaRoute,
-  type GridMapDecoration,
-  type GridMapDecorations,
-} from "./maps/grid-ironreach.js";
+import type { GridMapDefinition } from "./types.js";
 
 export interface BorderCellInfo {
   isBorder: boolean;
@@ -27,7 +15,7 @@ export interface BorderCellInfo {
 export function getTerritoryAt(
   x: number,
   y: number,
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): string | null {
   if (y < 0 || y >= map.template.length || x < 0 || x >= map.template[0].length) {
     return null;
@@ -42,7 +30,7 @@ export function getTerritoryAt(
 export function isBorderCell(
   x: number,
   y: number,
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): boolean {
   return getBorderInfo(x, y, map).isBorder;
 }
@@ -59,7 +47,7 @@ export function isBorderCell(
 export function getBorderInfo(
   x: number,
   y: number,
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): BorderCellInfo {
   const currentTerritory = getTerritoryAt(x, y, map);
   if (!currentTerritory) {
@@ -99,7 +87,7 @@ export function getBorderInfo(
  */
 export function getTerritoryCells(
   territoryId: string,
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): Array<{ x: number; y: number }> {
   const targetChar = map.territoryIdToChar[territoryId];
   if (!targetChar) return [];
@@ -119,7 +107,7 @@ export function getTerritoryCells(
  */
 export function getTerritoryMicroCells(
   territoryId: string,
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): Array<{ x: number; y: number }> {
   const targetChar = map.territoryIdToChar[territoryId];
   if (!targetChar) return [];
@@ -142,7 +130,7 @@ export function getTerritoryMicroCells(
  */
 export function getTerritoryCentroid(
   territoryId: string,
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): { x: number; y: number } {
   const microCells = getTerritoryMicroCells(territoryId, map);
   if (microCells.length === 0) {
@@ -167,7 +155,7 @@ export function getTerritoryCentroid(
 export function getNextTerritoryInDirection(
   currentId: string,
   direction: "up" | "down" | "left" | "right",
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): string | null {
   const currentCentroid = getTerritoryCentroid(currentId, map);
   let bestTarget: string | null = null;
@@ -221,7 +209,7 @@ export function getNextTerritoryInDirection(
  */
 export function getTerritoryFillRatio(
   territoryId: string,
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): number {
   const targetChar = map.territoryIdToChar[territoryId];
   if (!targetChar) return 0;
@@ -257,7 +245,7 @@ export function getTerritoryFillRatio(
  * Coordinates are in terminal character cell units.
  */
 export function getGeographyBoundingBox(
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): { minX: number; maxX: number; minY: number; maxY: number; width: number; height: number } {
   const microTpl = getMapMicroTemplate(map);
   let minX = Infinity;
@@ -298,10 +286,10 @@ const microcellCache = new WeakMap<GridMapDefinition, string[]>();
 
 /**
  * Legacy heuristic fallback for custom or third-party maps lacking authored microcell templates.
- * All canonical Ironreach maps supply authored `map.microTemplate`.
+ * Built-in raster maps supply authored `map.microTemplate`.
  * @deprecated Use authored canonical `map.microTemplate` instead.
  */
-export function legacyHeuristicMicrocellTemplateFallback(map: GridMapDefinition = MAP_GRID_IRONREACH): string[] {
+export function legacyHeuristicMicrocellTemplateFallback(map: GridMapDefinition): string[] {
   const h = map.template.length;
   const w = map.template[0].length;
   const microRows: string[][] = Array.from({ length: h * 2 }, () =>
@@ -399,7 +387,7 @@ export const buildMicrocellTemplate = legacyHeuristicMicrocellTemplateFallback;
  * Returns cached or generated microcell template for a map definition.
  * Primary source of truth is authored canonical `map.microTemplate`.
  */
-export function getMapMicroTemplate(map: GridMapDefinition = MAP_GRID_IRONREACH): string[] {
+export function getMapMicroTemplate(map: GridMapDefinition): string[] {
   if (map.microTemplate && map.microTemplate.length > 0) return map.microTemplate;
   let cached = microcellCache.get(map);
   if (!cached) {
@@ -415,7 +403,7 @@ export function getMapMicroTemplate(map: GridMapDefinition = MAP_GRID_IRONREACH)
 export function getMicroTerritoryAt(
   mx: number,
   my: number,
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): string | null {
   const microTpl = getMapMicroTemplate(map);
   if (my < 0 || my >= microTpl.length || mx < 0 || mx >= microTpl[0].length) {
@@ -437,7 +425,7 @@ export function getMicroTerritoryAt(
 export function getTerritoryAtCell(
   x: number,
   y: number,
-  map: GridMapDefinition = MAP_GRID_IRONREACH
+  map: GridMapDefinition
 ): string | null {
   const topT = getMicroTerritoryAt(x, 2 * y, map);
   const botT = getMicroTerritoryAt(x, 2 * y + 1, map);
@@ -473,18 +461,3 @@ export function getTerritoryAtCell(
 
   return distBot < distTop ? botT : topT;
 }
-
-export {
-  MAP_GRID_IRONREACH,
-  MAP_GRID_IRONREACH_COMPACT,
-  MAP_GRID_IRONREACH_WIDE,
-  MICRO_TEMPLATE_COMPACT,
-  MICRO_TEMPLATE_WIDE,
-  deriveCoarseTemplateFromMicro,
-  type GridMapDefinition,
-  type GridTerritoryMetadata,
-  type GridSeaRoute,
-  type GridMapDecoration,
-  type GridMapDecorations,
-};
-

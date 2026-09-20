@@ -16,7 +16,7 @@ import {
 describe("map-engine: ironreach unified map schema & integrity", () => {
   it("exports MAP_IRONREACH unified onto MAP_GRID_IRONREACH with valid metadata and default export", () => {
     expect(MAP_IRONREACH).toBe(MAP_GRID_IRONREACH);
-    expect(DEFAULT_MAP).toBe(MAP_GRID_IRONREACH);
+    expect(DEFAULT_MAP.id).toBe("earth-42");
     expect(MAP_IRONREACH.id).toBe("ironreach");
     expect(MAP_IRONREACH.name).toBe("The Ironreach");
     expect(MAP_IRONREACH.recommendedPlayers.min).toBe(2);

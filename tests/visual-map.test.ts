@@ -1,13 +1,86 @@
+import { getMap, selectRenderVariant } from "../packages/map-engine/src/registry.js";
+const ironreachBundle = getMap("ironreach")!;
+const earthBundle = getMap("earth-42")!;
 import { describe, expect, it } from "bun:test";
 import {
   MAP_GRID_IRONREACH_COMPACT,
   MAP_GRID_IRONREACH_WIDE,
   getMapContentDimensionsForTerminal,
+  getMapContentDimensionsForLayout,
+  getLayoutModeForMap,
+  getSidebarWidthForTerminal,
+  getGeographyBoundingBox,
   getMicroTerritoryAt,
 } from "../packages/map-engine/src/index.js";
 import { getMapRenderLayout, getTerrainTextureMark } from "../apps/client/src/ui/MapCanvas.js";
 
 describe("visual map: rendered geography occupancy", () => {
+  it("chooses a map-aware full-width fallback at terminal boundaries and never clips Earth", async () => {
+    // @ts-ignore runtime-only OpenTUI modules
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore runtime-only OpenTUI modules
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore runtime-only OpenTUI modules
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+    const client: any = {
+      state: { mapId: "earth-42", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 },
+      myPlayerId: "p1", status: "connected", roomCode: "E42B",
+      onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {}, onError: () => () => {},
+      sendChat: () => {}, deploy: () => {}, attack: () => {}, fortify: () => {}, skipPhase: () => {}, endTurn: () => {}, ready: () => {},
+    };
+    const sizes = [
+      { columns: 105, rows: 34, warning: true, mode: null },
+      { columns: 105, rows: 38, warning: false, mode: "compact" },
+      { columns: 120, rows: 38, warning: false, mode: "compact" },
+      // The standard sidebar would leave less room than Earth's smallest land
+      // crop, so these must use the full-width compact presentation.
+      { columns: 130, rows: 38, warning: false, mode: "compact" },
+      { columns: 134, rows: 38, warning: false, mode: "compact" },
+      { columns: 140, rows: 45, warning: false, mode: "standard" },
+      { columns: 180, rows: 51, warning: false, mode: "wide" },
+    ] as const;
+
+    for (const size of sizes) {
+      const setup = await testRender(
+        React.createElement(App, { client, terminalDimensions: size }),
+        { width: size.columns, height: size.rows },
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const frame = setup.captureCharFrame();
+
+      if (size.warning) {
+        expect(frame, `${size.columns}x${size.rows}`).toContain("TERMINAL WINDOW TOO SMALL");
+        await act(async () => { setup.renderer.destroy(); });
+        continue;
+      }
+
+      expect(frame, `${size.columns}x${size.rows}`).not.toContain("TERMINAL WINDOW TOO SMALL");
+      const mode = getLayoutModeForMap(size.columns, size.rows, earthBundle);
+      expect(mode, `${size.columns}x${size.rows}`).toBe(size.mode!);
+      const pane = getMapContentDimensionsForLayout(size.columns, size.rows, mode);
+      const root = setup.renderer.root;
+      const app = root.getChildren?.()[0]?.getChildren?.().length === 4 ? root.getChildren()[0] : root;
+      const tacticalRow = app.getChildren()[1];
+      const mapColumn = tacticalRow.getChildren()[0];
+      const worldMap = mapColumn.getChildren()[0];
+      const raster = worldMap.getChildren()[0];
+      const selected = selectRenderVariant(earthBundle, pane).grid;
+      const land = getGeographyBoundingBox(selected);
+
+      // The rendered pane can receive a spare flex row. The selector must use
+      // its declared pane, while this check uses the actual bordered WORLD MAP
+      // interior that the raster is placed in.
+      expect(worldMap.width - 2, `${size.columns}x${size.rows}`).toBeGreaterThanOrEqual(pane.width);
+      expect(worldMap.height - 2, `${size.columns}x${size.rows}`).toBeGreaterThanOrEqual(pane.height);
+      expect(raster.width, `${size.columns}x${size.rows}`).toBe(land.width);
+      expect(raster.height, `${size.columns}x${size.rows}`).toBe(land.height);
+      expect(raster.width, `${size.columns}x${size.rows}`).toBeLessThanOrEqual(worldMap.width - 2);
+      expect(raster.height, `${size.columns}x${size.rows}`).toBeLessThanOrEqual(worldMap.height - 2);
+      await act(async () => { setup.renderer.destroy(); });
+    }
+  });
+
   it("uses a deterministic, sparse interior terrain grain", () => {
     const marks = Array.from({ length: 30 }, (_, y) =>
       Array.from({ length: 44 }, (_, x) => getTerrainTextureMark("C2", x, y + 26))
@@ -28,8 +101,8 @@ describe("visual map: rendered geography occupancy", () => {
     // measurement.
     const standardPane = getMapContentDimensionsForTerminal(140, 45);
     const widePane = getMapContentDimensionsForTerminal(200, 55);
-    expect(standardPane).toEqual({ width: 97, height: 32 });
-    expect(widePane).toEqual({ width: 147, height: 39 });
+    expect(standardPane).toEqual({ width: 99, height: 32 });
+    expect(widePane).toEqual({ width: 155, height: 39 });
     const standard = getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT, standardPane);
     const wide = getMapRenderLayout(MAP_GRID_IRONREACH_WIDE, widePane);
     expect(wide.width).toBe(wide.land.width);
@@ -63,7 +136,8 @@ describe("visual map: rendered geography occupancy", () => {
       const layout = getMapRenderLayout(map);
       const setup = await testRender(
         React.createElement(MapCanvas, {
-          viewport,
+          mapBundle: ironreachBundle,
+          renderProfile: viewport,
           territories: {}, players: [], myPlayerId: null, phase: "lobby",
           selectedTerritoryId: null, targetTerritoryId: null,
           onSelectTerritory: () => {}, onSelectTarget: () => {}, onDeselect: () => {},
@@ -94,7 +168,7 @@ describe("visual map: rendered geography occupancy", () => {
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { App } = await import("../apps/client/src/ui/App.js");
     const client: any = {
-      state: null, myPlayerId: "p1", status: "connected", roomCode: "BORD",
+      state: { mapId: "ironreach", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 }, myPlayerId: "p1", status: "connected", roomCode: "BORD",
       onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {},
       onError: () => () => {}, sendChat: () => {}, deploy: () => {}, attack: () => {},
       fortify: () => {}, skipPhase: () => {}, endTurn: () => {}, ready: () => {},
@@ -115,26 +189,63 @@ describe("visual map: rendered geography occupancy", () => {
       return { setup, worldMap, raster };
     };
 
-    // 180x50 has a 132x35 World Map interior. Wide land is 132x36, so App
-    // keeps the standard split and compact raster rather than drawing over a border.
+    // The capped sidebar gives the standard layout enough horizontal room for
+    // Ironreach's wide rendering when its land crop fits the map pane.
     const at50 = await render(180, 50);
-    expect(at50.worldMap.width - 2).toBe(126);
+    expect(at50.worldMap.width - 2).toBe(139);
     expect(at50.worldMap.height - 2).toBe(37);
-    expect(at50.raster.width).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT).width);
-    expect(at50.raster.height).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT).height);
+    expect(at50.raster.width).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).width);
+    expect(at50.raster.height).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).height);
     expect(at50.raster.width).toBeLessThanOrEqual(at50.worldMap.width - 2);
     expect(at50.raster.height).toBeLessThanOrEqual(at50.worldMap.height - 2);
     await act(async () => { at50.setup.renderer.destroy(); });
 
-    // At 180x51 the wide pane's actual bordered content is exactly 132x36.
+    // At 180x51 the wide pane grows only as far as the capped sidebar allows.
     const at51 = await render(180, 51);
-    expect(at51.worldMap.width - 2).toBe(132);
+    expect(at51.worldMap.width - 2).toBe(135);
     expect(at51.worldMap.height - 2).toBe(36);
     expect(at51.raster.width).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).width);
     expect(at51.raster.height).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).height);
     expect(at51.raster.width).toBeLessThanOrEqual(at51.worldMap.width - 2);
     expect(at51.raster.height).toBeLessThanOrEqual(at51.worldMap.height - 2);
     await act(async () => { at51.setup.renderer.destroy(); });
+  });
+
+  it("caps the actual App sidebar and gives remaining columns to WORLD MAP", async () => {
+    // @ts-ignore runtime-only OpenTUI modules
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+    const client: any = {
+      state: { mapId: "ironreach", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 },
+      myPlayerId: "p1", status: "connected", roomCode: "BORD",
+      onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {},
+      onError: () => () => {}, sendChat: () => {}, deploy: () => {}, attack: () => {},
+      fortify: () => {}, skipPhase: () => {}, endTurn: () => {}, ready: () => {},
+    };
+    for (const [columns, rows, expectedSidebar] of [
+      [140, 45, 38], [180, 51, 42], [200, 55, 42], [220, 60, 42], [240, 60, 42],
+    ]) {
+      const setup = await testRender(
+        React.createElement(App, { client, terminalDimensions: { columns, rows } }),
+        { width: columns, height: rows },
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const root = setup.renderer.root;
+      const app = root.getChildren?.()[0]?.getChildren?.().length === 4
+        ? root.getChildren()[0] : root;
+      const tacticalRow = app.getChildren()[1];
+      const worldMap = tacticalRow.getChildren()[0].getChildren()[0];
+      const sidebar = tacticalRow.getChildren()[1];
+      expect(sidebar.width).toBe(expectedSidebar);
+      expect(sidebar.width).toBe(getSidebarWidthForTerminal(columns, rows));
+      expect({ width: worldMap.width - 2, height: worldMap.height - 2 })
+        .toEqual(getMapContentDimensionsForTerminal(columns, rows));
+      await act(async () => { setup.renderer.destroy(); });
+    }
   });
 
   it("keeps standard-pane territory labels inside their own land shapes", async () => {
@@ -146,7 +257,8 @@ describe("visual map: rendered geography occupancy", () => {
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const setup = await testRender(React.createElement(MapCanvas, {
-      viewport: "compact", territories: {}, players: [], myPlayerId: null, phase: "lobby",
+          mapBundle: ironreachBundle,
+      renderProfile: "compact", territories: {}, players: [], myPlayerId: null, phase: "lobby",
       selectedTerritoryId: null, targetTerritoryId: null,
       onSelectTerritory: () => {}, onSelectTarget: () => {}, onDeselect: () => {},
     }), { width: 140, height: 45 });
@@ -173,7 +285,8 @@ describe("visual map: rendered geography occupancy", () => {
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const setup = await testRender(React.createElement(MapCanvas, {
-      viewport: "wide",
+          mapBundle: ironreachBundle,
+      renderProfile: "wide",
       territories: {
         C1: { id: "C1", ownerId: "p1", units: 3 },
         C3: { id: "C3", ownerId: "p1", units: 3 },
@@ -199,7 +312,8 @@ describe("visual map: rendered geography occupancy", () => {
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const renderInteractionFrame = async (selectedTerritoryId: string | null, targetTerritoryId: string | null) => {
       const setup = await testRender(React.createElement(MapCanvas, {
-      viewport: "wide",
+          mapBundle: ironreachBundle,
+      renderProfile: "wide",
       territories: {
         C2: { id: "C2", ownerId: "p1", units: 3 },
         B3: { id: "B3", ownerId: "p1", units: 3 },

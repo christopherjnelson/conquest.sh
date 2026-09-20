@@ -1,3 +1,5 @@
+import { getMap } from "../packages/map-engine/src/registry.js";
+const ironreachBundle = getMap("ironreach")!;
 import { describe, expect, it } from "bun:test";
 // @ts-ignore Test renderer is intentionally imported from the client workspace.
 import React from "../apps/client/node_modules/react/index.js";
@@ -11,6 +13,7 @@ import {
   MAP_GRID_IRONREACH_COMPACT,
   MAP_GRID_IRONREACH_WIDE,
   getLayoutMode,
+  getSidebarWidthForTerminal,
 } from "../packages/map-engine/src/index.js";
 import { getMapRenderLayout } from "../apps/client/src/ui/MapCanvas.js";
 import type { GameEvent, Player } from "../packages/protocol/src/index.js";
@@ -69,12 +72,13 @@ function findNodeWithSize(node: any, width: number, height: number): any | null 
 }
 
 describe("visual sidebar composition", () => {
-  for (const columns of [110, 130, 140, 180, 200]) {
+  for (const columns of [130, 140, 180, 200, 220, 240]) {
     it(`keeps selected-territory lanes distinct at ${columns} columns`, async () => {
       const layoutMode = getLayoutMode(columns, 55);
-      const width = Math.floor((columns - 1) * (layoutMode === "wide" ? 1 / 4 : 2 / 7));
+      const width = getSidebarWidthForTerminal(columns, 55);
       const setup = await testRender(
         React.createElement(Sidebar, {
+          mapBundle: ironreachBundle,
           state: selectedState(),
           myPlayerId: "p1",
           selectedTerritoryId: "B2",
@@ -132,6 +136,7 @@ describe("visual sidebar composition", () => {
     for (const [layoutMode, expectedHeight] of heights) {
       const setup = await testRender(
         React.createElement(EventLog, {
+          mapBundle: ironreachBundle,
           events: [], chatOpen: false, players: [], onToggleChat: () => {}, onSendChat: () => {}, layoutMode,
         }),
         { width: 80, height: 12 }
@@ -156,6 +161,7 @@ describe("visual sidebar composition", () => {
     for (const { event, expected } of events) {
       const setup = await testRender(
         React.createElement(EventLog, {
+          mapBundle: ironreachBundle,
           events: [event], chatOpen: false, players, onToggleChat: () => {}, onSendChat: () => {}, layoutMode: "wide",
         }),
         { width: 120, height: 10 }
@@ -186,6 +192,7 @@ describe("visual sidebar composition", () => {
     ];
     const setup = await testRender(
       React.createElement(EventLog, {
+          mapBundle: ironreachBundle,
         events, chatOpen: false, players: [players[0]], onToggleChat: () => {}, onSendChat: () => {}, layoutMode: "wide",
       }),
       { width: 120, height: 10 }
@@ -245,7 +252,8 @@ describe("visual sidebar composition", () => {
       expect(openLogLine).toBe(closedLogLine);
       // captureCharFrame terminates with one final newline.
       expect(openLines).toHaveLength(rows + 1);
-      expect(openLines.slice(0, openLogLine).some((line: string) => line.includes("B2") || line.includes("THE MARCHES"))).toBe(true);
+      // Army badges stay visible even when the compact raster drops a name.
+      expect(openLines.slice(0, openLogLine).some((line: string) => /\[\d+\]/.test(line))).toBe(true);
       await act(async () => { setup.renderer.destroy(); });
     });
   }

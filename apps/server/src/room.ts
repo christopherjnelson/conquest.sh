@@ -20,7 +20,7 @@ import {
   type ActionResult,
   type MapDefinition,
 } from "@conquest/game-core";
-import { MAP_GRID_IRONREACH, MAP_IRONREACH } from "@conquest/map-engine";
+import { getDefaultMap } from "@conquest/map-engine";
 import { generateId, generateRoomCode, getPlayerColor, logger } from "@conquest/shared";
 
 export interface RoomSocket {
@@ -75,7 +75,7 @@ export class GameRoom {
       (this.kind === "quick" ? `Quick Match ${this.roomCode}` : `Room ${this.roomCode}`);
     this.gameId = options.gameId ?? generateId("game");
     this.maxPlayers = Math.max(2, Math.min(6, options.maxPlayers ?? (this.kind === "quick" ? 2 : 4)));
-    this.map = options.map ?? MAP_GRID_IRONREACH;
+    this.map = options.map ?? getDefaultMap().definition;
     this.autoStart = options.autoStart ?? (this.kind === "quick");
     this.visibility = options.visibility ?? "public";
     this.createdAt = options.createdAt ?? Date.now();
@@ -88,6 +88,7 @@ export class GameRoom {
 
     this.state = {
       gameId: this.gameId,
+      mapId: this.map.id,
       roomCode: this.roomCode,
       turnNumber: 0,
       activePlayerIndex: 0,
@@ -711,7 +712,7 @@ export class RoomManager {
   public readonly defaultMaxPlayers: number;
 
   constructor(options?: { defaultMap?: MapDefinition; defaultMaxPlayers?: number }) {
-    this.defaultMap = options?.defaultMap ?? MAP_GRID_IRONREACH;
+    this.defaultMap = options?.defaultMap ?? getDefaultMap().definition;
     this.defaultMaxPlayers = options?.defaultMaxPlayers ?? 4;
   }
 

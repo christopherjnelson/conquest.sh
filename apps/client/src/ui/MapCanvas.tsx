@@ -1,21 +1,21 @@
 import React from "react";
 import type { GamePhase, Player, TerritoryState } from "@conquest/protocol";
 import {
-  MAP_GRID_IRONREACH,
-  MAP_GRID_IRONREACH_COMPACT,
-  MAP_GRID_IRONREACH_WIDE,
+  getDefaultMap,
+  selectRenderVariant,
+  type MapBundle,
   type GridMapDefinition,
   getBorderInfo,
   getGeographyBoundingBox,
   getTerritoryAt,
   getMicroTerritoryAt,
   getTerritoryAtCell,
-  getMapForDimensions,
-  getMapContentDimensionsForTerminal,
-  getMapForTerminalDimensions,
+  getMapContentDimensionsForLayout,
+  getLayoutModeForMap,
 } from "@conquest/map-engine";
 
 export interface MapCanvasProps {
+  mapBundle?: MapBundle;
   territories: Record<string, TerritoryState>;
   players: Player[];
   myPlayerId: string | null;
@@ -23,7 +23,8 @@ export interface MapCanvasProps {
   selectedTerritoryId: string | null;
   targetTerritoryId: string | null;
   hoveredTerritoryId?: string | null;
-  viewport?: "compact" | "wide";
+  /** Optional explicit profile for previews and tests. Normal play selects by pane size. */
+  renderProfile?: string;
   terminalDimensions?: { columns: number; rows: number };
   contentDimensions?: { width: number; height: number };
   onHoverTerritory?: (territoryId: string | null) => void;
@@ -83,9 +84,105 @@ function mixColors(c1: string, c2: string, weight1: number): string {
   );
 }
 
+export function stableIdHash(id: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
+  }
+  return hash >>> 0;
+}
+
+/** Keep a dense territory marker bounded so it never expands into a coast. */
+export function formatArmyMarkerUnits(units: number): string {
+  const bounded = Math.max(0, Math.floor(units));
+  return bounded >= 100 ? "100+" : String(bounded);
+}
+
+export interface ArmyMarkerPlacement {
+  x: number;
+  y: number;
+  text: string;
+}
+
+function cellKey(x: number, y: number) {
+  return `${x},${y}`;
+}
+
+/**
+ * Finds a wholly interior run for an army marker.  `unitPos` is an authored
+ * preference only: maps can omit it and retain safe placement automatically.
+ * Reserved label cells always win, including cartographic labels on islands.
+ */
+export function findArmyMarkerPlacement(
+  map: GridMapDefinition,
+  territory: GridMapDefinition["territories"][number],
+  units: number,
+  reservedCells: ReadonlySet<string> = new Set()
+): ArmyMarkerPlacement | null {
+  const count = formatArmyMarkerUnits(units);
+  // Prefer a high-contrast bracketed badge, then preserve the full count in a
+  // compact run. Every map profile must reserve at least four safe cells for
+  // a bounded 100+ count; an ambiguous symbol is never substituted for units.
+  const textCandidates = [...new Set([
+    `[${count}]`,
+    count,
+  ].filter(Boolean))];
+  const isSafe = (x: number, y: number, text: string) => {
+    if (y < 0 || y >= map.height || x < 0 || x + text.length > map.width) return false;
+    for (let i = 0; i < text.length; i++) {
+      if (reservedCells.has(cellKey(x + i, y)) ||
+          getTerritoryAt(x + i, y, map) !== territory.id ||
+          getMicroTerritoryAt(x + i, y * 2, map) !== territory.id ||
+          getMicroTerritoryAt(x + i, y * 2 + 1, map) !== territory.id) return false;
+    }
+    return true;
+  };
+
+  const candidates: Array<{ x: number; y: number; score: number }> = [];
+  const preferred = territory.unitPos;
+  for (const text of textCandidates) {
+    if (preferred && isSafe(preferred.x, preferred.y, text)) {
+      return { x: preferred.x, y: preferred.y, text };
+    }
+    candidates.length = 0;
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x + text.length <= map.width; x++) {
+        if (!isSafe(x, y, text)) continue;
+        const centerX = x + (text.length - 1) / 2;
+        const anchor = preferred ?? territory.labelPos;
+        candidates.push({ x, y, score: Math.abs(centerX - anchor.x) + Math.abs(y - anchor.y) * 1.5 });
+      }
+    }
+    candidates.sort((a, b) => a.score - b.score || a.y - b.y || a.x - b.x);
+    const placement = candidates[0];
+    if (placement) return { x: placement.x, y: placement.y, text };
+  }
+  return null;
+}
+
+/**
+ * Allocates all owned-territory markers from their independent raster areas.
+ * The strict own-territory predicate means two territories cannot share a cell.
+ */
+export function findArmyMarkerPlacements(
+  map: GridMapDefinition,
+  territories: readonly GridMapDefinition["territories"][number][],
+  unitsFor: (territoryId: string) => number
+): Map<string, ArmyMarkerPlacement> {
+  const placements = new Map<string, ArmyMarkerPlacement>();
+  for (const territory of territories) {
+    // The placement predicate requires every glyph to belong to this exact
+    // territory, so two territories can never claim the same map cell.
+    const marker = findArmyMarkerPlacement(map, territory, unitsFor(territory.id));
+    if (!marker) continue;
+    placements.set(territory.id, marker);
+  }
+  return placements;
+}
+
 // Background tint based on owner/region color
 function getDarkTint(color: string, tid?: string | null): string {
-  const isOdd = tid ? (tid.charCodeAt(1) || 0) % 2 === 1 : false;
+  const isOdd = tid ? stableIdHash(tid) % 2 === 1 : false;
   // Owned interiors need enough chroma to read as connected realms at a
   // whole-screen glance, while coastlines and selected cyan stay brighter.
   const weight = isOdd ? 0.42 : 0.36;
@@ -115,7 +212,7 @@ function getHoverTint(color: string): string {
 }
 
 function getPoliticalBorderTint(color: string, tid?: string | null): string {
-  const isOdd = tid ? (tid.charCodeAt(1) || 0) % 2 === 1 : false;
+  const isOdd = tid ? stableIdHash(tid) % 2 === 1 : false;
   const weight = isOdd ? 0.65 : 0.55;
   return mixColors(color, "#080f1a", weight);
 }
@@ -137,7 +234,7 @@ export function getTerrainTextureMark(
   // modulus creates visible diagonals/columns on a grid, which reads like a
   // circuit trace rather than terrain. This mix has no repeating row or
   // column relationship at the map's scale.
-  const territorySeed = territoryId.charCodeAt(0) * 0x9e37 + territoryId.charCodeAt(1) * 0x85eb;
+  const territorySeed = stableIdHash(territoryId);
   let value = Math.imul(x + territorySeed, 0x85ebca6b) ^ Math.imul(microY + territorySeed, 0xc2b2ae35);
   value ^= value >>> 16;
   value = Math.imul(value, 0x7feb352d);
@@ -279,11 +376,8 @@ function buildDecorationsGrid(mapDef: GridMapDefinition) {
   return grid;
 }
 
-// Module-level precomputed sea routes and decorations for compact and wide
-const COMPACT_SEA_ROUTES = buildSeaRoutesGrid(MAP_GRID_IRONREACH_COMPACT);
-const WIDE_SEA_ROUTES = buildSeaRoutesGrid(MAP_GRID_IRONREACH_WIDE);
-const COMPACT_DECORATIONS = buildDecorationsGrid(MAP_GRID_IRONREACH_COMPACT);
-const WIDE_DECORATIONS = buildDecorationsGrid(MAP_GRID_IRONREACH_WIDE);
+const seaRouteCache = new WeakMap<GridMapDefinition, ReturnType<typeof buildSeaRoutesGrid>>();
+const decorationCache = new WeakMap<GridMapDefinition, ReturnType<typeof buildDecorationsGrid>>();
 
 export interface MapRenderLayout {
   width: number;
@@ -331,6 +425,7 @@ export function mouseEventToMapCell(event: any): { x: number; y: number } | null
 }
 
 export function MapCanvas({
+  mapBundle = getDefaultMap(),
   territories,
   players,
   myPlayerId,
@@ -338,7 +433,7 @@ export function MapCanvas({
   selectedTerritoryId,
   targetTerritoryId,
   hoveredTerritoryId,
-  viewport,
+  renderProfile,
   terminalDimensions,
   contentDimensions,
   onHoverTerritory,
@@ -346,30 +441,33 @@ export function MapCanvas({
   onSelectTarget,
   onDeselect,
 }: MapCanvasProps) {
-  const activeMap: GridMapDefinition =
-    viewport === "compact"
-      ? MAP_GRID_IRONREACH_COMPACT
-      : viewport === "wide"
-      ? MAP_GRID_IRONREACH_WIDE
-      : contentDimensions
-      ? getMapForDimensions(contentDimensions.width, contentDimensions.height)
-      : terminalDimensions
-      ? getMapForTerminalDimensions(terminalDimensions.columns, terminalDimensions.rows)
-      : MAP_GRID_IRONREACH_COMPACT;
-
-  const staticSeaRoutes =
-    activeMap.width === MAP_GRID_IRONREACH_WIDE.width ? WIDE_SEA_ROUTES : COMPACT_SEA_ROUTES;
-  const staticDecorations =
-    activeMap.width === MAP_GRID_IRONREACH_WIDE.width ? WIDE_DECORATIONS : COMPACT_DECORATIONS;
+  const terminalPane = terminalDimensions
+    ? getMapContentDimensionsForLayout(
+        terminalDimensions.columns,
+        terminalDimensions.rows,
+        getLayoutModeForMap(terminalDimensions.columns, terminalDimensions.rows, mapBundle),
+      )
+    : undefined;
+  const pane = contentDimensions ?? terminalPane ?? { width: Infinity, height: Infinity };
+  const explicitProfile = !terminalDimensions && !contentDimensions && renderProfile
+    ? mapBundle.renderVariants.find(variant => variant.profile === renderProfile)
+    : undefined;
+  const activeMap: GridMapDefinition = (explicitProfile ?? (!terminalDimensions && !contentDimensions
+    ? mapBundle.renderVariants[0]
+    : selectRenderVariant(mapBundle, pane))).grid;
+  let staticSeaRoutes = seaRouteCache.get(activeMap);
+  if (!staticSeaRoutes) { staticSeaRoutes = buildSeaRoutesGrid(activeMap); seaRouteCache.set(activeMap, staticSeaRoutes); }
+  let staticDecorations = decorationCache.get(activeMap);
+  if (!staticDecorations) { staticDecorations = buildDecorationsGrid(activeMap); decorationCache.set(activeMap, staticDecorations); }
   const availableContentW = contentDimensions
     ? contentDimensions.width
-    : terminalDimensions
-    ? Math.max(0, Math.floor(Math.max(0, terminalDimensions.columns - 1) * 0.75) - 2)
+    : terminalPane
+    ? terminalPane.width
     : Infinity;
   const availableContentH = contentDimensions
     ? contentDimensions.height
-    : terminalDimensions
-    ? Math.max(0, terminalDimensions.rows - 19)
+    : terminalPane
+    ? terminalPane.height
     : Infinity;
   const renderLayout = getMapRenderLayout(activeMap, {
     width: Number.isFinite(availableContentW) ? availableContentW : activeMap.width,
@@ -407,28 +505,42 @@ export function MapCanvas({
   };
 
   // Precompute label and unit positions
-  const labelMap: Record<number, Record<number, { char: string; fg: string; bold?: boolean }>> = {};
+  const labelMap: Record<number, Record<number, { char: string; fg: string; bold?: boolean; priority: number }>> = {};
 
-  const setLabelPoint = (x: number, y: number, char: string, fg: string, bold = true) => {
+  const setLabelPoint = (x: number, y: number, char: string, fg: string, bold = true, priority = 2) => {
     if (!labelMap[y]) labelMap[y] = {};
-    labelMap[y][x] = { char, fg, bold };
+    // Territory names are the cartographic primary. Army markers are only
+    // painted into free cells and can never erase a label.
+    if ((labelMap[y][x]?.priority ?? -1) > priority) return;
+    labelMap[y][x] = { char, fg, bold, priority };
   };
 
-  for (const t of activeMap.territories) {
-    const tState =
-      territories[t.id] ??
-      Object.values(territories).find(
-        (s) => s.name?.toLowerCase() === t.name.toLowerCase()
+  // Reserve army positions before arranging names. A territory's army count is
+  // operational information; a name may shorten or move, but cannot hide it.
+  const armyMarkers = new Map<string, ArmyMarkerPlacement>();
+  const markerReservedCells = new Set<string>();
+  if (phase !== "lobby") {
+    const owned = activeMap.territories.filter((territory) => {
+      const state = territories[territory.id] ?? Object.values(territories).find(
+        (candidate) => candidate.name?.toLowerCase() === territory.name.toLowerCase()
       );
-    const units = tState?.units ?? 0;
-    const isLobby = phase === "lobby";
-    const rawOwnerId = tState?.ownerId;
-    const hasOwner = !isLobby && Boolean(rawOwnerId);
-    const owner = hasOwner ? players.find((p) => p.id === rawOwnerId) : undefined;
-    const ownerColor = isLobby || !hasOwner
-      ? (t.regionColor ?? "#64748b")
-      : (owner?.colorHex ?? t.regionColor ?? "#64748b");
+      return Boolean(state?.ownerId);
+    });
+    const placements = findArmyMarkerPlacements(activeMap, owned, (territoryId) => {
+      const state = territories[territoryId] ?? Object.values(territories).find(
+        (candidate) => candidate.name?.toLowerCase() === activeMap.territories.find((territory) => territory.id === territoryId)?.name.toLowerCase()
+      );
+      return state?.units ?? 0;
+    });
+    for (const territory of owned) {
+      const marker = placements.get(territory.id);
+      if (!marker) continue;
+      armyMarkers.set(territory.id, marker);
+      for (let i = 0; i < marker.text.length; i++) markerReservedCells.add(cellKey(marker.x + i, marker.y));
+    }
+  }
 
+  for (const t of activeMap.territories) {
     type SafeRun = { minX: number; maxX: number };
     const findSafeRun = (row: number, needed: number): SafeRun | null => {
       const candidates: SafeRun[] = [];
@@ -437,7 +549,9 @@ export function MapCanvas({
         const safe =
           x < activeMap.width &&
           getTerritoryAt(x, row, activeMap) === t.id &&
-          !getBorderInfo(x, row, activeMap).isBorder;
+          !getBorderInfo(x, row, activeMap).isBorder &&
+          !markerReservedCells.has(cellKey(x, row)) &&
+          !labelMap[row]?.[x];
         if (safe && start === null) start = x;
         if (!safe && start !== null) {
           if (x - start >= needed) candidates.push({ minX: start, maxX: x - 1 });
@@ -454,13 +568,14 @@ export function MapCanvas({
       Math.round(run.minX + (run.maxX - run.minX + 1 - textWidth) / 2);
 
     const nameWords = t.name.toUpperCase().split(" ");
+    const displayCode = t.displayCode ?? t.id;
     const shortName = nameWords[0].slice(0, 4);
-    const nameCandidates = [
+    const nameCandidates = t.displayLabel ? [t.displayLabel, displayCode] : [
       t.name.toUpperCase(),
       nameWords.length > 1 ? `${nameWords[0][0]}. ${nameWords.slice(1).join(" ")}` : "",
       nameWords[0],
       shortName,
-      t.id,
+      displayCode,
     ].filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
     const candidateRows = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]
       .map((offset) => t.labelPos.y + offset)
@@ -468,13 +583,13 @@ export function MapCanvas({
     const line1Placement = nameCandidates
       .flatMap((text) => candidateRows.map((row) => ({ text, row, run: findSafeRun(row, text.length) })))
       .find((placement) => placement.run !== null);
-    const line1Text = line1Placement?.text ?? t.id;
-    const line1Y = line1Placement?.row ?? t.labelPos.y;
+    const line1Text = line1Placement?.text ?? displayCode;
+    let line1Y = line1Placement?.row ?? t.labelPos.y;
     const line1Run = line1Placement?.run ?? null;
-    const line1StartX = line1Run ? startInRun(line1Run, line1Text.length) : t.labelPos.x;
+    let line1StartX = line1Run ? startInRun(line1Run, line1Text.length) : t.labelPos.x;
 
-    // Line 1 is the visual anchor. The name is primary; the concise ID and
-    // army count sit beneath it so dense territories remain scannable.
+    // Names are placed after army positions have been reserved. A name may
+    // shorten or move for a tactical badge, but never overwrite one.
     if (line1Run) {
       for (let i = 0; i < line1Text.length; i++) {
         setLabelPoint(
@@ -485,46 +600,47 @@ export function MapCanvas({
           true
         );
       }
+    } else if (t.displayCode) {
+      // Small islands and dense straits may have no all-interior text run.
+      // Place their authored code across nearby water while keeping the
+      // anchor on its territory, as a conventional cartographic label.
+      const candidates: Array<{ x: number; y: number; score: number }> = [];
+      for (const row of candidateRows) for (let x = t.labelPos.x - displayCode.length - 4; x <= t.labelPos.x + 4; x++) {
+        if (x < 0 || x + displayCode.length > activeMap.width) continue;
+        let own = 0;
+        let foreign = 0;
+        let occupied = 0;
+        for (let i = 0; i < displayCode.length; i++) {
+          const id = getTerritoryAt(x + i, row, activeMap);
+          if (id === t.id) own++;
+          else if (id) foreign++;
+          if (labelMap[row]?.[x + i] || markerReservedCells.has(cellKey(x + i, row))) occupied++;
+        }
+        if (own > 0 && occupied === 0) candidates.push({ x, y: row,
+          score: foreign * 100 + Math.abs(row - t.labelPos.y) * 5 + Math.abs(x + displayCode.length / 2 - t.labelPos.x) - own });
+      }
+      candidates.sort((a, b) => a.score - b.score);
+      const chosen = candidates[0];
+      if (chosen) {
+        line1Y = chosen.y;
+        line1StartX = chosen.x;
+        for (let i = 0; i < displayCode.length; i++) {
+          setLabelPoint(chosen.x + i, chosen.y, displayCode[i], "#f8fafc", true);
+        }
+      }
     }
 
-    // Line 2: secondary ID, icon and immediately readable unit count.
-    const unitDigits = String(units);
-    const line2TextWidth = t.id.length + 3 + unitDigits.length;
-    const line2Rows = [line1Y + 1, line1Y - 1, ...candidateRows]
-      .filter((row, index, rows) => row >= 0 && row < activeMap.height && row !== line1Y && rows.indexOf(row) === index);
-    const line2Placement = line2Rows
-      .map((row) => ({ row, run: findSafeRun(row, line2TextWidth) }))
-      .find((placement) => placement.run !== null);
-    const line2Run = line2Placement?.run ?? null;
-    // If a narrow territory cannot carry the icon, keep the compact ID/count
-    // on owned land rather than allowing any label glyph to cross a coastline.
-    const compactLine2Width = t.id.length + 1 + unitDigits.length;
-    const compactLine2Placement = line2Run
-      ? null
-      : line2Rows
-          .map((row) => ({ row, run: findSafeRun(row, compactLine2Width) }))
-          .find((placement) => placement.run !== null);
-    const compactLine2Run = compactLine2Placement?.run ?? null;
-    const line2Y = line2Placement?.row ?? compactLine2Placement?.row ?? null;
-    const line2StartX = line2Run
-      ? startInRun(line2Run, line2TextWidth)
-      : compactLine2Run
-      ? startInRun(compactLine2Run, compactLine2Width)
-      : null;
-    if (line2StartX === null || line2Y === null) continue;
-    for (let i = 0; i < t.id.length; i++) {
-      setLabelPoint(line2StartX + i, line2Y, t.id[i], "#67e8f9", true);
-    }
-    if (line2Run) {
-      setLabelPoint(line2StartX + t.id.length, line2Y, " ", "#94a3b8", false);
-      setLabelPoint(line2StartX + t.id.length + 1, line2Y, t.icon, ownerColor, true);
-      setLabelPoint(line2StartX + t.id.length + 2, line2Y, " ", "#ffffff", false);
-    } else {
-      setLabelPoint(line2StartX + t.id.length, line2Y, " ", "#94a3b8", false);
-    }
-    for (let i = 0; i < unitDigits.length; i++) {
-      setLabelPoint(line2StartX + t.id.length + (line2Run ? 3 : 1) + i, line2Y, unitDigits[i], "#ffffff", true);
-    }
+  }
+
+  // Paint the already-reserved markers after labels, with higher priority as a
+  // final guard against future label-placement changes.
+    for (const territory of activeMap.territories) {
+      const marker = armyMarkers.get(territory.id);
+      if (!marker) continue;
+      for (let i = 0; i < marker.text.length; i++) {
+        const char = marker.text[i];
+        setLabelPoint(marker.x + i, marker.y, char, "#f8fafc", true, 3);
+      }
   }
 
   // Generate lines of cellular characters

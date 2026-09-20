@@ -1,6 +1,8 @@
 import type { Sector, TerritoryRender, TerritoryState } from "@conquest/protocol";
 
-export type TerritoryDefinition = Omit<TerritoryState, "ownerId" | "units">;
+export type TerritoryDefinition = Omit<TerritoryState, "ownerId" | "units" | "position" | "render"> & {
+  description?: string;
+};
 
 export interface MapDefinition {
   id: string;

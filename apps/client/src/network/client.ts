@@ -573,6 +573,7 @@ export class GameClient {
       roomName?: string;
       visibility?: RoomVisibility;
       maxPlayers?: number;
+      mapId?: string;
     } = {}
   ): void {
     if (options.playerName) {
@@ -584,6 +585,7 @@ export class GameClient {
       displayName: options.displayName ?? options.roomName,
       visibility: options.visibility ?? "public",
       maxPlayers: options.maxPlayers ?? 4,
+      mapId: options.mapId,
       sessionToken: this.sessionToken ?? undefined,
     };
     this.send(msg);

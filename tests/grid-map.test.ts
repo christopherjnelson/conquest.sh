@@ -42,7 +42,7 @@ import defaultMap, {
 
 describe("grid-map: 2D Ironreach territory grid engine", () => {
   it("exports MAP_GRID_IRONREACH and matches wide canvas dimensions (136x36)", () => {
-    expect(defaultMap).toBe(MAP_GRID_IRONREACH);
+    expect(defaultMap.id).toBe("earth-42");
     expect(MAP_IRONREACH).toBe(MAP_GRID_IRONREACH);
     expect(MAP_GRID_IRONREACH).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(MAP_GRID_IRONREACH.width).toBe(136);
@@ -294,13 +294,13 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
     expect(getTerritoryAt(72, 15, MAP_GRID_IRONREACH)).toBeNull(); // Eastern Sound strait
 
     // Out of bounds resolution
-    expect(getTerritoryAt(-1, 0)).toBeNull();
-    expect(getTerritoryAt(0, -1)).toBeNull();
+    expect(getTerritoryAt(-1, 0, MAP_GRID_IRONREACH)).toBeNull();
+    expect(getTerritoryAt(0, -1, MAP_GRID_IRONREACH)).toBeNull();
     expect(getTerritoryAt(136, 0, MAP_GRID_IRONREACH)).toBeNull();
     expect(getTerritoryAt(0, 36, MAP_GRID_IRONREACH)).toBeNull();
     expect(getTerritoryAt(104, 0, MAP_GRID_IRONREACH_COMPACT)).toBeNull();
     expect(getTerritoryAt(0, 30, MAP_GRID_IRONREACH_COMPACT)).toBeNull();
-    expect(getTerritoryAt(999, 999)).toBeNull();
+    expect(getTerritoryAt(999, 999, MAP_GRID_IRONREACH)).toBeNull();
   });
 
   it("detects border cells and orientation flags correctly", () => {
@@ -322,10 +322,10 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
     expect(isBorderCell(7, 0, MAP_GRID_IRONREACH_COMPACT)).toBe(true);
 
     // Water cell (0, 0)
-    const water = getBorderInfo(0, 0);
+    const water = getBorderInfo(0, 0, MAP_GRID_IRONREACH);
     expect(water.territoryId).toBeNull();
     expect(water.isBorder).toBe(false);
-    expect(isBorderCell(0, 0)).toBe(false);
+    expect(isBorderCell(0, 0, MAP_GRID_IRONREACH)).toBe(false);
   });
 
   it("defines sea routes connecting coastal territories across water", () => {
@@ -519,15 +519,15 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
 
     // Terminal content dimensions mirror App's actual tactical pane rather
     // than treating every layout as a 75% split.
-    expect(getMapContentDimensionsForTerminal(140, 45)).toEqual({ width: 97, height: 32 });
-    expect(getMapContentDimensionsForTerminal(180, 51)).toEqual({ width: 132, height: 36 });
-    expect(getMapContentDimensionsForTerminal(200, 55)).toEqual({ width: 147, height: 39 });
+    expect(getMapContentDimensionsForTerminal(140, 45)).toEqual({ width: 99, height: 32 });
+    expect(getMapContentDimensionsForTerminal(180, 51)).toEqual({ width: 135, height: 36 });
+    expect(getMapContentDimensionsForTerminal(200, 55)).toEqual({ width: 155, height: 39 });
 
-    // Exact wide boundary: its 132x36 land crop fits at 180x51, while either
-    // preceding terminal dimension remains in the standard pane and selects compact.
-    expect(getMapForTerminalDimensions(179, 50)).toBe(MAP_GRID_IRONREACH_COMPACT);
-    expect(getMapForTerminalDimensions(180, 49)).toBe(MAP_GRID_IRONREACH_COMPACT);
-    expect(getMapForTerminalDimensions(180, 50)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    // Selection uses the measured pane, independent of App's responsive mode.
+    // The capped sidebar gives these standard-layout panes room for wide land.
+    expect(getMapForTerminalDimensions(179, 50)).toBe(MAP_GRID_IRONREACH_WIDE);
+    expect(getMapForTerminalDimensions(180, 49)).toBe(MAP_GRID_IRONREACH_WIDE);
+    expect(getMapForTerminalDimensions(180, 50)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(180, 51)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(184, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(185, 55)).toBe(MAP_GRID_IRONREACH_WIDE);

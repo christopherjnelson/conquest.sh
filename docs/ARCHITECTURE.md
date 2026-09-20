@@ -4,7 +4,7 @@
 
 `conquest.sh` is a modern, multiplayer-first terminal territorial strategy game. It pairs a server-authoritative backend with a clickable, responsive Terminal User Interface (TUI) built using OpenTUI (`@opentui/core` and `@opentui/react`).
 
-The game centers on territorial conquest across a fictional continent ("The Ironreach"). Players command factions, deploy reinforcements, mount invasions across frontiers, fortify positions, and negotiate in real time. Multiplayer, server authority, and self-hosting are core foundational pillars.
+The default game centers on territorial conquest across **Earth — Global Front**, a 42-territory world map with six continents. Players command factions, deploy reinforcements, mount invasions across frontiers, fortify positions, and negotiate in real time. Multiplayer, server authority, and self-hosting are core foundational pillars.
 
 ---
 
@@ -45,8 +45,9 @@ conquest.sh/
 │   │   └── package.json
 │   ├── map-engine/          # Canonical microcell templates, topologies, geometry helpers
 │   │   ├── src/
-│   │   │   ├── maps/        # Ironreach map definitions (grid-ironreach.ts, sector-07.ts)
-│   │   │   ├── grid-engine.ts # Canonical microcell centroids, bounds, hit-testing, half-block rendering
+│   │   │   ├── maps/        # Built-in bundles and authored render data (earth-42.ts, grid-ironreach.ts)
+│   │   │   ├── registry.ts  # Built-in map registration and render-variant selection
+│   │   │   ├── grid-engine.ts # Microcell centroids, bounds, hit-testing, half-block rendering
 │   │   │   ├── layout.ts    # Responsive viewport modes (compact, standard, wide)
 │   │   │   └── index.ts
 │   │   └── package.json
@@ -103,48 +104,78 @@ Each connected client receives an isolated per-player `sessionToken`.
 
 ---
 
-## 5. Strategic Realm Map: "The Ironreach"
+## 5. Map Platform and Built-in Maps
 
-A 20-territory fictional strategic realm engineered for terminal space:
+Maps are first-class bundles. The logical game map is independent of terminal geometry, so the rules and authoritative state use semantic territory IDs such as `na_alaska_range`, while raster symbols remain private to a render variant.
 
-- **🌲 Verdant Fringe (+2 bonus armies)**:
-  - `A1 Highwatch`: Windswept towers overlooking the western sea and ancient pine forests.
-  - `A2 Whispering Woods`: Canopies of ancient moss where the trees remember forgotten kings.
-  - `A3 Stoneveil`: Limestone ramparts standing sentinel against eastern marauders.
-- **🌾 Amber Steppes (+2 bonus armies)**:
-  - `B1 Sunken Pass`: Carved sandstone ravines that channel howling northern gale winds.
-  - `B2 The Marches`: Rolling gold grasslands fought over in countless seasonal wars.
-  - `B3 Golden Vale`: Sun-drenched terraces rich in barley, copper mines, and proud cavalry.
-- **❄ Northreach (+3 bonus armies)**:
-  - `C1 Frostfell`: Frozen tundras swept by unending blizzards under the aurora.
-  - `C2 Crown Citadel`: An impregnable mountain redoubt carved straight out of glacial bedrock.
-  - `C3 Glacier Bay`: Deep sea fjords where ice floes crush unwary longships.
-  - `C4 White Cliff`: Sheer chalk precipices dropping hundreds of feet into churning waters.
-- **🌋 Crimson Caldera (+3 bonus armies)**:
-  - `D1 Ember Coast`: Black sand shores warmed by subterranean magma vents.
-  - `D2 Ashmoor`: Smoldering peat bogs blanketed in dense volcanic ash and sulfur.
-  - `D3 Red Basin`: Blood-red clay canyons scarred by centuries of continuous warfare.
-  - `D4 Iron Hollow`: Deep underground foundries that forge the realm's sharpest steel.
-- **🏜 The Blackfen (+2 bonus armies)**:
-  - `E1 Hollowmere`: A sunken caldera lake shrouded in violet mists and ancient ruins.
-  - `E2 Blackfen`: Treacherous quickmire where unwary warbands vanish without a trace.
-  - `E3 Duskfall`: Gloomy basalt bluffs watching the eastern straits under purple dusk.
-- **🌊 Emerald Isles (+2 bonus armies)**:
-  - `F1 Mossgate`: An overgrown harbor fort commanding the southern trade channels.
-  - `F2 Verdant Reach`: Lush tropical headlands blessed with fertile soil and gentle trade winds.
-  - `F3 Mist Isle`: An isolated emerald sanctuary veiled by perpetual sea fog.
+```text
+MapBundle
+├── definition: MapDefinition
+│   ├── id, name, description, recommendedPlayers
+│   ├── territories and semantic IDs
+│   └── regions, reinforcement bonuses, and adjacency
+├── renderVariants: MapRenderVariant[]
+│   └── profile, raster geometry, labels, sea routes, decorations
+└── metadata
+    └── region terminology, display codes, navigation anchor
+```
+
+`registerMap`, `getMap`, `getDefaultMap`, `listMaps`, and `getRenderVariant` form the map-engine registry API. A bundle may have any number of named render profiles. `getRenderVariant` selects the largest authored geography that fits the actual map pane. Application code passes maps explicitly to deep geometry helpers; it does not rely on a hidden default map.
+
+`GameState.mapId` is authoritative from lobby through rematches. A room fixes its map at creation, and rematches retain it. The server resolves a requested `mapId` through the registry; clients resolve the bundle from `state.mapId` and use its logical metadata and selected render variant.
+
+### Earth — Global Front (default)
+
+`earth-42` is the default built-in map. It has 42 territories, uses 6 continent regions, and recommends 2–6 players:
+
+| Continent | Territories | Reinforcement bonus |
+| --- | ---: | ---: |
+| North America | 9 | +5 |
+| South America | 4 | +2 |
+| Europe | 7 | +5 |
+| Africa | 6 | +3 |
+| Asia | 12 | +7 |
+| Oceania | 4 | +2 |
+
+Earth provides a sequence of terminal render densities from compact through ultra. The visual foundation is recognizable real-world continental geography, with strategic regional boundaries rather than country borders. Cross-ocean adjacency is declared logically and drawn as restrained sea-route metadata. The sidebar has a bounded width so additional desktop columns expand the world pane. Once play begins, each owned territory has an independent army marker; lobby maps omit those markers.
+
+| Render profile | Raster dimensions |
+| --- | ---: |
+| compact | 96×24 |
+| compact-tall | 96×30 |
+| standard | 124×34 |
+| wide | 144×38 |
+| large | 160×42 |
+| ultra | 190×42 |
+
+The standard layout caps its sidebar at 38 columns; wide layouts cap it at 42. `getMapContentDimensionsForTerminal` shares those measurements with App and variant selection. Army badge placement uses an optional per-variant `unitPos` preference, falling back to a wholly owned interior run. Labels yield to badges; counts at 100 or more render as `100+` on the map while the inspector shows the exact value.
+The checked-in rasters were constructed from [Natural Earth 1:110m land polygons](https://www.naturalearthdata.com/downloads/110m-physical-vectors/110m-land/), which are [public domain](https://www.naturalearthdata.com/about/terms-of-use/). The generation script documents the source; the game never fetches map data at runtime.
+
+### Additional built-in map: Ironreach
+
+The existing 20-territory fictional `ironreach` map remains registered through the same bundle API. `grid-ironreach` and `ironreach-legacy` continue as compatibility aliases for server configuration.
+The earlier `sector-07` cyber grid remains available as a built-in compatibility map.
+
+### Adding a Map
+
+1. Define a logical `MapDefinition` with stable territory IDs, region membership, bonuses, and bidirectional adjacency.
+2. Author the map's render variants with geometry, labels, display codes, optional army-marker anchors, and sea routes.
+3. Register a `MapBundle` with `registerMap` at the map-engine bootstrap boundary.
+4. Add topology, geometry, navigation, and render-selection tests.
+
+No change to game rules, client map components, or server map-routing branches should be required for another built-in map.
 
 ---
 
 ## 6. OpenTUI Terminal Presentation & Canonical Microcell Engine
 
 The client renders with `@opentui/core` and `@opentui/react`:
-- **Canonical Microcell Raster**: Rather than drawing coarse rectangular character blocks, the map uses sub-pixel half-blocks (`▀`, `▄`, `▌`, `▐`, `█`, `·`) with authored microcell rasters (`136x72` for wide, `104x60` for compact). This allows diagonal coastlines, organic peninsulas, and smooth political borders.
+- **Authored Microcell Raster**: Rather than drawing coarse rectangular character blocks, each map render variant uses sub-pixel half-blocks (`▀`, `▄`, `▌`, `▐`, `█`, `·`) and an authored microcell raster. This allows diagonal coastlines, organic peninsulas, and smooth political borders without coupling map topology to a terminal size.
 - **Same-Owner Political Boundaries**: Alternating tonal depth and visible boundary glyphs prevent same-owner territories from melting into a single monochrome mass.
 - **Responsive Viewport Modes**:
   - `compact` (< 130 cols or < 38 rows): Full-width map canvas paired with an integrated bottom tactical inspector strip.
   - `standard` (130–179 cols and 38–49 rows): Single-row branding bar maximizing vertical space for the map and sidebar.
-  - `wide` ($\ge 180$ cols and $\ge 50$ rows): Expansive 3-line ASCII banner, maximum tactical map dimensions, and deep 4-card strategic sidebar.
+  - `wide` ($\ge 180$ cols and $\ge 51$ rows): Expansive 3-line ASCII banner, maximum tactical map dimensions, and deep 4-card strategic sidebar.
 - **Dual Mouse & Keyboard Controls**: Mouse clicks and hovers are mapped with sub-pixel hit-testing using local microcell neighborhood majority voting. Spatial cardinal arrow keys use canonical continuous centroids.
 
 ---

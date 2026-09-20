@@ -98,7 +98,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
     });
 
     it("records and broadcasts one canonical fortify turn event sequence", () => {
-      const room = new GameRoom({ roomCode: "HIST" });
+      const room = new GameRoom({ roomCode: "HIST", map: MAP_GRID_IRONREACH });
       const messagesA: ServerEvent[] = [];
       const messagesB: ServerEvent[] = [];
       const socketA = { send: (payload: string) => messagesA.push(JSON.parse(payload) as ServerEvent) };
@@ -485,6 +485,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       const roomCode = clientA.roomCode!;
       const room = server.roomManager.getRoom(roomCode)!;
       expect(room).toBeDefined();
+      expect(room.state.mapId).toBe("earth-42");
 
       const aId = clientA.myPlayerId!;
       const bId = clientB.myPlayerId!;
@@ -506,6 +507,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       const overSnapshotB = await clientB.waitForSnapshot((s) => s.phase === "game_over");
 
       expect(overSnapshotA.result?.winnerId).toBe(aId);
+      expect(overSnapshotA.mapId).toBe("earth-42");
       expect(overSnapshotB.result?.winnerId).toBe(aId);
       expect(overSnapshotA.result?.players[0].placement).toBe(1);
       expect(overSnapshotA.result?.players[1].placement).toBe(2);
@@ -548,6 +550,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
         (s) => s.matchNumber === 2 && s.phase === "deployment"
       );
       expect(rematchSnapshotA.activePlayerIndex).toBe(1);
+      expect(rematchSnapshotA.mapId).toBe("earth-42");
 
       // Cleanup
       clientA.disconnect();

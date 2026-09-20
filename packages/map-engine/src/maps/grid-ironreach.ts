@@ -1,64 +1,10 @@
-import type { MapDefinition, TerritoryDefinition } from "@conquest/game-core";
+
+import type { GridMapDefinition, GridTerritoryMetadata, GridSeaRoute, GridMapDecoration, GridMapDecorations } from "../types.js";
 import type { Sector } from "@conquest/protocol";
-
-export interface GridTerritoryMetadata extends TerritoryDefinition {
-  id: string;
-  name: string;
-  char: string;
-  sectorId: string;
-  regionId: string;
-  regionName: string;
-  regionBonus: number;
-  regionColor: string;
-  neighbors: string[];
-  labelPos: { x: number; y: number };
-  position: { x: number; y: number };
-  icon: string;
-  flavor: string;
-  render: {
-    width?: number;
-    height?: number;
-    flavor: string;
-  };
-}
-
-export interface GridSeaRoute {
-  from: string;
-  to: string;
-  path: Array<{ x: number; y: number }>;
-}
-
-export interface GridMapDecoration {
-  x: number;
-  y: number;
-  text: string;
-}
-
-export interface GridMapDecorations {
-  waves: GridMapDecoration[];
-  mountains: GridMapDecoration[];
-  trees: GridMapDecoration[];
-  compass: { x: number; y: number };
-  scaleBar: { x: number; y: number };
-  oceanLabels?: GridMapDecoration[];
-}
-
-export interface GridMapDefinition extends MapDefinition {
-  id: string;
-  name: string;
-  description: string;
-  width: number;
-  height: number;
-  recommendedPlayers: { min: number; max: number };
-  template: string[];
-  microTemplate: string[];
-  charToTerritoryId: Record<string, string>;
-  territoryIdToChar: Record<string, string>;
-  territories: GridTerritoryMetadata[];
-  sectors: Sector[];
-  seaRoutes: GridSeaRoute[];
-  decorations: GridMapDecorations;
-}
+import { deriveCoarseTemplateFromMicro } from "../raster.js";
+import { getMapContentDimensionsForTerminal } from "../layout.js";
+export { deriveCoarseTemplateFromMicro } from "../raster.js";
+export type { GridMapDefinition, GridTerritoryMetadata, GridSeaRoute, GridMapDecoration, GridMapDecorations } from "../types.js";
 
 export const GRID_CANVAS_COMPACT_WIDTH = 104;
 export const GRID_CANVAS_COMPACT_HEIGHT = 30;
@@ -144,34 +90,6 @@ export const GRID_SECTORS: Sector[] = [
 /**
  * Derives a legacy coarse 2D character template (height/2) from the canonical microcell raster.
  */
-export function deriveCoarseTemplateFromMicro(microTemplate: string[]): string[] {
-  const height = Math.floor(microTemplate.length / 2);
-  const width = microTemplate[0].length;
-  const coarseRows: string[] = [];
-
-  for (let y = 0; y < height; y++) {
-    let row = "";
-    const top = microTemplate[2 * y];
-    const bot = microTemplate[2 * y + 1];
-    for (let x = 0; x < width; x++) {
-      const tc = top[x];
-      const bc = bot[x];
-      if (tc === bc) {
-        row += tc;
-      } else if (tc !== "." && bc === ".") {
-        row += tc;
-      } else if (tc === "." && bc !== ".") {
-        row += bc;
-      } else {
-        row += tc;
-      }
-    }
-    coarseRows.push(row);
-  }
-
-  return coarseRows;
-}
-
 export const MICRO_TEMPLATE_COMPACT: string[] = [
   ".........BBB..........AAA...................GG..........................................................", // 0
   ".......BBBBBBB......AAAAAAA...............GGGGGG........................................................", // 1
@@ -937,35 +855,7 @@ export const MAP_GRID_IRONREACH_WIDE: GridMapDefinition = {
   decorations: GRID_DECORATIONS_WIDE,
 };
 
-/**
- * Calculates the available content width and height inside the World Map pane
- * from the total terminal dimensions. These calculations mirror App's flex
- * ratios and fixed chrome: standard uses a 5:2 tactical split, while wide
- * uses 3:1. The returned dimensions are the bordered pane's interior, where
- * the raster is painted.
- */
-export function getMapContentDimensionsForTerminal(
-  terminalCols: number,
-  terminalRows: number
-): { width: number; height: number } {
-  const isCompact = terminalCols < 130 || terminalRows < 38;
-  const isWide = !isCompact && terminalCols >= 180 && terminalRows >= 51;
-  const tacticalWidth = Math.max(0, terminalCols - 1); // one column row gap
-  const outerPaneWidth = isCompact
-    ? terminalCols
-    : isWide
-    ? Math.floor(tacticalWidth * 3 / 4)
-    : Math.round(tacticalWidth * 5 / 7);
-  // The wide header is compressed to four rows at 51–54 terminal rows and
-  // reaches its five-row presentation at 55+. EventLog and Footer use six
-  // and three rows. The World Map border consumes one cell on each axis.
-  const chromeRows = isCompact ? 0 : isWide ? (terminalRows >= 55 ? 14 : 13) : 11;
-  const outerPaneHeight = Math.max(0, terminalRows - chromeRows);
-  return {
-    width: Math.max(0, outerPaneWidth - 2),
-    height: Math.max(0, outerPaneHeight - 2),
-  };
-}
+export { getMapContentDimensionsForTerminal } from "../layout.js";
 
 /**
  * Returns dimensions occupied by authored land, excluding ocean margin.

@@ -1,3 +1,5 @@
+import { getMap } from "../packages/map-engine/src/registry.js";
+const ironreachBundle = getMap("ironreach")!;
 import { describe, expect, it } from "bun:test";
 import { formatEvent } from "../apps/client/src/ui/EventLog.js";
 import {
@@ -73,7 +75,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("⚔ Alice captured Highwatch from Bob!");
     expect(formatted.color).toBe("#ff3399");
   });
@@ -93,7 +95,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("🎲 Battle at Highwatch: Alice vs Bob (-1 att, -0 def)");
     expect(formatted.color).toBe("#f97316");
   });
@@ -108,7 +110,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("🛡 Alice reinforced Frostfell (+3 armies)");
     expect(formatted.color).toBe("#00ff66");
   });
@@ -123,7 +125,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("🛡 Alice fortified 2 armies to Iron Hollow");
     expect(formatted.color).toBe("#9966ff");
   });
@@ -136,7 +138,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("💀 Bob has fallen in battle!");
     expect(formatted.color).toBe("#ff4444");
   });
@@ -149,7 +151,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers);
+    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
     expect(formatted.text).toBe("👑 Alice has conquered the entire realm!");
     expect(formatted.color).toBe("#ffaa00");
   });
@@ -227,6 +229,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
   it("renders MapCanvas as a 2D cellular grid without rectangular territory boxes", async () => {
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const el: any = MapCanvas({
+      mapBundle: ironreachBundle,
       territories: {},
       players: testPlayers,
       myPlayerId: "p1",
@@ -261,6 +264,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
 
     // 1. Lobby phase: unclaimed interiors retain a subdued regional wash.
     const lobbyEl: any = MapCanvas({
+      mapBundle: ironreachBundle,
       territories: {},
       players: testPlayers,
       myPlayerId: "p1",
@@ -286,8 +290,9 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     }
     expect(foundLobbyMuted).toBe(true);
 
-    // 2. Active game phase: territory owned by p1 (colorHex: "#00d2ff")
+    // 2. Active game phase: territory owned by p1 uses its configured color.
     const activeEl: any = MapCanvas({
+      mapBundle: ironreachBundle,
       territories: {
         A1: {
           id: "A1",
@@ -314,7 +319,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     let foundActiveVibrant = false;
     for (const line of activeLines) {
       for (const span of line.props.children) {
-        if (span.props.fg === "#00d2ff") {
+        if (span.props.fg === testPlayers[0].colorHex) {
           foundActiveVibrant = true;
           break;
         }
@@ -327,6 +332,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
   it("renders Sidebar with 4 cards matching ref.png", async () => {
     const { Sidebar } = await import("../apps/client/src/ui/Sidebar.js");
     const el: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "C2",
@@ -407,7 +413,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     expect(header.props.children.props.children).toBe("⚠️  TERMINAL WINDOW TOO SMALL");
     expect(subtitle.type).toBe("text");
     expect(subtitle.props.children).toBe(
-      "conquest.sh requires at least 105 columns x 34 rows for the tactical realm map."
+      "This map requires at least 98 columns × 38 rows for its smallest authored render."
     );
     expect(dimensions.type).toBe("text");
     expect(dimensions.props.children).toBe("Current: 80 cols × 24 rows");
@@ -684,11 +690,12 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         { flexDirection: "column", style: { width: 150, height: 45 } },
         React.createElement("box", { style: { width: 150, height: headerHeight } }),
         React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
           territories: {},
           players: testPlayers,
           myPlayerId: "p1",
           phase: "deployment",
-          viewport: "compact",
+          renderProfile: "compact",
           selectedTerritoryId: null,
           targetTerritoryId: null,
           onHoverTerritory: (tid: string | null) => {
@@ -758,11 +765,12 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         { flexDirection: "column", style: { width: 160, height: 50 } },
         React.createElement("box", { style: { width: 160, height: headerHeight } }),
         React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
           territories: {},
           players: testPlayers,
           myPlayerId: "p1",
           phase: "deployment",
-          viewport: "wide",
+          renderProfile: "wide",
           selectedTerritoryId: null,
           targetTerritoryId: null,
           onHoverTerritory: (tid: string | null) => {
@@ -905,6 +913,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     // 1. No territory selected: honest prompt, no fake Casey or Frostfell defaults
     const unselectedEl: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: null,
@@ -921,6 +930,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     // 2. Territory selected (e.g. A1): shows real name, sector, owner 'Unclaimed'
     const selectedEl: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -947,6 +957,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
       pendingReinforcements: 0,
     };
     const lobbySidebar: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: lobbyState,
       myPlayerId: "p1",
       selectedTerritoryId: null,
@@ -984,6 +995,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     const setup = await testRender(
       React.createElement(EventLog, {
+          mapBundle: ironreachBundle,
         events: [],
         chatOpen: false,
         players: samplePlayers,
@@ -1023,7 +1035,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
     expect(footerString).not.toContain("IRON FRONT");
   });
 
-  it("MapCanvas renders units as 0 instead of 2 for uninitialized territories", async () => {
+  it("MapCanvas hides army badges for unassigned territories", async () => {
     // @ts-ignore
     const React = (await import("../apps/client/node_modules/react/index.js")).default;
     // @ts-ignore
@@ -1034,6 +1046,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
         territories: {},
         players: [],
         myPlayerId: "p1",
@@ -1052,8 +1065,8 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
     });
 
     const frame = setup.captureCharFrame();
-    // Uninitialized territories should render with ▲ 0 (not ▲ 2)
-    expect(frame).toContain("▲ 0");
+    // A lobby/unassigned territory has no army, so its map badge is omitted.
+    expect(frame).not.toContain("▲ 0");
     expect(frame).not.toContain("▲ 2");
 
     await act(async () => {
@@ -1064,7 +1077,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
 describe("ui: Responsive fullscreen layout & terminal size tests", () => {
   const mockClient: any = {
-    state: null,
+    state: { mapId: "ironreach", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 },
     myPlayerId: "p1",
     status: "connected",
     roomCode: "H5CM",
@@ -1081,7 +1094,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     ready: () => {},
   };
 
-  it("responsive layout: minimum supported (110x38) renders without clipping and warning does not block", async () => {
+  it("responsive layout: map-aware minimum warns when Ironreach's authored raster cannot fit", async () => {
     // @ts-ignore
     const React = (await import("../apps/client/node_modules/react/index.js")).default;
     // @ts-ignore
@@ -1102,12 +1115,9 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     });
 
     const frame = setupMin.captureCharFrame();
-    // Warning does not block because 110 >= 105 and 38 >= 34
-    expect(frame).not.toContain("TERMINAL WINDOW TOO SMALL");
-    expect(frame).toContain("CONQUEST.SH");
-    expect(frame).toContain("WORLD MAP");
-    expect(frame).toContain("! PLAYERS");
-    expect(frame).toContain("! EVENT LOG / CHAT");
+    expect(frame).toContain("TERMINAL WINDOW TOO SMALL");
+    expect(frame).toContain("This map requires at least 99 columns × 45 rows");
+    expect(frame).toContain("Current: 110 cols × 38 rows");
 
     await act(async () => {
       setupMin.renderer.destroy();
@@ -1157,7 +1167,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       : rootNode;
     const [leftCol] = appContainer.getChildren()[1].getChildren();
     const compactRaster = renderedMapBounds(MAP_GRID_IRONREACH_COMPACT);
-    expect(leftCol.width).toBe(99);
+    expect(leftCol.width).toBe(101);
     expect(leftCol.height).toBe(34);
     expect(compactRaster.width).toBeLessThanOrEqual(leftCol.width);
     expect(compactRaster.height).toBeLessThanOrEqual(leftCol.height);
@@ -1220,11 +1230,12 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     expect(eventLogNode.screenY).toBe(tacticalRowNode.screenY + tacticalRowNode.height);
     expect(footerNode.screenY).toBe(eventLogNode.screenY + eventLogNode.height);
 
-    // Tactical middle row columns: left column ~70-76% width, adjacent to right column
+    // Tactical middle row gives extra desktop width to the map, not the sidebar.
     const [leftCol, rightCol] = tacticalRowNode.getChildren();
     const leftColRatio = leftCol.width / 200;
     expect(leftColRatio).toBeGreaterThanOrEqual(0.70);
-    expect(leftColRatio).toBeLessThanOrEqual(0.76);
+    expect(leftColRatio).toBeLessThanOrEqual(0.80);
+    expect(rightCol.width).toBe(42);
     expect(rightCol.screenX).toBe(leftCol.screenX + leftCol.width + 1);
 
     // 2. Dual Viewport wide mode selection: inner map width is 136 (> 104) and height is 36
@@ -1248,7 +1259,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
 
     // Use the rendered App pane, not a synthetic terminal-sized rectangle.
     // `wideRaster` is land-only, so decorations cannot inflate occupancy.
-    expect(leftCol.width).toBe(149);
+    expect(leftCol.width).toBe(157);
     expect(leftCol.height).toBe(41);
     expect(wideRaster.width).toBeLessThanOrEqual(leftCol.width);
     expect(wideRaster.height).toBeLessThanOrEqual(leftCol.height);
@@ -1364,7 +1375,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       setupShort.renderer.destroy();
     });
 
-    // Also verify 200x35 (sufficient height to bypass warning without override, but still short)
+    // A 200x35 terminal cannot contain Ironreach's smallest 30-row land
+    // crop after compact chrome, so it reports the map-specific minimum.
     const setup35 = await testRender(
       React.createElement(App, {
         client: mockClient,
@@ -1376,17 +1388,9 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       await setup35.renderOnce();
     });
 
-    const root35 = setup35.renderer.root;
-    const app35 = root35.getChildren?.()[0]?.getChildren?.().length === 4
-      ? root35.getChildren()[0]
-      : root35;
-    const [leftCol35] = app35.getChildren()[1].getChildren();
-    const innerMap35 = findInnerMap(leftCol35);
-    expect(innerMap35).not.toBeNull();
-    // At 35 rows the compact responsive viewport remains in effect.
-    expect(innerMap35.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
-    expect(innerMap35.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
-    expect(innerMap35.width).toBeLessThanOrEqual(leftCol35.width);
+    const frame35 = setup35.captureCharFrame();
+    expect(frame35).toContain("TERMINAL WINDOW TOO SMALL");
+    expect(frame35).toContain("This map requires at least 99 columns × 45 rows");
 
     await act(async () => {
       setup35.renderer.destroy();
@@ -1413,10 +1417,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       return null;
     }
 
-    // The responsive mode boundary and map selection share the App pane
-    // geometry. 180x50 remains standard because its bordered map content is
-    // one row short of the wide 132x36 geography; 180x51 is the first wide
-    // terminal that gives the raster room to fit.
+    // The responsive mode boundary changes chrome, while map selection follows
+    // the actual pane. The capped sidebar lets Ironreach wide fit on both sides.
     const setup179 = await testRender(
       React.createElement(App, {
         client: mockClient,
@@ -1433,10 +1435,10 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       : root179;
     const [leftCol179] = appContainer179.getChildren()[1].getChildren();
     const innerMap179 = findInnerMap(leftCol179);
-    expect(leftCol179.width).toBe(127);
+    expect(leftCol179.width).toBe(140);
     expect(leftCol179.height).toBe(39);
-    expect(innerMap179.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
-    expect(innerMap179.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
+    expect(innerMap179.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
+    expect(innerMap179.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
     await act(async () => {
       setup179.renderer.destroy();
     });
@@ -1457,8 +1459,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       : root180;
     const [leftCol180] = appContainer180.getChildren()[1].getChildren();
     const innerMap180 = findInnerMap(leftCol180);
-    expect(innerMap180.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
-    expect(innerMap180.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
+    expect(innerMap180.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
+    expect(innerMap180.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
     expect(innerMap180.width).toBeLessThanOrEqual(leftCol180.width);
     expect(innerMap180.height).toBeLessThanOrEqual(leftCol180.height);
     await act(async () => {
@@ -1560,6 +1562,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 1. Uninspected: Displays player summary and lobby ready button
     const uninspected: any = CompactInspector({
+      mapBundle: ironreachBundle,
       state: {
         phase: "lobby",
         turnNumber: 0,
@@ -1591,6 +1594,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 2. Hovered territory A1 without selection: displays [HOVERED]
     const hoveredEl: any = CompactInspector({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: null,
@@ -1611,6 +1615,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 3. Selected territory A1: displays [SELECTED]
     const selectedEl: any = CompactInspector({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -1630,6 +1635,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 4. Hovering B1 while A1 is selected: displays B1 with [HOVERED]
     const hoverWhileSelectedEl: any = CompactInspector({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -1649,6 +1655,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 5. Reverting to A1 when hover cleared
     const revertedEl: any = CompactInspector({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -1671,6 +1678,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // Standard mode: Cards 1-3 rendered, Card 4 omitted
     const standardEl: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -1692,6 +1700,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // Wide mode: All 4 cards rendered with updated terminology
     const wideEl: any = Sidebar({
+      mapBundle: ironreachBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: "A1",
@@ -1711,7 +1720,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     const wideStr = JSON.stringify(wideEl);
     expect(wideStr).toContain("The Ironreach");
-    expect(wideStr).toContain("20 Territories");
+    expect(wideStr).toContain('20," Territories"');
     expect(wideStr).not.toContain("20 Realms");
   });
 
@@ -1773,6 +1782,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
         territories: {},
         players: testPlayers,
         myPlayerId: "p1",
@@ -1820,6 +1830,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
         territories,
         players: testPlayers,
         myPlayerId: "p1",
@@ -1867,6 +1878,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
+          mapBundle: ironreachBundle,
         territories,
         players: testPlayers,
         myPlayerId: "p1",

@@ -18,6 +18,7 @@ export const ClientCreateRoomSchema = z.object({
   displayName: z.string().min(1).max(40).optional(),
   visibility: RoomVisibilitySchema.default("public"),
   maxPlayers: z.number().int().min(2).max(6).default(4),
+  mapId: z.string().optional(),
 });
 export type ClientCreateRoom = z.infer<typeof ClientCreateRoomSchema>;
 
