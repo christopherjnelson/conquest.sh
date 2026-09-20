@@ -413,7 +413,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     expect(header.props.children.props.children).toBe("⚠️  TERMINAL WINDOW TOO SMALL");
     expect(subtitle.type).toBe("text");
     expect(subtitle.props.children).toBe(
-      "conquest.sh requires at least 105 columns x 34 rows for the tactical realm map."
+      "This map requires at least 98 columns × 38 rows for its smallest authored render."
     );
     expect(dimensions.type).toBe("text");
     expect(dimensions.props.children).toBe("Current: 80 cols × 24 rows");
@@ -695,7 +695,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
           players: testPlayers,
           myPlayerId: "p1",
           phase: "deployment",
-          viewport: "compact",
+          renderProfile: "compact",
           selectedTerritoryId: null,
           targetTerritoryId: null,
           onHoverTerritory: (tid: string | null) => {
@@ -770,7 +770,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
           players: testPlayers,
           myPlayerId: "p1",
           phase: "deployment",
-          viewport: "wide",
+          renderProfile: "wide",
           selectedTerritoryId: null,
           targetTerritoryId: null,
           onHoverTerritory: (tid: string | null) => {
@@ -1094,7 +1094,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     ready: () => {},
   };
 
-  it("responsive layout: minimum supported (110x38) renders without clipping and warning does not block", async () => {
+  it("responsive layout: map-aware minimum warns when Ironreach's authored raster cannot fit", async () => {
     // @ts-ignore
     const React = (await import("../apps/client/node_modules/react/index.js")).default;
     // @ts-ignore
@@ -1115,12 +1115,9 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     });
 
     const frame = setupMin.captureCharFrame();
-    // Warning does not block because 110 >= 105 and 38 >= 34
-    expect(frame).not.toContain("TERMINAL WINDOW TOO SMALL");
-    expect(frame).toContain("CONQUEST.SH");
-    expect(frame).toContain("WORLD MAP");
-    expect(frame).toContain("! PLAYERS");
-    expect(frame).toContain("! EVENT LOG / CHAT");
+    expect(frame).toContain("TERMINAL WINDOW TOO SMALL");
+    expect(frame).toContain("This map requires at least 99 columns × 45 rows");
+    expect(frame).toContain("Current: 110 cols × 38 rows");
 
     await act(async () => {
       setupMin.renderer.destroy();
@@ -1378,7 +1375,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       setupShort.renderer.destroy();
     });
 
-    // Also verify 200x35 (sufficient height to bypass warning without override, but still short)
+    // A 200x35 terminal cannot contain Ironreach's smallest 30-row land
+    // crop after compact chrome, so it reports the map-specific minimum.
     const setup35 = await testRender(
       React.createElement(App, {
         client: mockClient,
@@ -1390,17 +1388,9 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       await setup35.renderOnce();
     });
 
-    const root35 = setup35.renderer.root;
-    const app35 = root35.getChildren?.()[0]?.getChildren?.().length === 4
-      ? root35.getChildren()[0]
-      : root35;
-    const [leftCol35] = app35.getChildren()[1].getChildren();
-    const innerMap35 = findInnerMap(leftCol35);
-    expect(innerMap35).not.toBeNull();
-    // At 35 rows the compact responsive viewport remains in effect.
-    expect(innerMap35.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
-    expect(innerMap35.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
-    expect(innerMap35.width).toBeLessThanOrEqual(leftCol35.width);
+    const frame35 = setup35.captureCharFrame();
+    expect(frame35).toContain("TERMINAL WINDOW TOO SMALL");
+    expect(frame35).toContain("This map requires at least 99 columns × 45 rows");
 
     await act(async () => {
       setup35.renderer.destroy();

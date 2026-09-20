@@ -8,9 +8,11 @@ import {
   getTerritoryAt,
   getNextTerritoryInDirection,
   getNextTabTerritoryId,
-  getMapContentDimensionsForTerminal,
+  getMapContentDimensionsForLayout,
   getSidebarWidthForTerminal,
-  getLayoutMode,
+  getLayoutModeForMap,
+  canRenderMapInPane,
+  getMinimumTerminalDimensionsForMap,
   type LayoutMode,
 } from "@conquest/map-engine";
 import { GameClient, type ConnectionStatus } from "../network/client.js";
@@ -36,6 +38,7 @@ export interface AppProps {
 export interface TerminalSizeWarningProps {
   columns: number;
   rows: number;
+  minimumDimensions?: { columns: number; rows: number };
   onIgnore?: () => void;
   onExit?: () => void;
 }
@@ -43,9 +46,11 @@ export interface TerminalSizeWarningProps {
 export function TerminalSizeWarning({
   columns,
   rows,
+  minimumDimensions,
   onIgnore,
   onExit,
 }: TerminalSizeWarningProps) {
+  const effectiveMinimum = minimumDimensions ?? getMinimumTerminalDimensionsForMap(getDefaultMap());
   return (
     <box
       flexDirection="column"
@@ -72,7 +77,7 @@ export function TerminalSizeWarning({
         </text>
 
         <text fg="#e2e8f0">
-          conquest.sh requires at least 105 columns x 34 rows for the tactical realm map.
+          {`This map requires at least ${effectiveMinimum.columns} columns × ${effectiveMinimum.rows} rows for its smallest authored render.`}
         </text>
 
         <text fg="#f59e0b">
@@ -108,6 +113,7 @@ export function App({
   const [myPlayerId, setMyPlayerId] = useState<string | null>(client.myPlayerId);
   const [status, setStatus] = useState<ConnectionStatus>(client.status);
   const [events, setEvents] = useState<GameEvent[]>(client.state?.history ?? []);
+  const mapBundle = getMap(state?.mapId ?? getDefaultMap().definition.id) ?? getDefaultMap();
 
   // Terminal dimensions & warning override state
   const [dimensions, setDimensions] = useState(() => ({
@@ -140,8 +146,8 @@ export function App({
         columns: nextCols,
         rows: nextRows,
       });
-      // If window expanded to sufficient dimensions, reset override so subsequent shrinks re-warn
-      if (nextCols >= 105 && nextRows >= 34) {
+      // Reset an ignored warning once the active map fits its full-width pane.
+      if (canRenderMapInPane(mapBundle, getMapContentDimensionsForLayout(nextCols, nextRows, "compact"))) {
         setOverrideWarning(false);
       }
     };
@@ -156,14 +162,15 @@ export function App({
         stdout.off("resize", handleResize);
       }
     };
-  }, []);
+  }, [mapBundle]);
 
   const cols = dimensions.columns;
   const rows = dimensions.rows;
   // In non-TTY environments (or tests without real TTY), columns/rows are undefined or 0
   const hasTtyDimensions = cols > 0 && rows > 0;
-  const isTooSmall = !overrideWarning && hasTtyDimensions && (cols < 105 || rows < 34);
-  const layoutMode: LayoutMode = getLayoutMode(cols, rows);
+  const compactPaneDimensions = getMapContentDimensionsForLayout(cols, rows, "compact");
+  const isTooSmall = !overrideWarning && hasTtyDimensions && !canRenderMapInPane(mapBundle, compactPaneDimensions);
+  const layoutMode: LayoutMode = getLayoutModeForMap(cols, rows, mapBundle);
   const isCompact = layoutMode === "compact";
 
   // Territory selection, target, and hover state
@@ -223,9 +230,8 @@ export function App({
   const myPlayer = state?.players.find((p) => p.id === myPlayerId);
   const isEliminated = Boolean(myPlayer && !myPlayer.isAlive);
   const phase = state?.phase ?? "deployment";
-  const mapBundle = getMap(state?.mapId ?? getDefaultMap().definition.id) ?? getDefaultMap();
-  const paneDimensions = getMapContentDimensionsForTerminal(dimensions.columns, dimensions.rows);
-  const sidebarWidth = getSidebarWidthForTerminal(dimensions.columns, dimensions.rows);
+  const paneDimensions = getMapContentDimensionsForLayout(dimensions.columns, dimensions.rows, layoutMode);
+  const sidebarWidth = getSidebarWidthForTerminal(dimensions.columns, dimensions.rows, layoutMode);
   const activeMapDef = selectRenderVariant(mapBundle, paneDimensions).grid;
 
   const allTerritoryIds = useMemo(() => {
@@ -358,7 +364,7 @@ export function App({
 
     // Toggle warning back if dimensions are small and user previously overrode
     if (key.name === "i" || key.name === "I") {
-      if (hasTtyDimensions && (cols < 105 || rows < 34)) {
+      if (hasTtyDimensions && !canRenderMapInPane(mapBundle, compactPaneDimensions)) {
         setOverrideWarning(false);
         return;
       }
@@ -481,6 +487,7 @@ export function App({
       <TerminalSizeWarning
         columns={cols}
         rows={rows}
+        minimumDimensions={getMinimumTerminalDimensionsForMap(mapBundle)}
         onIgnore={() => setOverrideWarning(true)}
         onExit={onExit}
       />
@@ -519,7 +526,6 @@ export function App({
           <box flexGrow={1} flexDirection="column" style={{ width: "100%" }}>
             <MapCanvas
               mapBundle={mapBundle}
-              viewport="compact"
               contentDimensions={paneDimensions}
               terminalDimensions={dimensions}
               territories={state?.territories ?? {}}

@@ -10,7 +10,8 @@ import {
   getTerritoryAt,
   getMicroTerritoryAt,
   getTerritoryAtCell,
-  getMapContentDimensionsForTerminal,
+  getMapContentDimensionsForLayout,
+  getLayoutModeForMap,
 } from "@conquest/map-engine";
 
 export interface MapCanvasProps {
@@ -22,7 +23,8 @@ export interface MapCanvasProps {
   selectedTerritoryId: string | null;
   targetTerritoryId: string | null;
   hoveredTerritoryId?: string | null;
-  viewport?: "compact" | "wide";
+  /** Optional explicit profile for previews and tests. Normal play selects by pane size. */
+  renderProfile?: string;
   terminalDimensions?: { columns: number; rows: number };
   contentDimensions?: { width: number; height: number };
   onHoverTerritory?: (territoryId: string | null) => void;
@@ -431,7 +433,7 @@ export function MapCanvas({
   selectedTerritoryId,
   targetTerritoryId,
   hoveredTerritoryId,
-  viewport,
+  renderProfile,
   terminalDimensions,
   contentDimensions,
   onHoverTerritory,
@@ -439,13 +441,16 @@ export function MapCanvas({
   onSelectTarget,
   onDeselect,
 }: MapCanvasProps) {
-  const pane = contentDimensions ?? (terminalDimensions
-    ? viewport === "compact"
-      ? { width: Math.max(0, terminalDimensions.columns - 2), height: Math.max(0, terminalDimensions.rows - 15) }
-      : getMapContentDimensionsForTerminal(terminalDimensions.columns, terminalDimensions.rows)
-    : { width: Infinity, height: Infinity });
-  const explicitProfile = !terminalDimensions && !contentDimensions && viewport
-    ? mapBundle.renderVariants.find(variant => variant.profile === viewport)
+  const terminalPane = terminalDimensions
+    ? getMapContentDimensionsForLayout(
+        terminalDimensions.columns,
+        terminalDimensions.rows,
+        getLayoutModeForMap(terminalDimensions.columns, terminalDimensions.rows, mapBundle),
+      )
+    : undefined;
+  const pane = contentDimensions ?? terminalPane ?? { width: Infinity, height: Infinity };
+  const explicitProfile = !terminalDimensions && !contentDimensions && renderProfile
+    ? mapBundle.renderVariants.find(variant => variant.profile === renderProfile)
     : undefined;
   const activeMap: GridMapDefinition = (explicitProfile ?? (!terminalDimensions && !contentDimensions
     ? mapBundle.renderVariants[0]
@@ -454,9 +459,6 @@ export function MapCanvas({
   if (!staticSeaRoutes) { staticSeaRoutes = buildSeaRoutesGrid(activeMap); seaRouteCache.set(activeMap, staticSeaRoutes); }
   let staticDecorations = decorationCache.get(activeMap);
   if (!staticDecorations) { staticDecorations = buildDecorationsGrid(activeMap); decorationCache.set(activeMap, staticDecorations); }
-  const terminalPane = terminalDimensions
-    ? getMapContentDimensionsForTerminal(terminalDimensions.columns, terminalDimensions.rows)
-    : undefined;
   const availableContentW = contentDimensions
     ? contentDimensions.width
     : terminalPane
