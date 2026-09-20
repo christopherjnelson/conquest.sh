@@ -290,7 +290,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     }
     expect(foundLobbyMuted).toBe(true);
 
-    // 2. Active game phase: territory owned by p1 (colorHex: "#00d2ff")
+    // 2. Active game phase: territory owned by p1 uses its configured color.
     const activeEl: any = MapCanvas({
       mapBundle: ironreachBundle,
       territories: {
@@ -319,7 +319,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     let foundActiveVibrant = false;
     for (const line of activeLines) {
       for (const span of line.props.children) {
-        if (span.props.fg === "#00d2ff") {
+        if (span.props.fg === testPlayers[0].colorHex) {
           foundActiveVibrant = true;
           break;
         }
@@ -1035,7 +1035,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
     expect(footerString).not.toContain("IRON FRONT");
   });
 
-  it("MapCanvas renders units as 0 instead of 2 for uninitialized territories", async () => {
+  it("MapCanvas hides army badges for unassigned territories", async () => {
     // @ts-ignore
     const React = (await import("../apps/client/node_modules/react/index.js")).default;
     // @ts-ignore
@@ -1065,8 +1065,8 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
     });
 
     const frame = setup.captureCharFrame();
-    // Uninitialized territories should render with ▲ 0 (not ▲ 2)
-    expect(frame).toContain("▲ 0");
+    // A lobby/unassigned territory has no army, so its map badge is omitted.
+    expect(frame).not.toContain("▲ 0");
     expect(frame).not.toContain("▲ 2");
 
     await act(async () => {
@@ -1170,7 +1170,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       : rootNode;
     const [leftCol] = appContainer.getChildren()[1].getChildren();
     const compactRaster = renderedMapBounds(MAP_GRID_IRONREACH_COMPACT);
-    expect(leftCol.width).toBe(99);
+    expect(leftCol.width).toBe(101);
     expect(leftCol.height).toBe(34);
     expect(compactRaster.width).toBeLessThanOrEqual(leftCol.width);
     expect(compactRaster.height).toBeLessThanOrEqual(leftCol.height);
@@ -1233,11 +1233,12 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     expect(eventLogNode.screenY).toBe(tacticalRowNode.screenY + tacticalRowNode.height);
     expect(footerNode.screenY).toBe(eventLogNode.screenY + eventLogNode.height);
 
-    // Tactical middle row columns: left column ~70-76% width, adjacent to right column
+    // Tactical middle row gives extra desktop width to the map, not the sidebar.
     const [leftCol, rightCol] = tacticalRowNode.getChildren();
     const leftColRatio = leftCol.width / 200;
     expect(leftColRatio).toBeGreaterThanOrEqual(0.70);
-    expect(leftColRatio).toBeLessThanOrEqual(0.76);
+    expect(leftColRatio).toBeLessThanOrEqual(0.80);
+    expect(rightCol.width).toBe(42);
     expect(rightCol.screenX).toBe(leftCol.screenX + leftCol.width + 1);
 
     // 2. Dual Viewport wide mode selection: inner map width is 136 (> 104) and height is 36
@@ -1261,7 +1262,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
 
     // Use the rendered App pane, not a synthetic terminal-sized rectangle.
     // `wideRaster` is land-only, so decorations cannot inflate occupancy.
-    expect(leftCol.width).toBe(149);
+    expect(leftCol.width).toBe(157);
     expect(leftCol.height).toBe(41);
     expect(wideRaster.width).toBeLessThanOrEqual(leftCol.width);
     expect(wideRaster.height).toBeLessThanOrEqual(leftCol.height);
@@ -1426,10 +1427,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       return null;
     }
 
-    // The responsive mode boundary and map selection share the App pane
-    // geometry. 180x50 remains standard because its bordered map content is
-    // one row short of the wide 132x36 geography; 180x51 is the first wide
-    // terminal that gives the raster room to fit.
+    // The responsive mode boundary changes chrome, while map selection follows
+    // the actual pane. The capped sidebar lets Ironreach wide fit on both sides.
     const setup179 = await testRender(
       React.createElement(App, {
         client: mockClient,
@@ -1446,10 +1445,10 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       : root179;
     const [leftCol179] = appContainer179.getChildren()[1].getChildren();
     const innerMap179 = findInnerMap(leftCol179);
-    expect(leftCol179.width).toBe(127);
+    expect(leftCol179.width).toBe(140);
     expect(leftCol179.height).toBe(39);
-    expect(innerMap179.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
-    expect(innerMap179.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
+    expect(innerMap179.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
+    expect(innerMap179.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
     await act(async () => {
       setup179.renderer.destroy();
     });
@@ -1470,8 +1469,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       : root180;
     const [leftCol180] = appContainer180.getChildren()[1].getChildren();
     const innerMap180 = findInnerMap(leftCol180);
-    expect(innerMap180.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
-    expect(innerMap180.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
+    expect(innerMap180.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
+    expect(innerMap180.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
     expect(innerMap180.width).toBeLessThanOrEqual(leftCol180.width);
     expect(innerMap180.height).toBeLessThanOrEqual(leftCol180.height);
     await act(async () => {

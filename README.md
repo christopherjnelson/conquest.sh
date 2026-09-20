@@ -20,7 +20,7 @@ Inspired by classic grand strategy territory-control loops, reimagined as a term
 
 - **Server-Authoritative Multiplayer**: All dice rolls, reinforcements, combat resolutions, and state transitions are verified and resolved authoritatively on the server. Clients emit typed intents; the server broadcasts canonical state snapshots.
 - **Canonical Earth-42 Map**: The default map, **Earth — Global Front**, has 42 strategic territories across 6 continents. Its original terminal artwork uses recognizable world geography, strategic regional borders, and explicit sea routes.
-- **Map Platform**: Logical game topology is separate from terminal render variants. A map bundle supplies its definition, metadata, and one or more authored render profiles, so future maps do not require changes to the game core or UI.
+- **Map Platform**: Logical game topology is separate from terminal render variants. A map bundle supplies its definition, metadata, and any number of authored render profiles; the client selects the largest geography that fits its measured WORLD MAP pane.
 - **Canonical Microcell Rendering**: Sub-pixel half-block rendering (`▀`, `▄`, `▌`, `▐`, `█`, `·`) produces organic coastlines, staggered boundaries, and high-contrast territorial silhouettes that occupy the tactical viewport.
 - **Responsive Terminal Presentation**:
   - **Wide Mode** ($\ge 180$ cols and $\ge 51$ rows): Full 3-line ASCII banner, expansive tactical map, and deep 4-card strategic sidebar.
@@ -33,6 +33,7 @@ Inspired by classic grand strategy territory-control loops, reimagined as a term
   - **Join by Code**: Direct entry for private or unlisted matches using exactly 4-character uppercase alphanumeric room codes.
   - **Session Resume**: Automatic detection of cached sessions with instant reconnection to ongoing matches.
 - **Dual Mouse & Keyboard Controls**: Click territories and action buttons directly with the mouse (with full hover inspector preview), or navigate spatially with geometric cardinal arrow keys, `Tab` cycling, and hotkeys.
+- **On-Map Army Badges**: Once a match begins, owned territories show their army counts directly on the map. The inspector retains exact counts and full geographic details.
 - **Six Continent Bonuses**: North America (+5), South America (+2), Europe (+5), Africa (+3), Asia (+7), and Oceania (+2).
 - **Additional Built-in Map**: The 20-territory fictional **Ironreach** map remains available for existing servers and games.
 - **Resilient Reconnection**: Per-player session tokens are stored locally. If your connection drops or terminal closes, launching the client seamlessly reconnects you with full match state.
@@ -177,7 +178,7 @@ For example, start a server with the retained Ironreach map:
 Maps are registered bundles. The game core receives only a logical `MapDefinition`; terminal artwork is supplied as independent render variants.
 
 1. Define the logical map: stable semantic territory IDs, names, regions, bonuses, and bidirectional adjacency.
-2. Define one or more authored render variants, including raster geometry, labels, decorations, and sea routes.
+2. Define one or more authored render variants at useful terminal densities, including raster geometry, labels, army-marker anchors where needed, decorations, and sea routes.
 3. Register the bundle with its metadata (region terminology, display codes, and navigation anchor).
 4. Add topology and geometry tests, including route validation for non-land adjacencies.
 

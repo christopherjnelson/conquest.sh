@@ -12,6 +12,12 @@ export interface GridTerritoryMetadata extends TerritoryDefinition {
   regionColor: string;
   neighbors: string[];
   labelPos: { x: number; y: number };
+  /**
+   * Optional authored start cell for the on-map army marker.  When absent the
+   * renderer finds an interior run that does not collide with the territory
+   * label, so logical maps never need terminal coordinates.
+   */
+  unitPos?: { x: number; y: number };
   position: { x: number; y: number };
   icon: string;
   displayCode?: string;

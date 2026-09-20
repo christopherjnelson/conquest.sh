@@ -25,6 +25,32 @@ export function getLayoutMode(cols: number, rows: number): LayoutMode {
   return "wide";
 }
 
+/** Width of the tactical inspector pane, measured in terminal columns. */
+export function getSidebarWidthForTerminal(cols: number, rows: number): number {
+  const mode = getLayoutMode(cols, rows);
+  if (mode === "compact") return 0;
+  return Math.min(mode === "wide" ? 42 : 38, Math.max(32, Math.floor((cols - 1) * (mode === "wide" ? 1 / 4 : 2 / 7))));
+}
+
+/** Interior dimensions of the bordered WORLD MAP pane used by App. */
+export function getMapContentDimensionsForTerminal(
+  terminalCols: number,
+  terminalRows: number
+): { width: number; height: number } {
+  const mode = getLayoutMode(terminalCols, terminalRows);
+  if (mode === "compact") {
+    return { width: Math.max(0, terminalCols - 2), height: Math.max(0, terminalRows - 15) };
+  }
+  const sidebarWidth = getSidebarWidthForTerminal(terminalCols, terminalRows);
+  const outerPaneWidth = Math.max(0, terminalCols - 1 - sidebarWidth);
+  // Header, event log, footer, and the map border are fixed-height chrome.
+  const chromeRows = mode === "wide" ? (terminalRows >= 55 ? 14 : 13) : 11;
+  return {
+    width: Math.max(0, outerPaneWidth - 2),
+    height: Math.max(0, terminalRows - chromeRows - 2),
+  };
+}
+
 export const NODE_WIDTH = 18;
 export const NODE_HEIGHT = 5;
 

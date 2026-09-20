@@ -6,7 +6,8 @@ import { EARTH_42_BUNDLE } from "./maps/earth-42.js";
 import { MAP_SECTOR_07 } from "./maps/sector-07.js";
 import { deriveCoarseTemplateFromMicro } from "./raster.js";
 
-export type MapRenderProfile = "compact" | "standard" | "wide";
+/** Map-authored render key. Maps may provide any number of density steps. */
+export type MapRenderProfile = string;
 
 export interface MapRenderVariant {
   profile: MapRenderProfile;

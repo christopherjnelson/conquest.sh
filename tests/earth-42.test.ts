@@ -3,11 +3,14 @@ import { createHash } from "node:crypto";
 import { attackTerritory, calculateReinforcements, createInitialGameState } from "../packages/game-core/src/index.js";
 import { EARTH_42_BUNDLE } from "../packages/map-engine/src/maps/earth-42.js";
 import { getDefaultMap, getMap, getRenderVariant, selectRenderVariant, type MapBundle } from "../packages/map-engine/src/registry.js";
-import { getNextTerritoryInDirection, getTerritoryAt } from "../packages/map-engine/src/grid-engine.js";
+import { getGeographyBoundingBox, getNextTerritoryInDirection, getTerritoryAt } from "../packages/map-engine/src/grid-engine.js";
 import { getNextTabTerritoryId } from "../packages/map-engine/src/navigation.js";
 import { deriveCoarseTemplateFromMicro } from "../packages/map-engine/src/raster.js";
 import type { GridMapDefinition } from "../packages/map-engine/src/types.js";
 import type { Player } from "../packages/protocol/src/index.js";
+import { findArmyMarkerPlacements, formatArmyMarkerUnits } from "../apps/client/src/ui/MapCanvas.js";
+import { MapCanvas } from "../apps/client/src/ui/MapCanvas.js";
+import { getMapContentDimensionsForTerminal } from "../packages/map-engine/src/layout.js";
 
 const earth = EARTH_42_BUNDLE.definition;
 const expectedGroups = [
@@ -114,6 +117,33 @@ describe("map bundles and geometry", () => {
     expect(getMap("ironreach")?.definition.territories.length).toBe(20);
     expect(getMap("grid-ironreach")).toBe(getMap("ironreach"));
     expect(getRenderVariant("earth-42", { width: 144, height: 38 }).profile).toBe("wide");
+  });
+
+  it("selects the largest authored Earth density that fits each World Map pane", () => {
+    const panes = [
+      { terminal: "140×45", columns: 140, rows: 45, profile: "compact-tall" },
+      { terminal: "180×51", columns: 180, rows: 51, profile: "standard" },
+      { terminal: "200×55", columns: 200, rows: 55, profile: "wide" },
+      { terminal: "220×60", columns: 220, rows: 60, profile: "large" },
+      { terminal: "240×60", columns: 240, rows: 60, profile: "ultra" },
+    ];
+    for (const pane of panes) {
+      const content = getMapContentDimensionsForTerminal(pane.columns, pane.rows);
+      const selected = selectRenderVariant(EARTH_42_BUNDLE, content);
+      const land = getGeographyBoundingBox(selected.grid);
+      expect(selected.profile, pane.terminal).toBe(pane.profile);
+      expect(land.width, pane.terminal).toBeLessThanOrEqual(content.width);
+      expect(land.height, pane.terminal).toBeLessThanOrEqual(content.height);
+      expect(land.width / content.width, pane.terminal).toBeGreaterThanOrEqual(0.85);
+      expect(land.height / content.height, pane.terminal).toBeGreaterThanOrEqual(0.78);
+    }
+    for (const variant of EARTH_42_BUNDLE.renderVariants) {
+      const land = getGeographyBoundingBox(variant.grid);
+      // Geographic crop deliberately occupies the pane; the remaining cells
+      // are only the slim ocean margin used by terminal coastline rendering.
+      expect(land.width / variant.grid.width).toBeGreaterThan(0.9);
+      expect(land.height / variant.grid.height).toBeGreaterThan(0.9);
+    }
   });
 
   it("selects an arbitrary synthetic bundle by pane size", () => {
@@ -231,4 +261,60 @@ describe("map bundles and geometry", () => {
       }
     });
   }
+
+  it("bounds army counts as 100+ and keeps every rendered Earth marker inside one territory", () => {
+    expect(formatArmyMarkerUnits(7)).toBe("7");
+    expect(formatArmyMarkerUnits(100)).toBe("100+");
+    expect(formatArmyMarkerUnits(9999)).toBe("100+");
+
+    for (const { grid } of EARTH_42_BUNDLE.renderVariants) {
+      for (const units of [1, 9, 12, 50, 99, 100, 123]) {
+        const occupied = new Set<string>();
+        const markers = findArmyMarkerPlacements(grid, grid.territories, () => units);
+        expect(markers.size).toBe(42);
+        for (const territory of grid.territories) {
+          const marker = markers.get(territory.id)!;
+          expect(marker.text).toContain(formatArmyMarkerUnits(units));
+        for (let i = 0; i < marker.text.length; i++) {
+          const x = marker.x + i;
+          expect(occupied.has(`${x},${marker.y}`)).toBe(false);
+          expect(getTerritoryAt(x, marker.y, grid)).toBe(territory.id);
+          // A marker may never straddle a political boundary or coastline.
+          const micro = grid.microTemplate.slice(marker.y * 2, marker.y * 2 + 2);
+          expect(micro.every(row => row[x] === territory.char)).toBe(true);
+          occupied.add(`${x},${marker.y}`);
+        }
+      }
+      }
+    }
+  });
+
+  it("renders mixed active Earth ownership from player colors rather than continent colors", () => {
+    const makePlayers = (colors: string[]): Player[] => colors.map((colorHex, index) => ({
+      id: `owner-${index}`, name: `Owner ${index + 1}`, colorIndex: index, colorHex,
+      connected: true, isAlive: true, ready: true,
+    }));
+    const activePlayers = makePlayers(["#f43f5e", "#38bdf8", "#a3e635", "#f59e0b"]);
+    const territories = Object.fromEntries(earth.territories.map((territory, index) => [territory.id, {
+      id: territory.id, name: territory.name, sectorId: territory.sectorId,
+      ownerId: activePlayers[index % activePlayers.length].id, units: 12,
+      neighbors: territory.neighbors,
+    }]));
+    const badgeStyle = (players: Player[]) => {
+      const canvas: any = MapCanvas({
+        mapBundle: EARTH_42_BUNDLE, territories, players,
+        myPlayerId: players[0].id, phase: "deployment",
+        selectedTerritoryId: null, targetTerritoryId: null,
+        contentDimensions: { width: 1000, height: 1000 },
+        onSelectTerritory: () => {}, onSelectTarget: () => {}, onDeselect: () => {},
+      });
+      const spans = (canvas.props.children.props.children as any[]).flatMap((line) => line.props.children);
+      return { foregrounds: new Set(spans.map((span) => span.props.fg)), backgrounds: new Set(spans.map((span) => span.props.bg)) };
+    };
+    const first = badgeStyle(activePlayers);
+    const second = badgeStyle(makePlayers(["#7c3aed", "#ef4444", "#06b6d4", "#eab308"]));
+    expect(first.foregrounds.has("#f8fafc")).toBe(true);
+    expect(first.backgrounds.size).toBeGreaterThanOrEqual(4);
+    expect([...first.backgrounds].sort()).not.toEqual([...second.backgrounds].sort());
+  });
 });

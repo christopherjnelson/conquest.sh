@@ -519,15 +519,15 @@ describe("grid-map: geometry sanity tests (spec sections 3, 4, 6, 7, 8, 9)", () 
 
     // Terminal content dimensions mirror App's actual tactical pane rather
     // than treating every layout as a 75% split.
-    expect(getMapContentDimensionsForTerminal(140, 45)).toEqual({ width: 97, height: 32 });
-    expect(getMapContentDimensionsForTerminal(180, 51)).toEqual({ width: 132, height: 36 });
-    expect(getMapContentDimensionsForTerminal(200, 55)).toEqual({ width: 147, height: 39 });
+    expect(getMapContentDimensionsForTerminal(140, 45)).toEqual({ width: 99, height: 32 });
+    expect(getMapContentDimensionsForTerminal(180, 51)).toEqual({ width: 135, height: 36 });
+    expect(getMapContentDimensionsForTerminal(200, 55)).toEqual({ width: 155, height: 39 });
 
-    // Exact wide boundary: its 132x36 land crop fits at 180x51, while either
-    // preceding terminal dimension remains in the standard pane and selects compact.
-    expect(getMapForTerminalDimensions(179, 50)).toBe(MAP_GRID_IRONREACH_COMPACT);
-    expect(getMapForTerminalDimensions(180, 49)).toBe(MAP_GRID_IRONREACH_COMPACT);
-    expect(getMapForTerminalDimensions(180, 50)).toBe(MAP_GRID_IRONREACH_COMPACT);
+    // Selection uses the measured pane, independent of App's responsive mode.
+    // The capped sidebar gives these standard-layout panes room for wide land.
+    expect(getMapForTerminalDimensions(179, 50)).toBe(MAP_GRID_IRONREACH_WIDE);
+    expect(getMapForTerminalDimensions(180, 49)).toBe(MAP_GRID_IRONREACH_WIDE);
+    expect(getMapForTerminalDimensions(180, 50)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(180, 51)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(184, 55)).toBe(MAP_GRID_IRONREACH_WIDE);
     expect(getMapForTerminalDimensions(185, 55)).toBe(MAP_GRID_IRONREACH_WIDE);

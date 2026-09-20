@@ -240,7 +240,7 @@ function createVariant(profile: MapRenderProfile): GridMapDefinition {
       neighbors: t.neighbors, labelPos: anchor, position: anchor, icon: "●",
       flavor: descriptions[t.id], render: { flavor: descriptions[t.id] },
       displayCode: t.code,
-      displayLabel: profile === "compact" ? compactLabels[t.id] : profile === "wide" ? wideLabels[t.id] ?? t.label : t.label,
+      displayLabel: profile.startsWith("compact") ? compactLabels[t.id] : profile === "wide" ? wideLabels[t.id] ?? t.label : t.label,
     };
   });
   const routes: GridSeaRoute[] = [];
@@ -274,7 +274,7 @@ function createVariant(profile: MapRenderProfile): GridMapDefinition {
 
 export const EARTH_42_BUNDLE: MapBundle = {
   definition: EARTH_42,
-  renderVariants: (["compact", "standard", "wide"] as const).map(profile => ({ profile, grid: createVariant(profile) })),
+  renderVariants: ["compact", "compact-tall", "standard", "wide", "large", "ultra"].map(profile => ({ profile, grid: createVariant(profile) })),
   metadata: { regionSingular: "Continent", regionPlural: "Continents", navigationAnchorTerritoryId: "eu_northern_europe",
     displayCodes: Object.fromEntries(records.map(t => [t.id, t.code])) },
 };

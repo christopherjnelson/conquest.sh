@@ -120,7 +120,7 @@ MapBundle
     └── region terminology, display codes, navigation anchor
 ```
 
-`registerMap`, `getMap`, `getDefaultMap`, `listMaps`, and `getRenderVariant` form the map-engine registry API. `getRenderVariant` selects the largest authored profile that fits the actual map pane. Application code passes maps explicitly to deep geometry helpers; it does not rely on a hidden default map.
+`registerMap`, `getMap`, `getDefaultMap`, `listMaps`, and `getRenderVariant` form the map-engine registry API. A bundle may have any number of named render profiles. `getRenderVariant` selects the largest authored geography that fits the actual map pane. Application code passes maps explicitly to deep geometry helpers; it does not rely on a hidden default map.
 
 `GameState.mapId` is authoritative from lobby through rematches. A room fixes its map at creation, and rematches retain it. The server resolves a requested `mapId` through the registry; clients resolve the bundle from `state.mapId` and use its logical metadata and selected render variant.
 
@@ -137,7 +137,18 @@ MapBundle
 | Asia | 12 | +7 |
 | Oceania | 4 | +2 |
 
-Earth provides authored `compact`, `standard`, and `wide` terminal render variants. The visual foundation is recognizable real-world continental geography, with strategic regional boundaries rather than country borders. Cross-ocean adjacency is declared logically and drawn as restrained sea-route metadata.
+Earth provides a sequence of terminal render densities from compact through ultra. The visual foundation is recognizable real-world continental geography, with strategic regional boundaries rather than country borders. Cross-ocean adjacency is declared logically and drawn as restrained sea-route metadata. The sidebar has a bounded width so additional desktop columns expand the world pane. Once play begins, each owned territory has an independent army marker; lobby maps omit those markers.
+
+| Render profile | Raster dimensions |
+| --- | ---: |
+| compact | 96×24 |
+| compact-tall | 96×30 |
+| standard | 124×34 |
+| wide | 144×38 |
+| large | 160×42 |
+| ultra | 190×42 |
+
+The standard layout caps its sidebar at 38 columns; wide layouts cap it at 42. `getMapContentDimensionsForTerminal` shares those measurements with App and variant selection. Army badge placement uses an optional per-variant `unitPos` preference, falling back to a wholly owned interior run. Labels yield to badges; counts at 100 or more render as `100+` on the map while the inspector shows the exact value.
 The checked-in rasters were constructed from [Natural Earth 1:110m land polygons](https://www.naturalearthdata.com/downloads/110m-physical-vectors/110m-land/), which are [public domain](https://www.naturalearthdata.com/about/terms-of-use/). The generation script documents the source; the game never fetches map data at runtime.
 
 ### Additional built-in map: Ironreach
@@ -148,7 +159,7 @@ The earlier `sector-07` cyber grid remains available as a built-in compatibility
 ### Adding a Map
 
 1. Define a logical `MapDefinition` with stable territory IDs, region membership, bonuses, and bidirectional adjacency.
-2. Author the map's render variants with geometry, labels, display codes, and sea routes.
+2. Author the map's render variants with geometry, labels, display codes, optional army-marker anchors, and sea routes.
 3. Register a `MapBundle` with `registerMap` at the map-engine bootstrap boundary.
 4. Add topology, geometry, navigation, and render-selection tests.
 

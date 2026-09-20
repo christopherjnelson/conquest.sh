@@ -12,7 +12,6 @@ export {
   MAP_GRID_IRONREACH_COMPACT,
   MAP_GRID_IRONREACH_WIDE,
   getMapForDimensions,
-  getMapContentDimensionsForTerminal,
   getMapForTerminalDimensions,
 } from "./maps/grid-ironreach.js";
 export {

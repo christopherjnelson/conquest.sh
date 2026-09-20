@@ -2,6 +2,7 @@
 import type { GridMapDefinition, GridTerritoryMetadata, GridSeaRoute, GridMapDecoration, GridMapDecorations } from "../types.js";
 import type { Sector } from "@conquest/protocol";
 import { deriveCoarseTemplateFromMicro } from "../raster.js";
+import { getMapContentDimensionsForTerminal } from "../layout.js";
 export { deriveCoarseTemplateFromMicro } from "../raster.js";
 export type { GridMapDefinition, GridTerritoryMetadata, GridSeaRoute, GridMapDecoration, GridMapDecorations } from "../types.js";
 
@@ -854,35 +855,7 @@ export const MAP_GRID_IRONREACH_WIDE: GridMapDefinition = {
   decorations: GRID_DECORATIONS_WIDE,
 };
 
-/**
- * Calculates the available content width and height inside the World Map pane
- * from the total terminal dimensions. These calculations mirror App's flex
- * ratios and fixed chrome: standard uses a 5:2 tactical split, while wide
- * uses 3:1. The returned dimensions are the bordered pane's interior, where
- * the raster is painted.
- */
-export function getMapContentDimensionsForTerminal(
-  terminalCols: number,
-  terminalRows: number
-): { width: number; height: number } {
-  const isCompact = terminalCols < 130 || terminalRows < 38;
-  const isWide = !isCompact && terminalCols >= 180 && terminalRows >= 51;
-  const tacticalWidth = Math.max(0, terminalCols - 1); // one column row gap
-  const outerPaneWidth = isCompact
-    ? terminalCols
-    : isWide
-    ? Math.floor(tacticalWidth * 3 / 4)
-    : Math.round(tacticalWidth * 5 / 7);
-  // The wide header is compressed to four rows at 51–54 terminal rows and
-  // reaches its five-row presentation at 55+. EventLog and Footer use six
-  // and three rows. The World Map border consumes one cell on each axis.
-  const chromeRows = isCompact ? 0 : isWide ? (terminalRows >= 55 ? 14 : 13) : 11;
-  const outerPaneHeight = Math.max(0, terminalRows - chromeRows);
-  return {
-    width: Math.max(0, outerPaneWidth - 2),
-    height: Math.max(0, outerPaneHeight - 2),
-  };
-}
+export { getMapContentDimensionsForTerminal } from "../layout.js";
 
 /**
  * Returns dimensions occupied by authored land, excluding ocean margin.

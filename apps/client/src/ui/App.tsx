@@ -9,6 +9,7 @@ import {
   getNextTerritoryInDirection,
   getNextTabTerritoryId,
   getMapContentDimensionsForTerminal,
+  getSidebarWidthForTerminal,
   getLayoutMode,
   type LayoutMode,
 } from "@conquest/map-engine";
@@ -224,6 +225,7 @@ export function App({
   const phase = state?.phase ?? "deployment";
   const mapBundle = getMap(state?.mapId ?? getDefaultMap().definition.id) ?? getDefaultMap();
   const paneDimensions = getMapContentDimensionsForTerminal(dimensions.columns, dimensions.rows);
+  const sidebarWidth = getSidebarWidthForTerminal(dimensions.columns, dimensions.rows);
   const activeMapDef = selectRenderVariant(mapBundle, paneDimensions).grid;
 
   const allTerritoryIds = useMemo(() => {
@@ -518,6 +520,7 @@ export function App({
             <MapCanvas
               mapBundle={mapBundle}
               viewport="compact"
+              contentDimensions={paneDimensions}
               terminalDimensions={dimensions}
               territories={state?.territories ?? {}}
               players={state?.players ?? []}
@@ -569,11 +572,11 @@ export function App({
           style={{ width: "100%", marginTop: 0, marginBottom: 0 }}
           gap={1}
         >
-          {/* The standard pane favors readable inspector columns; wide keeps the canonical map raster at full width. */}
-          <box flexGrow={layoutMode === "wide" ? 3 : 5} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
+          {/* The inspector has a fixed reading width; extra columns belong to the world map. */}
+          <box flexGrow={1} flexBasis={0} flexDirection="column" style={{ width: 0, height: "100%" }}>
             <MapCanvas
               mapBundle={mapBundle}
-              contentDimensions={getMapContentDimensionsForTerminal(dimensions.columns, dimensions.rows)}
+              contentDimensions={paneDimensions}
               terminalDimensions={dimensions}
               territories={state?.territories ?? {}}
               players={state?.players ?? []}
@@ -595,8 +598,8 @@ export function App({
             />
           </box>
 
-          {/* Right: Sidebar (~29% standard, preserving the wide map's 25% raster contract) */}
-          <box flexGrow={layoutMode === "wide" ? 1 : 2} flexBasis={0} flexDirection="column" style={{ width: "100%", height: "100%" }}>
+          {/* Right: readable tactical inspector without unbounded width growth. */}
+          <box flexShrink={0} flexDirection="column" style={{ width: sidebarWidth, height: "100%" }}>
             <Sidebar
               mapBundle={mapBundle}
               state={state}

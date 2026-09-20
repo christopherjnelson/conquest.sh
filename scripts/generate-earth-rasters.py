@@ -114,8 +114,56 @@ def retain_dominant_component(rows, symbol, minimum_cells=4):
         rows[ny][nx] = symbol
         largest.add((nx, ny))
 
+def has_marker_run(rows, symbol, needed=4):
+    """Whether a territory has `needed` whole terminal cells in one row."""
+    for my in range(0, len(rows) - 1, 2):
+        run = 0
+        for x in range(len(rows[0])):
+            run = run + 1 if rows[my][x] == symbol and rows[my + 1][x] == symbol else 0
+            if run >= needed:
+                return True
+    return False
+
+def add_marker_run(rows, symbol, tid, target_x, target_my):
+    """Extend a territory through water to make a four-cell army-count run."""
+    height, width = len(rows), len(rows[0])
+    candidates = []
+    for my in range(0, height - 1, 2):
+        for x in range(0, width - 3):
+            own = 0
+            valid = True
+            block = {(bx, by) for by in (my, my + 1) for bx in range(x, x + 4)}
+            for bx, by in block:
+                value = rows[by][bx]
+                if value == symbol: own += 1
+                elif value != '.': valid = False
+            if not valid or own == 0:
+                continue
+            # The new coastline may meet only water, this territory, or a
+            # declared neighbor. A one-cell perimeter is enough because the
+            # normal contact-carving pass follows this construction step.
+            for bx, by in block:
+                for nx, ny in ((bx + 1, by), (bx - 1, by), (bx, by + 1), (bx, by - 1)):
+                    if not (0 <= nx < width and 0 <= ny < height) or (nx, ny) in block:
+                        continue
+                    other = rows[ny][nx]
+                    if other != '.' and other != symbol and ids[other] not in neighbors[tid]:
+                        valid = False
+            if not valid:
+                continue
+            distance = abs(x + 1.5 - target_x) + abs(my + 0.5 - target_my) * 0.75
+            candidates.append((distance - own * 0.25, x, my))
+    if not candidates:
+        return False
+    _, x, my = min(candidates)
+    for y in (my, my + 1):
+        for px in range(x, x + 4):
+            rows[y][px] = symbol
+    return True
+
 out = {}
-for profile,w,h in [('compact',96,24),('standard',124,34),('wide',144,38)]:
+for profile,w,h in [('compact',96,24),('compact-tall',96,30),('standard',124,34),('wide',144,38),
+                    ('large',160,42),('ultra',190,42)]:
     rows = []
     for my in range(h*2):
         lat = 82 - (my+0.5) / (h*2) * 142
@@ -132,6 +180,29 @@ for profile,w,h in [('compact',96,24),('standard',124,34),('wide',144,38)]:
         y = max(0,min(h*2-1,round((82-lat)/142*h*2)))
         rows[y][x] = symbols[i]
         if x+1 < w: rows[y][x+1] = symbols[i]
+    # Western Europe falls on a two-microcell North Atlantic sliver in the
+    # 96×30 sampling. Extend that existing coast by one terminal row so its
+    # owned army marker can show a bounded `[100+]` count. This is deliberately
+    # confined to the compact-tall raster; the higher-density profiles retain
+    # the unmodified Natural Earth partition.
+    if profile == 'compact-tall':
+        west = records.index(next(record for record in records if record[0] == 'eu_western_europe'))
+        cx = round((-2 + 180) / 360 * (w - 1))
+        my = round((82 - 45) / 142 * (h * 2 - 1))
+        my += my % 2
+        for y in (my, my + 1):
+            for x in range(max(0, cx - 5), min(w, cx + 5)):
+                rows[y][x] = symbols[west]
+    # Tiny geographic/island regions need a clear in-territory army count.
+    # Add only a four-cell terminal run connected to existing land and through
+    # water; this keeps the silhouette intact while avoiding false borders.
+    ids = {symbol: rec[0] for symbol,rec in zip(symbols,records)}
+    for i, (tid, lon, lat, _region) in enumerate(records):
+        if has_marker_run(rows, symbols[i]):
+            continue
+        target_x = round((lon + 180) / 360 * (w - 1))
+        target_my = round((82 - lat) / 142 * (h * 2 - 1))
+        add_marker_run(rows, symbols[i], tid, target_x, target_my)
     # Keep archipelagos as separate islands. For mainland territories, sampled
     # offshore specks make misleading detached fronts at terminal resolution.
     island_groups = {'as_japan', 'oc_indonesia', 'oc_new_guinea'}
@@ -140,7 +211,6 @@ for profile,w,h in [('compact',96,24),('standard',124,34),('wide',144,38)]:
             retain_dominant_component(rows, symbols[i])
     # Strategic borders cannot silently imply a move the graph forbids. Cut a
     # one-microcell sea/strait gap at contacts between non-neighbors.
-    ids = {symbol: rec[0] for symbol,rec in zip(symbols,records)}
     for _ in range(8):
         bad = []
         sizes = {symbol: sum(row.count(symbol) for row in rows) for symbol in ids}
@@ -170,5 +240,5 @@ for profile,w,h in [('compact',96,24),('standard',124,34),('wide',144,38)]:
 Path('packages/map-engine/src/maps/generated/earth-rasters.ts').write_text(
     '// Generated from Natural Earth 1:110m land polygons; public domain.\n'
     '// See scripts/generate-earth-rasters.py for the deterministic construction.\n'
-    'export const EARTH_RASTERS: Record<"compact" | "standard" | "wide", string[]> = '
+    'export const EARTH_RASTERS: Record<string, string[]> = '
     + json.dumps(out,indent=2) + ';\n')

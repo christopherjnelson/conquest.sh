@@ -5,6 +5,7 @@ import {
   MAP_GRID_IRONREACH_COMPACT,
   MAP_GRID_IRONREACH_WIDE,
   getMapContentDimensionsForTerminal,
+  getSidebarWidthForTerminal,
   getMicroTerritoryAt,
 } from "../packages/map-engine/src/index.js";
 import { getMapRenderLayout, getTerrainTextureMark } from "../apps/client/src/ui/MapCanvas.js";
@@ -30,8 +31,8 @@ describe("visual map: rendered geography occupancy", () => {
     // measurement.
     const standardPane = getMapContentDimensionsForTerminal(140, 45);
     const widePane = getMapContentDimensionsForTerminal(200, 55);
-    expect(standardPane).toEqual({ width: 97, height: 32 });
-    expect(widePane).toEqual({ width: 147, height: 39 });
+    expect(standardPane).toEqual({ width: 99, height: 32 });
+    expect(widePane).toEqual({ width: 155, height: 39 });
     const standard = getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT, standardPane);
     const wide = getMapRenderLayout(MAP_GRID_IRONREACH_WIDE, widePane);
     expect(wide.width).toBe(wide.land.width);
@@ -118,26 +119,63 @@ describe("visual map: rendered geography occupancy", () => {
       return { setup, worldMap, raster };
     };
 
-    // 180x50 has a 132x35 World Map interior. Wide land is 132x36, so App
-    // keeps the standard split and compact raster rather than drawing over a border.
+    // The capped sidebar gives the standard layout enough horizontal room for
+    // Ironreach's wide rendering when its land crop fits the map pane.
     const at50 = await render(180, 50);
-    expect(at50.worldMap.width - 2).toBe(126);
+    expect(at50.worldMap.width - 2).toBe(139);
     expect(at50.worldMap.height - 2).toBe(37);
-    expect(at50.raster.width).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT).width);
-    expect(at50.raster.height).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT).height);
+    expect(at50.raster.width).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).width);
+    expect(at50.raster.height).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).height);
     expect(at50.raster.width).toBeLessThanOrEqual(at50.worldMap.width - 2);
     expect(at50.raster.height).toBeLessThanOrEqual(at50.worldMap.height - 2);
     await act(async () => { at50.setup.renderer.destroy(); });
 
-    // At 180x51 the wide pane's actual bordered content is exactly 132x36.
+    // At 180x51 the wide pane grows only as far as the capped sidebar allows.
     const at51 = await render(180, 51);
-    expect(at51.worldMap.width - 2).toBe(132);
+    expect(at51.worldMap.width - 2).toBe(135);
     expect(at51.worldMap.height - 2).toBe(36);
     expect(at51.raster.width).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).width);
     expect(at51.raster.height).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).height);
     expect(at51.raster.width).toBeLessThanOrEqual(at51.worldMap.width - 2);
     expect(at51.raster.height).toBeLessThanOrEqual(at51.worldMap.height - 2);
     await act(async () => { at51.setup.renderer.destroy(); });
+  });
+
+  it("caps the actual App sidebar and gives remaining columns to WORLD MAP", async () => {
+    // @ts-ignore runtime-only OpenTUI modules
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+    const client: any = {
+      state: { mapId: "ironreach", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 },
+      myPlayerId: "p1", status: "connected", roomCode: "BORD",
+      onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {},
+      onError: () => () => {}, sendChat: () => {}, deploy: () => {}, attack: () => {},
+      fortify: () => {}, skipPhase: () => {}, endTurn: () => {}, ready: () => {},
+    };
+    for (const [columns, rows, expectedSidebar] of [
+      [140, 45, 38], [180, 51, 42], [200, 55, 42], [220, 60, 42], [240, 60, 42],
+    ]) {
+      const setup = await testRender(
+        React.createElement(App, { client, terminalDimensions: { columns, rows } }),
+        { width: columns, height: rows },
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const root = setup.renderer.root;
+      const app = root.getChildren?.()[0]?.getChildren?.().length === 4
+        ? root.getChildren()[0] : root;
+      const tacticalRow = app.getChildren()[1];
+      const worldMap = tacticalRow.getChildren()[0].getChildren()[0];
+      const sidebar = tacticalRow.getChildren()[1];
+      expect(sidebar.width).toBe(expectedSidebar);
+      expect(sidebar.width).toBe(getSidebarWidthForTerminal(columns, rows));
+      expect({ width: worldMap.width - 2, height: worldMap.height - 2 })
+        .toEqual(getMapContentDimensionsForTerminal(columns, rows));
+      await act(async () => { setup.renderer.destroy(); });
+    }
   });
 
   it("keeps standard-pane territory labels inside their own land shapes", async () => {
