@@ -467,7 +467,7 @@ describe("Earth deployment through the client UI", () => {
       expect(pending.territories[source.id]?.units).toBe(7);
       expect(pending.territories[target.id]?.units).toBe(3);
       const pendingFrame = setup.captureCharFrame();
-      expect(pendingFrame).toContain("MOVE 3");
+      expect(pendingFrame).toContain("Move 3 / 9");
       expect(pendingFrame).toContain("[Enter] Confirm");
 
       const clickControl = async (label: string) => {
@@ -477,7 +477,7 @@ describe("Earth deployment through the client UI", () => {
         await setup.mockMouse.click(lines[row]!.indexOf(label) + Math.floor(label.length / 2), row);
       };
       await act(async () => { await clickControl("[+]"); await setup.renderOnce(); });
-      expect(setup.captureCharFrame()).toContain("MOVE 4");
+      expect(setup.captureCharFrame()).toContain("Move 4 / 9");
       let completed: any;
       await act(async () => {
         await clickControl("[Enter] Confirm");

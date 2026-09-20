@@ -194,6 +194,7 @@ Built-in registration belongs in `packages/map-engine`; client components, serve
 - **Click Adjacent Friendly**: Selects connected friendly territory as fortify destination.
 - **Click Action Buttons**: Choose a deployment amount with `−`, `+`, or `All`, then use `[ Deploy ]` on any territory you own. Use `[ Attack ]`, `[ Fortify ]`, `[ Skip / End Turn ]`, or `[ Ready ]` as the phase allows.
 - **After a Conquest**: Choose how many surviving troops enter the captured territory with `−` and `+`, then confirm the move before continuing the attack phase.
+- **Skip / End Turn**: Click once to request the phase change, then click the confirmation action to proceed. `Esc` cancels.
 - **Hover**: Previews territory intel, owner, and defensive garrison armies in real time.
 
 ### Keyboard
@@ -204,7 +205,7 @@ Built-in registration belongs in `packages/map-engine`; client components, serve
 - **`A`**: Attack targeted enemy province from selected territory.
 - **`Left` / `Right`, then `Enter`**: Choose and confirm the troop move after a conquest.
 - **`F`**: Fortify troops between connected friendly territories.
-- **`E`**: Skip attack phase or end turn.
+- **`E`**: Request to leave the attack phase or end your turn. Press `Enter` to confirm or `Esc` to cancel.
 - **`R`**: Mark ready in lobby phase.
 - **`C`**: Toggle in-game Raven Chat.
 - **`Esc`**: Clear selection, cancel target, or close modal/chat.

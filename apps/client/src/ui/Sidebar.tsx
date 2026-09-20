@@ -25,6 +25,7 @@ export interface SidebarProps {
   onFortify: () => void;
   onSkipPhase: () => void;
   onEndTurn: () => void;
+  pendingPhaseAction?: "skip-attack" | "end-turn" | null;
   onReady?: () => void;
   onSelectTarget?: (territoryId: string) => void;
   roomCode?: string | null;
@@ -58,6 +59,7 @@ export function Sidebar({
   onFortify,
   onSkipPhase,
   onEndTurn,
+  pendingPhaseAction,
   onReady,
   onSelectTarget,
   roomCode,
@@ -124,6 +126,11 @@ export function Sidebar({
   // The inspector is intentionally terse. At the supported 110-column width its
   // panel has only about 30 inner cells, so values must never push into labels.
   const valueLimit = layoutMode === "wide" ? 30 : 17;
+  // The identity and owner rows have less room than a plain value row. Keeping
+  // their text within those lanes prevents terminal wrapping from painting a
+  // territory name over the Owner row.
+  const identityLimit = layoutMode === "wide" ? 34 : 24;
+  const ownerValueLimit = layoutMode === "wide" ? 22 : 14;
   const flavorLimit = layoutMode === "wide" ? 34 : 22;
 
   return (
@@ -266,7 +273,7 @@ export function Sidebar({
                 )}
               </box>
               <text fg="#00d2ff">
-                <b>{fitSidebarText(territoryName, valueLimit + 8)}</b>
+                <b>{fitSidebarText(territoryName, identityLimit)}</b>
               </text>
             </box>
 
@@ -274,9 +281,9 @@ export function Sidebar({
             <box flexDirection="column" style={{ height: 4 }} flexShrink={0}>
               <box flexDirection="row" style={{ height: 1 }}>
                 <text fg="#64748b" style={{ width: 10 }}>Owner</text>
-                <text flexGrow={1}>
+                <text flexGrow={1} flexShrink={1}>
                   <span fg={ownerColor}>● </span>
-                  <span fg="#e2e8f0"><b>{fitSidebarText(ownerName, valueLimit)}</b></span>
+                  <span fg="#e2e8f0"><b>{fitSidebarText(ownerName, ownerValueLimit)}</b></span>
                 </text>
               </box>
               <box flexDirection="row" style={{ height: 1 }}>
@@ -381,7 +388,7 @@ export function Sidebar({
             {pendingConquestMove && isMyTurn ? (
               <box flexDirection="row" justifyContent="space-between">
                 <text fg="#a78bfa" onMouseDown={onDecreaseConquestMove}><b>[−]</b></text>
-                <text fg="#e9d5ff"><b>MOVE {conquestMoveUnits} ({pendingConquestMove.minimumUnits}-${pendingConquestMove.maximumUnits})</b></text>
+                <text fg="#e9d5ff"><b>Move {conquestMoveUnits} / {pendingConquestMove.maximumUnits}</b></text>
                 <text fg="#a78bfa" onMouseDown={onIncreaseConquestMove}><b>[+]</b></text>
                 <text fg="#e9d5ff" onMouseDown={onConfirmConquestMove}><b>[Enter] Confirm</b></text>
               </box>
@@ -433,7 +440,9 @@ export function Sidebar({
               }
             >
               <text fg={canSkipOrEnd ? "#ffaa00" : "#e2e8f0"}>
-                <b>{phase === "attack" ? "[E] » End Attack" : "[E] » End Turn"}</b>
+                <b>{phase === "attack"
+                  ? (pendingPhaseAction === "skip-attack" ? "[ Confirm Skip ]" : "[E] » End Attack")
+                  : (pendingPhaseAction === "end-turn" ? "[ Confirm End Turn ]" : "[E] » End Turn")}</b>
               </text>
             </box>
           </box>

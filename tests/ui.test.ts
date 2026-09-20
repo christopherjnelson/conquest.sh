@@ -226,6 +226,100 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     },
   ];
 
+  it("keeps an owned attack source selected when an enemy is not adjacent", async () => {
+    const { resolveTerritoryClick } = await import("../apps/client/src/ui/MapCanvas.js");
+    const territories: any = {
+      congo: { id: "congo", ownerId: "p1", neighbors: ["east_africa"], units: 4 },
+      east_africa: { id: "east_africa", ownerId: "p2", neighbors: ["congo", "nile"], units: 2 },
+      nile: { id: "nile", ownerId: "p2", neighbors: ["east_africa"], units: 2 },
+    };
+
+    expect(resolveTerritoryClick("attack", "congo", null, "nile", territories, "p1", ["east_africa"]))
+      .toBe("invalid-attack-target");
+    expect(resolveTerritoryClick("attack", "congo", null, "east_africa", territories, "p1", ["east_africa"]))
+      .toBe("target");
+  });
+
+  it("explains how to choose an attack source when the selected territory is enemy-owned", async () => {
+    const { getAttackSourceError } = await import("../apps/client/src/ui/App.js");
+    expect(getAttackSourceError("Nile Valley"))
+      .toBe("You don't control Nile Valley. Select a territory you own to attack from.");
+  });
+
+  it("makes phase confirmation explicit for both keyboard and repeated action clicks", async () => {
+    const { getPhaseActionConfirmationMessage } = await import("../apps/client/src/ui/App.js");
+    expect(getPhaseActionConfirmationMessage("skip-attack"))
+      .toBe("Skip attack? Enter confirms; Esc cancels.");
+    expect(getPhaseActionConfirmationMessage("end-turn"))
+      .toBe("End turn? Enter confirms; Esc cancels.");
+  });
+
+  it("requires Enter after E before skipping or ending a phase, and Esc or another action cancels", async () => {
+    // @ts-ignore runtime-only OpenTUI modules
+    const React = (await import("../apps/client/node_modules/react/index.js")).default;
+    // @ts-ignore runtime-only OpenTUI modules
+    const { act } = await import("../apps/client/node_modules/react/index.js");
+    // @ts-ignore runtime-only OpenTUI modules
+    const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+    const { App } = await import("../apps/client/src/ui/App.js");
+    const players: Player[] = testPlayers.slice(0, 2);
+
+    const exercise = async (phase: "attack" | "fortify") => {
+      const state = createInitialGameState("confirm", "CONF", players, MAP_GRID_IRONREACH, 2);
+      state.phase = phase;
+      state.activePlayerIndex = 0;
+      let skipped = 0;
+      let ended = 0;
+      const client: any = {
+        state, myPlayerId: "p1", status: "connected", roomCode: "CONF",
+        onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {}, onError: () => () => {},
+        sendChat: () => {}, deploy: () => {}, attack: () => {}, fortify: () => {}, ready: () => {},
+        skipPhase: () => { skipped++; }, endTurn: () => { ended++; },
+      };
+      const setup = await testRender(
+        React.createElement(App, { client, terminalDimensions: { columns: 105, rows: 38 } }),
+        { width: 105, height: 38 },
+      );
+      await act(async () => { await setup.renderOnce(); });
+      await setup.waitFor(() => (setup.renderer.keyInput as any).listenerCount("keypress") >= 2);
+      const key = async (name: string) => {
+        await act(async () => {
+          (setup.renderer.keyInput as any).emit("keypress", { name: name === "enter" ? "return" : name });
+          await setup.renderOnce();
+        });
+      };
+
+      await key("e");
+      expect(skipped + ended).toBe(0);
+      await key("a");
+      await key("e");
+      expect(skipped + ended).toBe(0);
+      await key("escape");
+      await key("e");
+      expect(skipped + ended).toBe(0);
+      await key("enter");
+      expect(phase === "attack" ? skipped : ended).toBe(1);
+      await act(async () => { setup.renderer.destroy(); });
+    };
+
+    await exercise("attack");
+    await exercise("fortify");
+  });
+
+  it("makes an owned territory the attack source after an enemy-first click and preserves fortify targets", async () => {
+    const { resolveTerritoryClick } = await import("../apps/client/src/ui/MapCanvas.js");
+    const territories: any = {
+      source: { id: "source", ownerId: "p1", neighbors: ["friendly", "enemy"], units: 4 },
+      friendly: { id: "friendly", ownerId: "p1", neighbors: ["source"], units: 2 },
+      enemy: { id: "enemy", ownerId: "p2", neighbors: ["source"], units: 2 },
+    };
+
+    expect(resolveTerritoryClick("attack", "enemy", null, "source", territories, "p1", ["source"]))
+      .toBe("select");
+    expect(resolveTerritoryClick("fortify", "source", null, "friendly", territories, "p1", ["friendly", "enemy"]))
+      .toBe("target");
+  });
+
   it("renders MapCanvas as a 2D cellular grid without rectangular territory boxes", async () => {
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const el: any = MapCanvas({
@@ -1611,7 +1705,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     expect(hoveredStr).toContain("! INSPECTOR [HOVERED]");
     expect(hoveredStr).toContain("HOVERED");
     expect(hoveredStr).toContain("Highwatch");
-    expect(hoveredStr).toContain("Verdant Fringe");
+    expect(hoveredStr).toContain("Verdant …");
 
     // 3. Selected territory A1: displays [SELECTED]
     const selectedEl: any = CompactInspector({

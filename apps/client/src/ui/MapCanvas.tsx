@@ -30,6 +30,8 @@ export interface MapCanvasProps {
   onHoverTerritory?: (territoryId: string | null) => void;
   onSelectTerritory: (territoryId: string) => void;
   onSelectTarget: (territoryId: string) => void;
+  /** Called when an owned attack source is paired with a non-adjacent enemy. */
+  onInvalidAttackTarget?: (sourceTerritoryId: string, targetTerritoryId: string) => void;
   onDeselect: () => void;
 }
 
@@ -106,6 +108,46 @@ export interface ArmyMarkerPlacement {
 
 function cellKey(x: number, y: number) {
   return `${x},${y}`;
+}
+
+export type TerritoryClickAction = "select" | "target" | "clear-target" | "deselect" | "invalid-attack-target";
+
+/**
+ * Resolves map selection independently of rendering.  In attack mode, an
+ * enemy click can only replace a friendly source when it is a legal target;
+ * otherwise the source remains selected so the player gets a useful error.
+ */
+export function resolveTerritoryClick(
+  phase: GamePhase,
+  selectedTerritoryId: string | null,
+  targetTerritoryId: string | null,
+  territoryId: string,
+  territories: Record<string, TerritoryState>,
+  myPlayerId: string | null,
+  mapNeighbors: readonly string[] = [],
+): TerritoryClickAction {
+  if (!selectedTerritoryId) return "select";
+  if (selectedTerritoryId === territoryId) return "deselect";
+  if (phase !== "attack" && phase !== "fortify") return "select";
+
+  const selected = territories[selectedTerritoryId];
+  const clicked = territories[territoryId];
+  const selectedIsOwned = Boolean(selected && selected.ownerId === myPlayerId);
+  const clickedIsOwned = Boolean(clicked && clicked.ownerId === myPlayerId);
+  const clickedIsEnemy = Boolean(clicked?.ownerId && myPlayerId && clicked.ownerId !== myPlayerId);
+  const isNeighbor = Boolean(selected?.neighbors.includes(territoryId) || mapNeighbors.includes(territoryId));
+
+  if (!selectedIsOwned) return "select";
+  if (phase === "fortify") {
+    return isNeighbor ? (targetTerritoryId === territoryId ? "clear-target" : "target") : "select";
+  }
+
+  // An enemy-first click is only a map inspection. The next owned click must
+  // establish the attack source even if the two territories touch.
+  if (clickedIsOwned) return "select";
+  if (isNeighbor) return targetTerritoryId === territoryId ? "clear-target" : "target";
+  if (clickedIsEnemy) return "invalid-attack-target";
+  return "select";
 }
 
 /**
@@ -439,6 +481,7 @@ export function MapCanvas({
   onHoverTerritory,
   onSelectTerritory,
   onSelectTarget,
+  onInvalidAttackTarget,
   onDeselect,
 }: MapCanvasProps) {
   const terminalPane = terminalDimensions
@@ -474,41 +517,19 @@ export function MapCanvas({
     height: Number.isFinite(availableContentH) ? availableContentH : activeMap.height,
   });
 
-  const selectedTerritory = selectedTerritoryId ? territories[selectedTerritoryId] : null;
-
   const handleTerritoryClick = (territoryId: string) => {
-    if (!selectedTerritoryId) {
-      onSelectTerritory(territoryId);
-      return;
-    }
-
-    if (selectedTerritoryId === territoryId) {
-      onDeselect();
-      return;
-    }
-
-    // Only attack and fortify use a target. In other phases an adjacent click
-    // replaces the selection.
-    if (phase !== "attack" && phase !== "fortify") {
-      onSelectTerritory(territoryId);
-      return;
-    }
-
-    // A territory is already selected in a phase that uses a target.
-    const isNeighbor = Boolean(
-      selectedTerritory?.neighbors.includes(territoryId) ||
-        activeMap.territories.find((t) => t.id === selectedTerritoryId)?.neighbors.includes(territoryId)
+    const mapNeighbors = selectedTerritoryId
+      ? activeMap.territories.find((territory) => territory.id === selectedTerritoryId)?.neighbors ?? []
+      : [];
+    const action = resolveTerritoryClick(
+      phase, selectedTerritoryId, targetTerritoryId, territoryId, territories, myPlayerId, mapNeighbors,
     );
-
-    if (isNeighbor) {
-      if (targetTerritoryId === territoryId) {
-        onSelectTarget("");
-      } else {
-        onSelectTarget(territoryId);
-      }
-    } else {
-      onSelectTerritory(territoryId);
-    }
+    if (action === "deselect") onDeselect();
+    else if (action === "clear-target") onSelectTarget("");
+    else if (action === "target") onSelectTarget(territoryId);
+    else if (action === "invalid-attack-target" && selectedTerritoryId) {
+      onInvalidAttackTarget?.(selectedTerritoryId, territoryId);
+    } else onSelectTerritory(territoryId);
   };
 
   // Precompute label and unit positions
