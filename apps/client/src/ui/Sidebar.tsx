@@ -61,6 +61,9 @@ export function Sidebar({
       ? "selected"
       : "none";
   const selectedTerritory = activeTid ? territories[activeTid] : undefined;
+  // The inspector can preview a hovered territory, but actions always apply
+  // to the persistent map selection.
+  const selectedTerritoryState = selectedTerritoryId ? territories[selectedTerritoryId] : undefined;
   const gridDef = activeTid ? mapBundle.definition.territories.find((t) => t.id === activeTid) : undefined;
   const region = mapBundle.definition.sectors.find(s => s.id === gridDef?.sectorId);
 
@@ -80,13 +83,15 @@ export function Sidebar({
   const targetTerritory = targetTerritoryId ? territories[targetTerritoryId] : null;
 
   // Validation
-  const isSelectedOwnedByMe = Boolean(ownerId && ownerId === myPlayerId);
+  const isActionSourceOwnedByMe = Boolean(
+    selectedTerritoryState?.ownerId && selectedTerritoryState.ownerId === myPlayerId
+  );
   const isTargetEnemy = Boolean(targetTerritory && targetTerritory.ownerId !== myPlayerId);
   const isTargetFriendly = Boolean(targetTerritory && targetTerritory.ownerId === myPlayerId);
 
-  const canDeploy = isMyTurn && phase === "deployment" && isSelectedOwnedByMe && pendingReinforcements > 0;
-  const canAttack = isMyTurn && phase === "attack" && isSelectedOwnedByMe && isTargetEnemy && armiesCount >= 2;
-  const canFortify = isMyTurn && phase === "fortify" && isSelectedOwnedByMe && isTargetFriendly && armiesCount >= 2;
+  const canDeploy = isMyTurn && phase === "deployment" && isActionSourceOwnedByMe && pendingReinforcements > 0;
+  const canAttack = isMyTurn && phase === "attack" && isActionSourceOwnedByMe && isTargetEnemy && (selectedTerritoryState?.units ?? 0) >= 2;
+  const canFortify = isMyTurn && phase === "fortify" && isActionSourceOwnedByMe && isTargetFriendly && (selectedTerritoryState?.units ?? 0) >= 2;
   const canSkipOrEnd = isMyTurn && (phase === "attack" || phase === "fortify");
 
   // Ready status in lobby

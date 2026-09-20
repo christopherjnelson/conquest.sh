@@ -54,6 +54,9 @@ export function CompactInspector({
       : "none";
 
   const territoryState = displayTid ? territories[displayTid] : undefined;
+  // Hovering changes the information shown here, never the territory an
+  // action will use.
+  const selectedTerritoryState = selectedTerritoryId ? territories[selectedTerritoryId] : undefined;
   const gridDef = displayTid ? mapBundle.definition.territories.find((t) => t.id === displayTid) : undefined;
   const region = mapBundle.definition.sectors.find(s => s.id === gridDef?.sectorId);
 
@@ -71,13 +74,15 @@ export function CompactInspector({
 
   // Target territory details
   const targetTerritory = targetTerritoryId ? territories[targetTerritoryId] : null;
-  const isSelectedOwnedByMe = Boolean(ownerId && ownerId === myPlayerId);
+  const isActionSourceOwnedByMe = Boolean(
+    selectedTerritoryState?.ownerId && selectedTerritoryState.ownerId === myPlayerId
+  );
   const isTargetEnemy = Boolean(targetTerritory && targetTerritory.ownerId !== myPlayerId);
   const isTargetFriendly = Boolean(targetTerritory && targetTerritory.ownerId === myPlayerId);
 
-  const canDeploy = isMyTurn && phase === "deployment" && isSelectedOwnedByMe && pendingReinforcements > 0;
-  const canAttack = isMyTurn && phase === "attack" && isSelectedOwnedByMe && isTargetEnemy && armiesCount >= 2;
-  const canFortify = isMyTurn && phase === "fortify" && isSelectedOwnedByMe && isTargetFriendly && armiesCount >= 2;
+  const canDeploy = isMyTurn && phase === "deployment" && isActionSourceOwnedByMe && pendingReinforcements > 0;
+  const canAttack = isMyTurn && phase === "attack" && isActionSourceOwnedByMe && isTargetEnemy && (selectedTerritoryState?.units ?? 0) >= 2;
+  const canFortify = isMyTurn && phase === "fortify" && isActionSourceOwnedByMe && isTargetFriendly && (selectedTerritoryState?.units ?? 0) >= 2;
   const canSkipOrEnd = isMyTurn && (phase === "attack" || phase === "fortify");
 
   const myPlayer = players.find((p) => p.id === myPlayerId);

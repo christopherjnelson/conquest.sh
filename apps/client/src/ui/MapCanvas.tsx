@@ -487,7 +487,14 @@ export function MapCanvas({
       return;
     }
 
-    // A territory is already selected
+    // Only attack and fortify use a target. In other phases an adjacent click
+    // replaces the selection.
+    if (phase !== "attack" && phase !== "fortify") {
+      onSelectTerritory(territoryId);
+      return;
+    }
+
+    // A territory is already selected in a phase that uses a target.
     const isNeighbor = Boolean(
       selectedTerritory?.neighbors.includes(territoryId) ||
         activeMap.territories.find((t) => t.id === selectedTerritoryId)?.neighbors.includes(territoryId)
