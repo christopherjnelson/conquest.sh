@@ -255,6 +255,14 @@ export function App({
       showToast("Select a territory to deploy troops to", "error");
       return;
     }
+    if (!isMyTurn) {
+      showToast("You can only deploy on your turn", "error");
+      return;
+    }
+    if (state.phase !== "deployment") {
+      showToast(`Cannot deploy during ${state.phase} phase`, "error");
+      return;
+    }
     const territory = state.territories[selectedTerritoryId];
     if (!territory || territory.ownerId !== myPlayerId) {
       showToast("You can only deploy to territories you control", "error");
@@ -266,8 +274,8 @@ export function App({
     }
 
     client.deploy(selectedTerritoryId, state.pendingReinforcements);
-    showToast(`Deployed ${state.pendingReinforcements} reinforcements to ${territoryName(selectedTerritoryId)}`, "success");
-  }, [client, state, selectedTerritoryId, myPlayerId, showToast, territoryName]);
+    showToast(`Deploying ${state.pendingReinforcements} reinforcements to ${territoryName(selectedTerritoryId)}...`, "info");
+  }, [client, state, selectedTerritoryId, myPlayerId, isMyTurn, showToast, territoryName]);
 
   const handleAttack = useCallback(() => {
     if (!state || !selectedTerritoryId) {
