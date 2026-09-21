@@ -338,7 +338,6 @@ export function EventLog({
           ) : null}
         </box>
 
-        {/* Scrollbar Track matching ref.png */}
         <box flexDirection="column" alignItems="center" style={{ width: 1 }}>
           <text fg="#00ff66">█</text>
           <text fg="#1e293b">│</text>

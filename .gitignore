@@ -5,3 +5,8 @@ dist/
 .conquest-session*.json
 *.sqlite
 *.sqlite-journal
+
+# Generated visual review captures
+/ref.png
+/visual_*.png
+/screenshots/

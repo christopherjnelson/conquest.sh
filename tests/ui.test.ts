@@ -423,7 +423,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     expect(foundActiveVibrant).toBe(true);
   });
 
-  it("renders Sidebar with 4 cards matching ref.png", async () => {
+  it("renders Sidebar with 4 cards", async () => {
     const { Sidebar } = await import("../apps/client/src/ui/Sidebar.js");
     const el: any = Sidebar({
       mapBundle: ironreachBundle,
