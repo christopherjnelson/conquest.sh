@@ -4,7 +4,7 @@ import { GamePhaseSchema } from "./events.js";
 export const RoomVisibilitySchema = z.enum(["public", "unlisted"]);
 export type RoomVisibility = z.infer<typeof RoomVisibilitySchema>;
 
-export const RoomKindSchema = z.enum(["quick", "custom"]);
+export const RoomKindSchema = z.literal("custom");
 export type RoomKind = z.infer<typeof RoomKindSchema>;
 
 export const RoomCodeSchema = z

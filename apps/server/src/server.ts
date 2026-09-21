@@ -77,7 +77,7 @@ export class ConquestServer {
         if (url.pathname === "/api/server") {
           return Response.json({
             serverName: self.serverName,
-            protocolVersion: "0.2.0",
+            protocolVersion: "0.3.0",
             roomsCount: self.roomManager.getRoomsCount(),
             playersCount: self.roomManager.getTotalPlayersCount(),
             defaultMap: self.roomManager.defaultMap.name,
@@ -289,7 +289,8 @@ export class ConquestServer {
         return;
       }
     } else {
-      room = this.roomManager.getOrCreateQuickMatchRoom();
+      this.sendError(ws, "INVALID_ROOM_CODE", "Choose a public game or enter a room code to join");
+      return;
     }
 
     // 4. Validate joinability BEFORE creating/saving session or emitting server:welcome

@@ -165,7 +165,7 @@ export function RoomBrowser({ client, onJoinRoom, onBack }: RoomBrowserProps) {
               <b>No public rooms found.</b>
             </text>
             <text fg="#64748b">
-              Create a custom game or start a Quick Match to ignite battle!
+              Create a game to open a new public lobby.
             </text>
           </box>
         ) : (

@@ -12,7 +12,7 @@
     },
     "apps/client": {
       "name": "@conquest/client",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "bin": {
         "conquest": "./src/index.ts",
       },
@@ -31,7 +31,7 @@
     },
     "apps/server": {
       "name": "@conquest/server",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "bin": {
         "conquest-server": "./src/index.ts",
       },
@@ -45,7 +45,7 @@
     },
     "packages/game-core": {
       "name": "@conquest/game-core",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
         "@conquest/protocol": "workspace:*",
         "@conquest/shared": "workspace:*",
@@ -53,7 +53,7 @@
     },
     "packages/map-engine": {
       "name": "@conquest/map-engine",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
         "@conquest/game-core": "workspace:*",
         "@conquest/protocol": "workspace:*",
@@ -61,14 +61,14 @@
     },
     "packages/protocol": {
       "name": "@conquest/protocol",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
         "zod": "^3.23.8",
       },
     },
     "packages/shared": {
       "name": "@conquest/shared",
-      "version": "0.1.0",
+      "version": "0.3.0",
     },
   },
   "packages": {

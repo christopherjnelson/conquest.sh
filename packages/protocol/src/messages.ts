@@ -6,7 +6,7 @@ import { RoomVisibilitySchema, RoomCodeSchema } from "./api.js";
 export const ClientJoinSchema = z.object({
   type: z.literal("client:join"),
   name: z.string().min(1).max(24),
-  roomCode: RoomCodeSchema.optional(),
+  roomCode: RoomCodeSchema,
   sessionToken: z.string().optional(),
 });
 export type ClientJoin = z.infer<typeof ClientJoinSchema>;

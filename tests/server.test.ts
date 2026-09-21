@@ -3,6 +3,7 @@ import { ConquestServer } from "../apps/server/src/server.js";
 import { MAP_IRONREACH } from "../packages/map-engine/src/index.js";
 import type {
   ClientAttack,
+  ClientCreateRoom,
   ClientDeploy,
   ClientEndTurn,
   ClientJoin,
@@ -180,12 +181,15 @@ describe("ConquestServer: Full Integration Flow", () => {
     const clientA = new TestClient(`ws://localhost:${port}`);
     await clientA.waitForOpen();
 
-    // Client A sends client:join
-    const joinA: ClientJoin = {
-      type: "client:join",
-      name: "Alice",
+    // Client A creates the room, then receives the same welcome/session flow
+    // used for every explicit room join.
+    const createA: ClientCreateRoom = {
+      type: "client:create_room",
+      playerName: "Alice",
+      visibility: "public",
+      maxPlayers: 2,
     };
-    clientA.send(joinA);
+    clientA.send(createA);
 
     // Verify Client A receives server:welcome
     const welcomeA = await clientA.waitForMessage<ServerWelcome>((m) => m.type === "server:welcome");
@@ -218,6 +222,10 @@ describe("ConquestServer: Full Integration Flow", () => {
 
     const bobId = welcomeB.playerId;
     const bobToken = welcomeB.sessionToken;
+
+    // Custom rooms start when every player explicitly marks ready.
+    clientA.send({ type: "client:ready", ready: true });
+    clientB.send({ type: "client:ready", ready: true });
 
     // Verify both receive server:snapshot and game starts with Alice as active player
     const snapshotA = await clientA.waitForMessage<ServerSnapshot>(
@@ -367,6 +375,7 @@ describe("ConquestServer: Full Integration Flow", () => {
     const reconnectMsg: ClientJoin = {
       type: "client:join",
       name: "Bob",
+      roomCode,
       sessionToken: bobToken,
     };
     clientB_reconnected.send(reconnectMsg);
@@ -406,12 +415,14 @@ describe("ConquestServer: Full Integration Flow", () => {
   });
 
   it("ignores sessionToken if session.playerName does not match join name and treats as fresh join", async () => {
-    // 1. Client A joins as Alice
+    // 1. Client A creates an explicit room as Alice
     const clientA = new TestClient(`ws://localhost:${port}`);
     await clientA.waitForOpen();
     clientA.send({
-      type: "client:join",
-      name: "Alice",
+      type: "client:create_room",
+      playerName: "Alice",
+      visibility: "public",
+      maxPlayers: 2,
     });
     const welcomeA = await clientA.waitForMessage<ServerWelcome>((m) => m.type === "server:welcome");
     const aliceToken = welcomeA.sessionToken;

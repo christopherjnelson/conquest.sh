@@ -66,7 +66,7 @@ function activeClient() {
   } as any;
 }
 
-function earthInspectorClient() {
+function earthInspectorClient(selectedTerritoryId = "af_nile_valley") {
   const earthPlayers: Player[] = [
     { ...players[0], name: "Redwurm" },
     { ...players[1], name: "Sable" },
@@ -74,7 +74,7 @@ function earthInspectorClient() {
   const state = createInitialGameState("earth-inspector", "NILE", earthPlayers, earthBundle.definition);
   state.phase = "attack";
   state.activePlayerIndex = 0;
-  state.territories.af_nile_valley = { ...state.territories.af_nile_valley!, ownerId: "p1", units: 7 };
+  state.territories[selectedTerritoryId] = { ...state.territories[selectedTerritoryId]!, ownerId: "p1", units: 7 };
   return {
     state,
     myPlayerId: "p1",
@@ -189,6 +189,7 @@ describe("visual sidebar composition", () => {
       );
       await act(async () => { await setup.renderOnce(); });
       const lines = setup.captureCharFrame().split("\n");
+      if (layoutMode === "wide") expect(lines.join("\n")).toContain("v0.3.0");
       const youLine = lines.find((line: string) => line.includes("YOU:"));
       expect(youLine).toBeDefined();
       expect(youLine).toContain("YOU:");
@@ -232,6 +233,27 @@ describe("visual sidebar composition", () => {
     await act(async () => { setup.renderer.destroy(); });
   });
 
+  it("keeps AS10 Indian Subcontinent on its own row in the 42-column sidebar", async () => {
+    const state = earthInspectorClient("as_indian_subcontinent").state;
+    const setup = await testRender(
+      React.createElement(Sidebar, {
+        mapBundle: earthBundle, state, myPlayerId: "p1", selectedTerritoryId: "as_indian_subcontinent", targetTerritoryId: null,
+        onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {}, layoutMode: "wide",
+      }),
+      { width: 42, height: 38 },
+    );
+    await act(async () => { await setup.renderOnce(); });
+    const lines = setup.captureCharFrame().split("\n");
+    const identityLine = lines.findIndex((line: string) => line.includes("[AS10]") && line.includes("SEL"));
+    const nameLine = lines.findIndex((line: string) => line.includes("Indian Subcontinent"));
+    const ownerLine = lines.findIndex((line: string) => line.includes("Owner"));
+    expect(identityLine).toBeGreaterThanOrEqual(0);
+    expect(nameLine).toBeGreaterThan(identityLine);
+    expect(nameLine).toBeLessThan(ownerLine);
+    expect(lines[nameLine]).not.toContain("Owner");
+    await act(async () => { setup.renderer.destroy(); });
+  });
+
   for (const [columns, rows] of [[140, 45], [180, 51]] as const) {
     it(`keeps the full App Earth inspector lanes clear at ${columns}x${rows}`, async () => {
       const setup = await testRender(
@@ -260,6 +282,28 @@ describe("visual sidebar composition", () => {
         expect(inspectorLine).toContain("Nile Valley");
         expect(inspectorLine).toContain("Redwurm");
       }
+      await act(async () => { setup.renderer.destroy(); });
+    });
+  }
+
+  for (const [columns, rows] of [[180, 51], [200, 55]] as const) {
+    it(`keeps AS10 Indian Subcontinent between its identity and owner rows in the ${columns}x${rows} App`, async () => {
+      const setup = await testRender(
+        React.createElement(App, {
+          client: earthInspectorClient("as_indian_subcontinent"), terminalDimensions: { columns, rows },
+          initialSelectedTerritoryId: "as_indian_subcontinent", initialHoveredTerritoryId: "as_indian_subcontinent",
+        }),
+        { width: columns, height: rows },
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const lines = setup.captureCharFrame().split("\n");
+      const identityLine = lines.findIndex((line: string) => line.includes("[AS10]") && line.includes("SEL"));
+      const nameLine = lines.findIndex((line: string) => line.includes("Indian Subcontinent"));
+      const ownerLine = lines.findIndex((line: string) => line.includes("Owner"));
+      expect(identityLine).toBeGreaterThanOrEqual(0);
+      expect(nameLine).toBeGreaterThan(identityLine);
+      expect(nameLine).toBeLessThan(ownerLine);
+      expect(lines[nameLine]).not.toContain("Owner");
       await act(async () => { setup.renderer.destroy(); });
     });
   }

@@ -20,7 +20,6 @@ export type ClientScreen =
 export interface ClientShellProps {
   client: GameClient;
   initialRoomCode?: string;
-  initialQuick?: boolean;
   onExit?: () => void;
   terminalDimensions?: { columns: number; rows: number };
 }
@@ -28,11 +27,10 @@ export interface ClientShellProps {
 export function ClientShell({
   client,
   initialRoomCode,
-  initialQuick,
   onExit,
   terminalDimensions,
 }: ClientShellProps) {
-  const isDirectEntry = Boolean(initialRoomCode || initialQuick);
+  const isDirectEntry = Boolean(initialRoomCode);
 
   const [screen, setScreen] = useState<ClientScreen>(() => (isDirectEntry ? "game" : "home"));
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -85,12 +83,6 @@ export function ClientShell({
   }, [client, screen]);
 
   // Screen actions
-  const handleQuickMatch = useCallback(() => {
-    setErrorMessage(null);
-    client.quickMatch();
-    setScreen("game");
-  }, [client]);
-
   const handleBrowseGames = useCallback(() => {
     setErrorMessage(null);
     setScreen("room-browser");
@@ -157,7 +149,6 @@ export function ClientShell({
           playerName={client.playerName}
           cachedSession={cachedSession}
           errorMessage={errorMessage}
-          onQuickMatch={handleQuickMatch}
           onBrowseGames={handleBrowseGames}
           onCreateGame={handleCreateGame}
           onJoinByCode={handleJoinByCode}

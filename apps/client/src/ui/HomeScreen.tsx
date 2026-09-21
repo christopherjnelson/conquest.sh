@@ -9,7 +9,6 @@ export interface HomeScreenProps {
   playerName: string;
   cachedSession?: SessionData | null;
   errorMessage?: string | null;
-  onQuickMatch: () => void;
   onBrowseGames: () => void;
   onCreateGame: () => void;
   onJoinByCode: () => void;
@@ -34,7 +33,6 @@ export function HomeScreen({
   playerName,
   cachedSession,
   errorMessage,
-  onQuickMatch,
   onBrowseGames,
   onCreateGame,
   onJoinByCode,
@@ -58,38 +56,31 @@ export function HomeScreen({
 
   menuItems.push(
     {
-      id: "quick",
-      label: "QUICK MATCH",
-      description: "Jump immediately into an open public matchmaking room",
-      shortcut: "1",
-      action: onQuickMatch,
-    },
-    {
       id: "browse",
       label: "BROWSE GAMES",
       description: "View and join active public games on this server",
-      shortcut: "2",
+      shortcut: "1",
       action: onBrowseGames,
     },
     {
       id: "create",
       label: "CREATE GAME",
       description: "Host a custom public or unlisted battle (2-6 players)",
-      shortcut: "3",
+      shortcut: "2",
       action: onCreateGame,
     },
     {
       id: "join",
       label: "JOIN BY CODE",
       description: "Enter an explicit 4-character room code to join",
-      shortcut: "4",
+      shortcut: "3",
       action: onJoinByCode,
     },
     {
       id: "server",
       label: "SERVER INFO",
       description: "Inspect server topology, active realms, and status",
-      shortcut: "5",
+      shortcut: "4",
       action: onServerInfo,
     },
     {

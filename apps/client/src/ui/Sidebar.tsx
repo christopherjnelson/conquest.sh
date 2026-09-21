@@ -247,20 +247,19 @@ export function Sidebar({
           </box>
         ) : (
           <>
-            {/* Keep identity on two short rows so the data columns below remain stable. */}
-            <box flexDirection="column" style={{ height: 2 }} flexShrink={0}>
-              <box flexDirection="row" alignItems="center" gap={1} style={{ height: 1 }} flexShrink={0}>
-                <text fg="#ffffff"><b>[{mapBundle.metadata.displayCodes[activeTid] ?? activeTid}]</b></text>
-                {inspectionMode !== "none" && (
-                  <text fg={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}>
-                    <b>{inspectionMode === "selected" ? "SEL" : "HOV"}</b>
-                  </text>
-                )}
-              </box>
-              <text fg="#00d2ff" style={{ height: 1 }} flexShrink={0}>
-                <b>{fitSidebarText(territoryName, identityLimit)}</b>
-              </text>
+            {/* Direct children reserve two actual terminal rows. Nesting this lane
+                caused OpenTUI to drop the name at the narrow sidebar width. */}
+            <box flexDirection="row" alignItems="center" gap={1} style={{ height: 1 }} flexShrink={0}>
+              <text fg="#ffffff"><b>[{mapBundle.metadata.displayCodes[activeTid] ?? activeTid}]</b></text>
+              {inspectionMode !== "none" && (
+                <text fg={inspectionMode === "selected" ? "#00ffff" : "#ffaa00"}>
+                  <b>{inspectionMode === "selected" ? "SEL" : "HOV"}</b>
+                </text>
+              )}
             </box>
+            <text fg="#00d2ff" style={{ height: 1 }} flexShrink={0}>
+              <b>{fitSidebarText(territoryName, identityLimit)}</b>
+            </text>
 
             {/* Fixed label column prevents values from colliding at narrow widths. */}
             <box flexDirection="column" style={{ height: 4 }} flexShrink={0}>

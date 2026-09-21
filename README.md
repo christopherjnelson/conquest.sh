@@ -27,7 +27,6 @@ Inspired by classic grand strategy territory-control loops, reimagined as a term
   - **Standard Mode** ($130\text{--}179$ cols and $38\text{--}50$ rows): Compact branding bar maximizing vertical space for the map and sidebar.
   - **Compact Mode** ($< 130$ cols or $< 38$ rows): Full-width map canvas paired with an integrated bottom tactical inspector strip.
 - **Multiplayer Front Door**:
-  - **Quick Match**: Immediate matchmaking into available public lobbies.
   - **Public Room Browser**: Interactive list of active open games with live player counts and status.
   - **Custom Game Creation**: Host public or unlisted matches with custom room names and player capacities (2–6 players).
   - **Join by Code**: Direct entry for private or unlisted matches using exactly 4-character uppercase alphanumeric room codes.
@@ -81,8 +80,6 @@ Arrives at the multiplayer home screen:
 │                CONQUER • NEGOTIATE • SURVIVE                 │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│                     [ QUICK MATCH ]                          │
-│                                                              │
 │                     [ BROWSE GAMES ]                         │
 │                                                              │
 │                     [ CREATE GAME ]                          │
@@ -105,9 +102,6 @@ Arrives at the multiplayer home screen:
 Automation, scripts, and power users can bypass the front door directly:
 
 ```bash
-# Connect and immediately enter Quick Match
-./conquest.sh --quick --name Alice
-
 # Join an existing room by code
 ./conquest.sh --room ABCD --name Bob
 

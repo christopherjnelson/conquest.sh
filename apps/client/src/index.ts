@@ -26,14 +26,12 @@ export function parseArgs(rawArgs: string[] = process.argv.slice(2), exitOnHelp 
   server: string;
   name: string;
   room?: string;
-  quick: boolean;
   forceNew: boolean;
 } {
   const args = rawArgs;
   let server = process.env.CONQUEST_SERVER || "localhost:4000";
   let name = `Agent-${Math.floor(Math.random() * 1000)}`;
   let room: string | undefined = undefined;
-  let quick = false;
   let forceNew = false;
   let nameSetByName = false;
   let nameSetByPositionalOrTypo = false;
@@ -76,12 +74,12 @@ export function parseArgs(rawArgs: string[] = process.argv.slice(2), exitOnHelp 
     } else if (arg.startsWith("-r=")) {
       const val = arg.slice("-r=".length);
       room = val ? val.trim().toUpperCase() : undefined;
-    } else if (arg === "--quick" || arg === "-q") {
-      quick = true;
     } else if (arg === "--new") {
       forceNew = true;
     } else if (arg === "--help" || arg === "-h") {
       showHelp = true;
+    } else if (arg === "--quick" || arg === "-q") {
+      throw new Error("Quick Match has been removed. Create a game or join by room code.");
     } else if (arg.startsWith("--")) {
       const flag = arg.split("=")[0];
       if (!RESERVED_FLAGS.has(flag)) {
@@ -112,7 +110,6 @@ Options:
   --server, --host, -s <host:port>   Server address (default: CONQUEST_SERVER or localhost:4000)
   --name, -n <player-name>           Player handle (default: Agent-XXX)
   --room, -r <room-code>             Directly join room by code
-  --quick, -q                        Immediately enter Quick Match
   --new                              Force new session (disregard cached credentials)
   --help, -h                         Show this manual
 `);
@@ -121,11 +118,11 @@ Options:
     }
   }
 
-  return { server, name, room, quick, forceNew };
+  return { server, name, room, forceNew };
 }
 
 async function main() {
-  const { server, name, room, quick, forceNew } = parseArgs();
+  const { server, name, room, forceNew } = parseArgs();
 
   console.log(`Playing as: ${name}`);
 
@@ -171,7 +168,6 @@ async function main() {
     React.createElement(ClientShell, {
       client,
       initialRoomCode: room,
-      initialQuick: quick,
       onExit: cleanup,
     })
   );
@@ -179,9 +175,7 @@ async function main() {
   // Initiate connection
   try {
     await client.connect();
-    if (quick) {
-      client.quickMatch(name);
-    } else if (room) {
+    if (room) {
       client.join(name, room);
     }
   } catch {
