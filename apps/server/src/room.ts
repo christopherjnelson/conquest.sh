@@ -70,14 +70,14 @@ export class GameRoom {
 
   constructor(options: GameRoomOptions) {
     this.roomCode = options.roomCode.toUpperCase();
-    this.kind = options.kind ?? "quick";
+    this.kind = options.kind ?? "custom";
     this.displayName =
       options.displayName?.trim() ||
-      (this.kind === "quick" ? `Quick Match ${this.roomCode}` : `Room ${this.roomCode}`);
+      `Room ${this.roomCode}`;
     this.gameId = options.gameId ?? generateId("game");
-    this.maxPlayers = Math.max(2, Math.min(6, options.maxPlayers ?? (this.kind === "quick" ? 2 : 4)));
+    this.maxPlayers = Math.max(2, Math.min(6, options.maxPlayers ?? 4));
     this.map = options.map ?? getDefaultMap().definition;
-    this.autoStart = options.autoStart ?? (this.kind === "quick");
+    this.autoStart = options.autoStart ?? false;
     this.visibility = options.visibility ?? "public";
     this.createdAt = options.createdAt ?? Date.now();
     this.onDeserted = options.onDeserted;
@@ -204,8 +204,8 @@ export class GameRoom {
 
     logger.info(`Player ${name} (${playerId}) joined room ${this.roomCode}`);
 
-    // Auto-start game if conditions are met (quick match only)
-    if (this.autoStart && this.kind === "quick" && this.state.players.length >= this.maxPlayers) {
+    // Custom rooms begin only after participating players explicitly ready.
+    if (this.autoStart && this.state.players.length >= this.maxPlayers) {
       this.startGame();
     } else {
       // Send lobby snapshot to joining player
@@ -779,45 +779,12 @@ export class RoomManager {
         roomCode: code,
         map: options?.map ?? this.defaultMap,
         maxPlayers: options?.maxPlayers ?? this.defaultMaxPlayers,
-        autoStart: options?.autoStart ?? true,
+        autoStart: options?.autoStart ?? false,
         onDeserted: (c) => this.removeRoom(c),
         ...options,
       });
       this.rooms.set(code, room);
     }
-    return room;
-  }
-
-  getOrCreateQuickMatchRoom(): GameRoom {
-    // Find an existing public quick match room in lobby phase with open slot
-    for (const room of this.rooms.values()) {
-      if (
-        room.kind === "quick" &&
-        room.visibility === "public" &&
-        room.state.phase === "lobby" &&
-        room.playerCount < room.maxPlayers
-      ) {
-        return room;
-      }
-    }
-
-    // Otherwise create a new public quick-match room
-    let code: string;
-    do {
-      code = generateRoomCode();
-    } while (this.rooms.has(code));
-
-    const room = new GameRoom({
-      roomCode: code,
-      displayName: `Quick Match ${code}`,
-      kind: "quick",
-      visibility: "public",
-      autoStart: true,
-      maxPlayers: 2,
-      map: this.defaultMap,
-      onDeserted: (c) => this.removeRoom(c),
-    });
-    this.rooms.set(code, room);
     return room;
   }
 

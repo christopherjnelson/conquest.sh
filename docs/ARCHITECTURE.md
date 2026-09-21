@@ -23,7 +23,7 @@ conquest.sh/
 │   └── server/              # Authoritative server (WebSockets, RoomManager, SQLite sessions)
 │       ├── src/
 │       │   ├── server.ts    # WebSocket server lifecycle & HTTP REST endpoints (/api/server, /api/rooms, /health)
-│       │   ├── room.ts      # Game room lifecycle, matchmaking, public/unlisted rooms
+│       │   ├── room.ts      # Game room lifecycle and public/unlisted rooms
 │       │   ├── session.ts   # Reconnect token store & SQLite persistence
 │       │   └── index.ts     # Server CLI entry point & environment configuration
 │       ├── package.json
@@ -190,7 +190,7 @@ Client navigation is organized into explicit screens:
                   └──────┬───────┘
          ┌───────────────┼───────────────┬──────────────┐
          ▼               ▼               ▼              ▼
-  [ Quick Match ] [ Browse Games ] [ Create Game ] [ Join Code ]
+  [ Browse Games ] [ Create Game ] [ Join Code ]
          │               │               │              │
          └───────────────┼───────────────┴──────────────┘
                          ▼
@@ -200,15 +200,15 @@ Client navigation is organized into explicit screens:
 ```
 
 ### Screen Flow:
-- `home`: Central launcher displaying quick match, browse games, create game, join by code, resume match, and server info.
+- `home`: Central launcher displaying public games, create game, join by code, resume match, and server info.
 - `room-browser`: Live table of public rooms polling `GET /api/rooms` (parsed via `z.array(RoomSummarySchema)`) every 4 seconds. Shows room name, player count, map, and status.
 - `create-game`: Configurable game creation (room name, max players 2–6, visibility: public vs unlisted). Emits `client:create_room`.
 - `join-code`: Explicit 4-character uppercase alphanumeric code entry validated via `RoomCodeSchema`. Rejects unknown codes with `ROOM_NOT_FOUND` and full rooms with `JOIN_FAILED` instead of silently auto-creating rooms.
 - `game`: The tactical match UI (`App.tsx`), encompassing the map canvas, sidebar/compact inspector, event log chronicle, and action council.
 
 ### Room Kinds & Lifecycle:
-- **`RoomKind`**: `"quick"` (matchmaking queue) vs `"custom"` (created by players).
+- **`RoomKind`**: `"custom"` rooms are created by players.
 - **`RoomVisibility`**: `"public"` (listed in browser) vs `"unlisted"` (joinable only by direct room code).
-- **Start Conditions**: Quick match rooms can auto-start when full; custom rooms require at least 2 connected players and all participating connected players marked **Ready**.
+- **Start Conditions**: Rooms require at least 2 connected players and all participating connected players marked **Ready**.
 - **Lobby Disconnect Semantics**: Disconnecting before game start frees the lobby seat immediately so public room summaries and joinability stay in sync. Disconnected lobby players do not receive territory when the match starts.
-- **Leaving / Switching Rooms**: Returning from a lobby to Home explicitly detaches the player and clears the room session so subsequent matchmaking or room creation starts clean. Quitting during an active match (`phase !== 'lobby'`) preserves the local session to allow reconnecting.
+- **Leaving / Switching Rooms**: Returning from a lobby to Home explicitly detaches the player and clears the room session so subsequent room creation starts clean. Quitting during an active match (`phase !== 'lobby'`) preserves the local session to allow reconnecting.

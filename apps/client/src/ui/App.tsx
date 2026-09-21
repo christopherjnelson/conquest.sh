@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { GameEvent, GameState } from "@conquest/protocol";
+import { areTerritoriesConnected } from "@conquest/game-core";
 import {
   getDefaultMap,
   getMap,
@@ -48,6 +49,7 @@ export function getAttackSourceError(territoryName: string): string {
 }
 
 export type PendingPhaseAction = "skip-attack" | "end-turn";
+type PendingQuantityAction = "deployment" | "fortify";
 
 export function getPhaseActionConfirmationMessage(action: PendingPhaseAction): string {
   const label = action === "skip-attack" ? "Skip attack" : "End turn";
@@ -212,7 +214,10 @@ export function App({
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"info" | "success" | "error">("info");
+  const [mapNotice, setMapNotice] = useState<string | null>(null);
   const [pendingPhaseAction, setPendingPhaseAction] = useState<PendingPhaseAction | null>(null);
+  const [pendingQuantityAction, setPendingQuantityAction] = useState<PendingQuantityAction | null>(null);
+  const [fortifyUnits, setFortifyUnits] = useState(1);
   // OpenTUI keeps a keyboard listener alive between renders. Keep the armed
   // action in a ref as well so a rapid Enter observes the first E immediately.
   const pendingPhaseActionRef = useRef<PendingPhaseAction | null>(null);
@@ -259,6 +264,8 @@ export function App({
   }, [client, showToast]);
 
   const pendingConquestMove = state?.pendingConquestMove;
+  const previousPendingConquestMoveRef = useRef<typeof pendingConquestMove>(pendingConquestMove);
+  const previousTurnRef = useRef<{ activePlayerId?: string; wasMyTurn: boolean } | null>(null);
   useEffect(() => {
     if (pendingConquestMove) setConquestMoveUnits(pendingConquestMove.minimumUnits);
   }, [pendingConquestMove?.sourceTerritoryId, pendingConquestMove?.targetTerritoryId, pendingConquestMove?.minimumUnits]);
@@ -271,6 +278,34 @@ export function App({
   const paneDimensions = getMapContentDimensionsForLayout(dimensions.columns, dimensions.rows, layoutMode);
   const sidebarWidth = getSidebarWidthForTerminal(dimensions.columns, dimensions.rows, layoutMode);
   const activeMapDef = selectRenderVariant(mapBundle, paneDimensions).grid;
+
+  // A conquest move is complete only when the server's snapshot removes the
+  // pending action. Do not leave the former source or conquered target armed.
+  useEffect(() => {
+    if (previousPendingConquestMoveRef.current && !pendingConquestMove) {
+      setSelectedTerritoryId(null);
+      setTargetTerritoryId(null);
+    }
+    previousPendingConquestMoveRef.current = pendingConquestMove;
+  }, [pendingConquestMove]);
+
+  // Fortifying ends a turn on the server. Show that authoritative handoff on
+  // the map itself, where it cannot be missed in the footer activity stream.
+  useEffect(() => {
+    const prior = previousTurnRef.current;
+    if (prior && prior.wasMyTurn && !isMyTurn && activePlayer?.id && activePlayer.id !== prior.activePlayerId) {
+      setMapNotice(`TURN PASSED — ${activePlayer.name} is now active`);
+      setSelectedTerritoryId(null);
+      setTargetTerritoryId(null);
+    }
+    previousTurnRef.current = { activePlayerId: activePlayer?.id, wasMyTurn: isMyTurn };
+  }, [activePlayer?.id, activePlayer?.name, isMyTurn, state?.turnNumber]);
+
+  useEffect(() => {
+    if (!mapNotice) return;
+    const timer = setTimeout(() => setMapNotice(null), 3500);
+    return () => clearTimeout(timer);
+  }, [mapNotice]);
 
   // A confirmation only belongs to this exact player and phase. Snapshots are
   // authoritative, so never carry a stale confirmation into the next action.
@@ -333,10 +368,22 @@ export function App({
       return;
     }
 
+    setPendingQuantityAction("deployment");
+  }, [state, selectedTerritoryId, myPlayerId, isMyTurn, showToast]);
+
+  const confirmDeploy = useCallback(() => {
+    if (!state || !selectedTerritoryId) return;
+    const territory = state.territories[selectedTerritoryId];
+    if (!isMyTurn || state.phase !== "deployment" || territory?.ownerId !== myPlayerId || state.pendingReinforcements <= 0) {
+      setPendingQuantityAction(null);
+      showToast("Deployment is no longer available", "error");
+      return;
+    }
     const count = Math.min(Math.max(1, deploymentCount), state.pendingReinforcements);
     client.deploy(selectedTerritoryId, count);
     showToast(`Deploying ${count} reinforcement${count === 1 ? "" : "s"} to ${territoryName(selectedTerritoryId)}...`, "info");
-  }, [client, state, selectedTerritoryId, myPlayerId, isMyTurn, deploymentCount, showToast, territoryName]);
+    setPendingQuantityAction(null);
+  }, [client, state, selectedTerritoryId, deploymentCount, myPlayerId, isMyTurn, showToast, territoryName]);
 
   const adjustDeploymentCount = useCallback((delta: number) => {
     const available = state?.pendingReinforcements ?? 0;
@@ -362,12 +409,16 @@ export function App({
       showToast(getAttackSourceError(territoryName(selectedTerritoryId)), "error");
       return;
     }
+    if (!isMyTurn) {
+      showToast("You can only attack on your turn", "error");
+      return;
+    }
     if (source.units < 2) {
       showToast("Need at least 2 units to attack", "error");
       return;
     }
     if (!targetTerritoryId) {
-      showToast("Select an adjacent enemy territory to attack", "info");
+      showToast("Click an adjacent enemy or press N to choose an attack target", "info");
       return;
     }
     const target = state.territories[targetTerritoryId];
@@ -382,7 +433,7 @@ export function App({
 
     client.attack(selectedTerritoryId, targetTerritoryId);
     showToast(`Attacking ${territoryName(targetTerritoryId)} from ${territoryName(selectedTerritoryId)}...`, "info");
-  }, [client, state, selectedTerritoryId, targetTerritoryId, myPlayerId, showToast, territoryName]);
+  }, [client, state, selectedTerritoryId, targetTerritoryId, myPlayerId, isMyTurn, showToast, territoryName]);
 
   const adjustConquestMove = useCallback((delta: number) => {
     if (!pendingConquestMove) return;
@@ -407,12 +458,16 @@ export function App({
       showToast("You must control the source territory", "error");
       return;
     }
+    if (!isMyTurn) {
+      showToast("You can only fortify on your turn", "error");
+      return;
+    }
     if (source.units < 2) {
       showToast("Must leave at least 1 unit behind", "error");
       return;
     }
     if (!targetTerritoryId) {
-      showToast("Select a friendly connected territory to move troops to", "info");
+      showToast("Click a connected friendly territory or press N to choose a fortify target", "info");
       return;
     }
     const target = state.territories[targetTerritoryId];
@@ -420,13 +475,58 @@ export function App({
       showToast("Target territory must also be controlled by you", "error");
       return;
     }
+    if (!areTerritoriesConnected(state.territories, selectedTerritoryId, targetTerritoryId, myPlayerId!)) {
+      showToast("Fortify through a continuous route of territories you control", "error");
+      return;
+    }
 
-    const unitsToMove = Math.max(1, source.units - 1);
+    setFortifyUnits(Math.max(1, source.units - 1));
+    setPendingQuantityAction("fortify");
+  }, [state, selectedTerritoryId, targetTerritoryId, myPlayerId, isMyTurn, showToast]);
+
+  const confirmFortify = useCallback(() => {
+    if (!state || !selectedTerritoryId || !targetTerritoryId) return;
+    const source = state.territories[selectedTerritoryId];
+    const target = state.territories[targetTerritoryId];
+    if (!source || !target || !isMyTurn || state.phase !== "fortify" || source.ownerId !== myPlayerId || target.ownerId !== myPlayerId || source.units < 2 || !areTerritoriesConnected(state.territories, selectedTerritoryId, targetTerritoryId, myPlayerId!)) {
+      setPendingQuantityAction(null);
+      showToast("Fortification is no longer available", "error");
+      return;
+    }
+    const unitsToMove = Math.min(Math.max(1, fortifyUnits), source.units - 1);
     client.fortify(selectedTerritoryId, targetTerritoryId, unitsToMove);
-    showToast(`Fortified ${unitsToMove} units to ${territoryName(targetTerritoryId)}`, "success");
-    setSelectedTerritoryId(null);
-    setTargetTerritoryId(null);
-  }, [client, state, selectedTerritoryId, targetTerritoryId, myPlayerId, showToast, territoryName]);
+    showToast(`Fortifying ${unitsToMove} units to ${territoryName(targetTerritoryId)}...`, "info");
+    setPendingQuantityAction(null);
+  }, [client, state, selectedTerritoryId, targetTerritoryId, fortifyUnits, myPlayerId, isMyTurn, showToast, territoryName]);
+
+  const cycleTarget = useCallback((reverse = false) => {
+    if (!state || !selectedTerritoryId || !myPlayerId || (phase !== "attack" && phase !== "fortify")) {
+      showToast("Select a friendly territory before choosing a target", "info");
+      return;
+    }
+    const source = state.territories[selectedTerritoryId];
+    if (!source || source.ownerId !== myPlayerId) {
+      showToast("Select a territory you control first", "error");
+      return;
+    }
+    const candidates = phase === "attack"
+      ? source.neighbors.filter((id) => state.territories[id]?.ownerId && state.territories[id]?.ownerId !== myPlayerId)
+      : Object.keys(state.territories).filter((id) =>
+          id !== selectedTerritoryId &&
+          state.territories[id]?.ownerId === myPlayerId &&
+          areTerritoriesConnected(state.territories, selectedTerritoryId, id, myPlayerId),
+        );
+    if (candidates.length === 0) {
+      showToast(phase === "attack" ? "No adjacent enemy territories to attack" : "No connected friendly territories to fortify", "info");
+      return;
+    }
+    const current = targetTerritoryId ? candidates.indexOf(targetTerritoryId) : (reverse ? 0 : -1);
+    const offset = reverse ? -1 : 1;
+    const next = candidates[(current + offset + candidates.length) % candidates.length]!;
+    setPhaseActionConfirmation(null);
+    setTargetTerritoryId(next);
+    showToast(`Target: ${territoryName(next)} (${candidates.length} legal ${candidates.length === 1 ? "choice" : "choices"})`, "info");
+  }, [state, selectedTerritoryId, myPlayerId, phase, targetTerritoryId, showToast, territoryName, setPhaseActionConfirmation]);
 
   const skipPhase = useCallback(() => {
     client.skipPhase();
@@ -522,6 +622,23 @@ export function App({
       return;
     }
 
+    if (pendingQuantityAction) {
+      const delta = key.name === "left" || key.name === "[" ? -1 : key.name === "right" || key.name === "]" ? 1 : 0;
+      if (delta) {
+        if (pendingQuantityAction === "deployment") adjustDeploymentCount(delta);
+        else setFortifyUnits((current) => Math.max(1, Math.min((state?.territories[selectedTerritoryId ?? ""]?.units ?? 2) - 1, current + delta)));
+      } else if (key.name === "return" || key.name === "enter") {
+        if (pendingQuantityAction === "deployment") confirmDeploy(); else confirmFortify();
+      } else if (key.name === "home") {
+        if (pendingQuantityAction === "deployment") selectMinimumDeployment(); else setFortifyUnits(1);
+      } else if (key.name === "end") {
+        if (pendingQuantityAction === "deployment") selectAllDeployments(); else setFortifyUnits(Math.max(1, (state?.territories[selectedTerritoryId ?? ""]?.units ?? 2) - 1));
+      } else if (key.name === "escape") {
+        setPendingQuantityAction(null);
+      }
+      return;
+    }
+
     if (pendingPhaseActionRef.current) {
       if (key.name === "escape") {
         setPhaseActionConfirmation(null);
@@ -565,6 +682,14 @@ export function App({
       if (!nextId) return;
       setSelectedTerritoryId(nextId);
       setTargetTerritoryId(null);
+      return;
+    }
+
+    // Keep the selected source armed while cycling legal action targets. This
+    // reaches targets that are not adjacent on the rendered raster, including
+    // a fortify route that crosses several friendly territories.
+    if (key.name === "n" || key.name === "N") {
+      cycleTarget(Boolean(key.shift));
       return;
     }
 
@@ -657,6 +782,58 @@ export function App({
     );
   }
 
+  const mapOverlay = pendingConquestMove ? {
+    title: "MOVE TROOPS INTO CONQUERED TERRITORY",
+    message: `Advance from ${territoryName(pendingConquestMove.sourceTerritoryId)} to ${territoryName(pendingConquestMove.targetTerritoryId)}.`,
+    tone: "quantity" as const,
+    quantity: { value: conquestMoveUnits, minimum: pendingConquestMove.minimumUnits, maximum: pendingConquestMove.maximumUnits },
+  } : pendingQuantityAction === "deployment" ? {
+    title: "DEPLOY REINFORCEMENTS",
+    message: `Deploy to ${selectedTerritoryId ? territoryName(selectedTerritoryId) : "selected territory"}.`,
+    tone: "quantity" as const,
+    quantity: { value: deploymentCount, minimum: 1, maximum: state?.pendingReinforcements ?? 1 },
+  } : pendingQuantityAction === "fortify" ? {
+    title: "FORTIFY TROOP MOVEMENT",
+    message: `Move troops from ${selectedTerritoryId ? territoryName(selectedTerritoryId) : "source territory"} to ${targetTerritoryId ? territoryName(targetTerritoryId) : "target territory"}.`,
+    tone: "quantity" as const,
+    quantity: { value: fortifyUnits, minimum: 1, maximum: Math.max(1, (selectedTerritoryId ? state?.territories[selectedTerritoryId]?.units ?? 2 : 2) - 1) },
+  } : pendingPhaseAction ? {
+    title: pendingPhaseAction === "skip-attack" ? "SKIP ATTACK PHASE?" : "SKIP FORTIFICATION & END TURN?",
+    message: pendingPhaseAction === "skip-attack" ? "No more attacks this turn." : "Pass command to the next player.",
+    tone: "confirm" as const,
+  } : mapNotice ? { title: "TURN COMPLETE", message: mapNotice, tone: "success" as const } : null;
+
+  const confirmMapOverlay = () => {
+    if (pendingConquestMove) confirmConquestMove();
+    else if (pendingQuantityAction === "deployment") confirmDeploy();
+    else if (pendingQuantityAction === "fortify") confirmFortify();
+    else if (pendingPhaseAction) requestPhaseAction(pendingPhaseAction, true);
+  };
+  const cancelMapOverlay = () => {
+    if (pendingQuantityAction) setPendingQuantityAction(null);
+    else if (pendingPhaseAction) setPhaseActionConfirmation(null);
+  };
+  const decreaseMapOverlay = () => {
+    if (pendingConquestMove) adjustConquestMove(-1);
+    else if (pendingQuantityAction === "deployment") adjustDeploymentCount(-1);
+    else if (pendingQuantityAction === "fortify") setFortifyUnits((value) => Math.max(1, value - 1));
+  };
+  const increaseMapOverlay = () => {
+    if (pendingConquestMove) adjustConquestMove(1);
+    else if (pendingQuantityAction === "deployment") adjustDeploymentCount(1);
+    else if (pendingQuantityAction === "fortify") setFortifyUnits((value) => Math.min(Math.max(1, (selectedTerritoryId ? state?.territories[selectedTerritoryId]?.units ?? 2 : 2) - 1), value + 1));
+  };
+  const minimumMapOverlay = () => {
+    if (pendingConquestMove) setConquestMoveUnits(pendingConquestMove.minimumUnits);
+    else if (pendingQuantityAction === "deployment") selectMinimumDeployment();
+    else if (pendingQuantityAction === "fortify") setFortifyUnits(1);
+  };
+  const maximumMapOverlay = () => {
+    if (pendingConquestMove) setConquestMoveUnits(pendingConquestMove.maximumUnits);
+    else if (pendingQuantityAction === "deployment") selectAllDeployments();
+    else if (pendingQuantityAction === "fortify") setFortifyUnits(Math.max(1, (selectedTerritoryId ? state?.territories[selectedTerritoryId]?.units ?? 2 : 2) - 1));
+  };
+
   return (
     <box
       flexDirection="column"
@@ -674,6 +851,7 @@ export function App({
         connectionStatus={status}
         isMyTurn={isMyTurn}
         isEliminated={isEliminated}
+        currentPlayer={myPlayer}
         layoutMode={layoutMode}
       />
 
@@ -714,6 +892,13 @@ export function App({
                 setSelectedTerritoryId(null);
                 setTargetTerritoryId(null);
               }}
+              overlay={mapOverlay}
+              onOverlayConfirm={confirmMapOverlay}
+              onOverlayCancel={cancelMapOverlay}
+              onOverlayDecrease={decreaseMapOverlay}
+              onOverlayIncrease={increaseMapOverlay}
+              onOverlayMinimum={minimumMapOverlay}
+              onOverlayMaximum={maximumMapOverlay}
             />
           </box>
 
@@ -728,16 +913,7 @@ export function App({
             roomCode={client.roomCode}
             phase={phase}
             onDeploy={handleDeploy}
-            deploymentCount={deploymentCount}
-            onDecreaseDeployment={() => adjustDeploymentCount(-1)}
-            onIncreaseDeployment={() => adjustDeploymentCount(1)}
-            onSelectAllDeployments={selectAllDeployments}
             pendingConquestMove={pendingConquestMove}
-            conquestMoveUnits={conquestMoveUnits}
-            onDecreaseConquestMove={() => adjustConquestMove(-1)}
-            onIncreaseConquestMove={() => adjustConquestMove(1)}
-            onConfirmConquestMove={confirmConquestMove}
-            onSelectMinimumDeployment={selectMinimumDeployment}
             onAttack={handleAttack}
             onFortify={handleFortify}
             onSkipPhase={handleSkipPhase}
@@ -791,6 +967,13 @@ export function App({
                 setSelectedTerritoryId(null);
                 setTargetTerritoryId(null);
               }}
+              overlay={mapOverlay}
+              onOverlayConfirm={confirmMapOverlay}
+              onOverlayCancel={cancelMapOverlay}
+              onOverlayDecrease={decreaseMapOverlay}
+              onOverlayIncrease={increaseMapOverlay}
+              onOverlayMinimum={minimumMapOverlay}
+              onOverlayMaximum={maximumMapOverlay}
             />
           </box>
 
@@ -806,16 +989,7 @@ export function App({
               hoveredTerritoryId={hoveredTerritoryId}
               targetTerritoryId={targetTerritoryId}
               onDeploy={handleDeploy}
-              deploymentCount={deploymentCount}
-              onDecreaseDeployment={() => adjustDeploymentCount(-1)}
-              onIncreaseDeployment={() => adjustDeploymentCount(1)}
-              onSelectAllDeployments={selectAllDeployments}
               pendingConquestMove={pendingConquestMove}
-              conquestMoveUnits={conquestMoveUnits}
-              onDecreaseConquestMove={() => adjustConquestMove(-1)}
-              onIncreaseConquestMove={() => adjustConquestMove(1)}
-              onConfirmConquestMove={confirmConquestMove}
-              onSelectMinimumDeployment={selectMinimumDeployment}
               onAttack={handleAttack}
               onFortify={handleFortify}
               onSkipPhase={handleSkipPhase}

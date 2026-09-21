@@ -291,8 +291,8 @@ export class GameClient {
       try {
         await this.connect();
         // Automatically re-join if we have player name or token
-        if (this.playerName || this.sessionToken) {
-          this.join(this.playerName, this.explicitRoomCode || undefined);
+        if ((this.playerName || this.sessionToken) && this.roomCode) {
+          this.join(this.playerName, this.roomCode);
         }
       } catch {
         // Next attempt will be scheduled if onclose fires
@@ -387,17 +387,9 @@ export class GameClient {
     }
   }
 
-  public join(name: string, roomCode?: string): void {
+  public join(name: string, roomCode: string): void {
     const previousName = this.playerName;
     this.playerName = name;
-    if (roomCode) {
-      const normalizedCode = roomCode.trim().toUpperCase();
-      this.explicitRoomCode = normalizedCode;
-      this.roomCode = normalizedCode;
-    } else if (this.explicitRoomCode) {
-      this.explicitRoomCode = this.explicitRoomCode.trim().toUpperCase();
-      this.roomCode = this.explicitRoomCode;
-    }
 
     if (!this.options.sessionFilePath && (!previousName || previousName !== name)) {
       const safeName = (this.playerName || "default").replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
@@ -411,6 +403,14 @@ export class GameClient {
       this.roomCode = null;
       this.explicitRoomCode = undefined;
     }
+
+    const normalizedCode = roomCode.trim().toUpperCase();
+    if (!normalizedCode) {
+      this.notifyError("Choose a public game or enter a room code to join", "INVALID_ROOM_CODE");
+      return;
+    }
+    this.explicitRoomCode = normalizedCode;
+    this.roomCode = normalizedCode;
 
     // Check cached session if token not loaded yet
     if (!this.sessionToken) {
@@ -447,7 +447,7 @@ export class GameClient {
     const payload: ClientJoin = {
       type: "client:join",
       name: this.playerName,
-      roomCode: this.explicitRoomCode ?? undefined,
+      roomCode: normalizedCode,
       sessionToken: this.sessionToken ?? undefined,
     };
     this.send(payload);
@@ -593,14 +593,6 @@ export class GameClient {
       sessionToken: this.sessionToken ?? undefined,
     };
     this.send(msg);
-  }
-
-  public quickMatch(playerName?: string): void {
-    if (playerName) {
-      this.playerName = playerName;
-    }
-    this.explicitRoomCode = undefined;
-    this.join(this.playerName);
   }
 
   public leaveRoom(): void {

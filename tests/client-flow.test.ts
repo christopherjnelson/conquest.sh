@@ -53,8 +53,8 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     await clientA.connect();
     expect(clientA.status).toBe("connected");
 
-    // Alice joins without a roomCode -> creates quick-match room
-    clientA.join("Alice");
+    // Alice creates an explicit public room.
+    clientA.createRoom({ playerName: "Alice", displayName: "Flow Test", visibility: "public", maxPlayers: 2 });
 
     // Wait for snapshot
     const snapshotA = await clientA.waitForSnapshot((s) => s.phase === "lobby" || s.phase === "deployment");
@@ -87,8 +87,9 @@ describe("GameClient: Client Flow & State Synchronization", () => {
 
     clientB.join("Bob", roomCode);
 
-    // Since maxPlayersPerRoom is 2, the server auto-starts the game!
-    // Wait for deployment phase snapshot on both clients
+    clientA.ready();
+    clientB.ready();
+    // Both players must explicitly ready before deployment begins.
     const gameSnapshotA = await clientA.waitForSnapshot((s) => s.phase === "deployment");
     const gameSnapshotB = await clientB.waitForSnapshot((s) => s.phase === "deployment");
 
@@ -272,7 +273,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     });
 
     await client.connect();
-    client.join("ReconTest");
+    client.createRoom({ playerName: "ReconTest", displayName: "Reconnect test", maxPlayers: 2 });
 
     const snapshot = await client.waitForSnapshot();
     expect(snapshot).toBeDefined();
@@ -320,7 +321,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       expect(clientA.sessionFilePath).toBe(sessionFileAliceDefault);
 
       await clientA.connect();
-      clientA.join("Alice");
+      clientA.createRoom({ playerName: "Alice", displayName: "Session collision test", maxPlayers: 2 });
 
       const snapshotA = await clientA.waitForSnapshot((s) => s.phase === "lobby");
       expect(snapshotA.players.length).toBe(1);
@@ -346,6 +347,8 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       await clientB.connect();
       // Bob joins the room
       clientB.join("Bob", roomCode);
+      clientA.ready();
+      clientB.ready();
 
       // Verify Client B joins as Bob (NOT Alice reconnecting)
       const gameSnapshotA = await clientA.waitForSnapshot((s) => s.phase === "deployment");
@@ -449,7 +452,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       expect(client.sessionToken).toBeNull();
       expect(client.loadSession()).toBeNull();
 
-      // Even if constructed without playerName, joining as Bob disregards Alice's cached token
+      // Even if constructed without playerName, explicitly joining as Bob disregards Alice's cached token.
       const client2 = new GameClient({
         host: `localhost:${port}`,
         sessionFilePath: sharedSessionFile,
@@ -458,7 +461,8 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       expect(client2.sessionToken).toBe("fake-token-alice");
 
       await client2.connect();
-      client2.join("Bob");
+      const room = server.roomManager.createRoom({ roomCode: "MISM", displayName: "Session mismatch", maxPlayers: 2 });
+      client2.join("Bob", room.roomCode);
       // Calling join with Bob should clear the mismatched session token
       expect(client2.sessionToken).not.toBe("fake-token-alice");
       client2.disconnect();
@@ -471,7 +475,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     }
   });
 
-  it("matches two clients without roomCode into the same quick-match room, and preserves matchmaking across server restarts with stale session files", async () => {
+  it("creates a new explicit room after a restart with stale persisted sessions", async () => {
     const sessionFileAliceQM = path.resolve(process.cwd(), ".conquest-test-qm-alice.json");
     const sessionFileBobQM = path.resolve(process.cwd(), ".conquest-test-qm-bob.json");
     const dbPathQM = path.resolve(process.cwd(), ".conquest-test-qm.sqlite");
@@ -500,7 +504,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     const qmPort = qmServer.port;
 
     try {
-      // 1. Client A connects without roomCode -> joins quick-match room
+      // 1. Alice creates an explicit room and Bob joins by its code.
       const clientA = new GameClient({
         host: `localhost:${qmPort}`,
         sessionFilePath: sessionFileAliceQM,
@@ -510,16 +514,15 @@ describe("GameClient: Client Flow & State Synchronization", () => {
 
       await clientA.connect();
       expect(clientA.status).toBe("connected");
-      clientA.join("Alice"); // No roomCode!
+      clientA.createRoom({ playerName: "Alice", displayName: "Restart persistence", maxPlayers: 2 });
 
       const snapshotA = await clientA.waitForSnapshot((s) => s.phase === "lobby");
       expect(snapshotA.players.length).toBe(1);
       expect(snapshotA.players[0].name).toBe("Alice");
       const initialRoomCode = clientA.roomCode!;
       expect(initialRoomCode).toBeDefined();
-      expect(clientA.explicitRoomCode).toBeUndefined();
 
-      // 2. Client B connects without roomCode -> matches into the SAME quick-match room
+      // 2. Bob joins Alice's room by code.
       const clientB = new GameClient({
         host: `localhost:${qmPort}`,
         sessionFilePath: sessionFileBobQM,
@@ -529,10 +532,12 @@ describe("GameClient: Client Flow & State Synchronization", () => {
 
       await clientB.connect();
       expect(clientB.status).toBe("connected");
-      clientB.join("Bob"); // No roomCode!
-      expect(clientB.explicitRoomCode).toBeUndefined();
+      clientB.join("Bob", initialRoomCode);
+      expect(clientB.explicitRoomCode).toBe(initialRoomCode);
+      clientA.ready();
+      clientB.ready();
 
-      // 3. Game auto-starts with Alice and Bob!
+      // 3. The game starts once both players are ready.
       const gameSnapshotA = await clientA.waitForSnapshot((s) => s.phase === "deployment");
       const gameSnapshotB = await clientB.waitForSnapshot((s) => s.phase === "deployment");
 
@@ -569,7 +574,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       });
       qmServer.start();
 
-      // 5. Client A connects with previous session files on disk without roomCode
+      // 5. Alice's cached room code is stale, so she creates a new explicit room.
       const clientA2 = new GameClient({
         host: `localhost:${qmPort}`,
         sessionFilePath: sessionFileAliceQM,
@@ -578,14 +583,12 @@ describe("GameClient: Client Flow & State Synchronization", () => {
         autoReconnect: false,
       });
 
-      // Verify cached room code is loaded in clientA2.roomCode, but explicitRoomCode is undefined
+      // The old room code is still cached before the new room is created.
       expect(clientA2.sessionToken).toBe(savedAlice.token);
       expect(clientA2.roomCode).toBe(initialRoomCode);
-      expect(clientA2.explicitRoomCode).toBeUndefined();
 
       await clientA2.connect();
-      clientA2.join("Alice"); // No roomCode!
-      expect(clientA2.explicitRoomCode).toBeUndefined();
+      clientA2.createRoom({ playerName: "Alice", displayName: "Restart persistence", maxPlayers: 2 });
 
       const snapshotA2 = await clientA2.waitForSnapshot((s) => s.phase === "lobby");
       expect(snapshotA2.players.length).toBe(1);
@@ -593,7 +596,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       const newRoomCode = clientA2.roomCode!;
       expect(newRoomCode).toBeDefined();
 
-      // 6. Client B connects with previous session files on disk without roomCode
+      // 6. Bob's stale session joins the newly created room by its code.
       const clientB2 = new GameClient({
         host: `localhost:${qmPort}`,
         sessionFilePath: sessionFileBobQM,
@@ -604,13 +607,13 @@ describe("GameClient: Client Flow & State Synchronization", () => {
 
       expect(clientB2.sessionToken).toBe(savedBob.token);
       expect(clientB2.roomCode).toBe(initialRoomCode);
-      expect(clientB2.explicitRoomCode).toBeUndefined();
 
       await clientB2.connect();
-      clientB2.join("Bob"); // No roomCode!
-      expect(clientB2.explicitRoomCode).toBeUndefined();
+      clientB2.join("Bob", newRoomCode);
+      clientA2.ready();
+      clientB2.ready();
 
-      // 7. Both match into the SAME new quick-match room (neither is isolated in an old dead room code)!
+      // 7. Both enter the new room rather than the stale room code.
       const restartedSnapshotA = await clientA2.waitForSnapshot((s) => s.phase === "deployment");
       const restartedSnapshotB = await clientB2.waitForSnapshot((s) => s.phase === "deployment");
 
@@ -631,7 +634,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     }
   });
 
-  it("matches two clients without roomCode into the same quick-match room across server restart with in-memory session store", async () => {
+  it("creates a new explicit room after an in-memory server restart", async () => {
     const sessionFileAliceMem = path.resolve(process.cwd(), ".conquest-test-mem-alice.json");
     const sessionFileBobMem = path.resolve(process.cwd(), ".conquest-test-mem-bob.json");
 
@@ -655,7 +658,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     const memPort = memServer.port;
 
     try {
-      // 1. Initial quick-match join
+      // 1. Initial explicit room.
       const clientA = new GameClient({
         host: `localhost:${memPort}`,
         sessionFilePath: sessionFileAliceMem,
@@ -663,7 +666,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
         autoReconnect: false,
       });
       await clientA.connect();
-      clientA.join("Alice");
+      clientA.createRoom({ playerName: "Alice", displayName: "In-memory restart", maxPlayers: 2 });
       await clientA.waitForSnapshot((s) => s.phase === "lobby");
       const firstRoomCode = clientA.roomCode!;
 
@@ -674,7 +677,9 @@ describe("GameClient: Client Flow & State Synchronization", () => {
         autoReconnect: false,
       });
       await clientB.connect();
-      clientB.join("Bob");
+      clientB.join("Bob", firstRoomCode);
+      clientA.ready();
+      clientB.ready();
 
       await clientA.waitForSnapshot((s) => s.phase === "deployment");
       await clientB.waitForSnapshot((s) => s.phase === "deployment");
@@ -694,7 +699,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       });
       memServer.start();
 
-      // 3. Connect with previous session files on disk without roomCode
+      // 3. The cached code identifies a room that no longer exists, so Alice creates a new one.
       const clientA2 = new GameClient({
         host: `localhost:${memPort}`,
         sessionFilePath: sessionFileAliceMem,
@@ -703,10 +708,9 @@ describe("GameClient: Client Flow & State Synchronization", () => {
         autoReconnect: false,
       });
       expect(clientA2.roomCode).toBe(firstRoomCode);
-      expect(clientA2.explicitRoomCode).toBeUndefined();
 
       await clientA2.connect();
-      clientA2.join("Alice");
+      clientA2.createRoom({ playerName: "Alice", displayName: "In-memory restart", maxPlayers: 2 });
 
       const lobbyA2 = await clientA2.waitForSnapshot((s) => s.phase === "lobby");
       expect(lobbyA2.players.length).toBe(1);
@@ -720,10 +724,11 @@ describe("GameClient: Client Flow & State Synchronization", () => {
         autoReconnect: false,
       });
       expect(clientB2.roomCode).toBe(firstRoomCode);
-      expect(clientB2.explicitRoomCode).toBeUndefined();
 
       await clientB2.connect();
-      clientB2.join("Bob");
+      clientB2.join("Bob", secondRoomCode);
+      clientA2.ready();
+      clientB2.ready();
 
       const matchA2 = await clientA2.waitForSnapshot((s) => s.phase === "deployment");
       const matchB2 = await clientB2.waitForSnapshot((s) => s.phase === "deployment");
@@ -779,7 +784,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
 
       await clientA.connect();
       expect(clientA.status).toBe("connected");
-      clientA.join("Alice");
+      clientA.createRoom({ playerName: "Alice", displayName: "Grid flow", maxPlayers: 2 });
 
       const snapshotA = await clientA.waitForSnapshot((s) => s.phase === "lobby" || s.phase === "deployment");
       expect(snapshotA).toBeDefined();
@@ -799,8 +804,10 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       await clientB.connect();
       expect(clientB.status).toBe("connected");
       clientB.join("Bob", roomCode);
+      clientA.ready();
+      clientB.ready();
 
-      // Wait for deployment phase snapshot on both clients (auto-start when 2 players join)
+      // Both players explicitly ready before deployment begins.
       const gameSnapshotA = await clientA.waitForSnapshot((s) => s.phase === "deployment");
       const gameSnapshotB = await clientB.waitForSnapshot((s) => s.phase === "deployment");
 

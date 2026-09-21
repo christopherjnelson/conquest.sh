@@ -84,6 +84,20 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
     });
   });
 
+  it("keeps an explicit room code when changing player names clears a cached token", () => {
+    const client = new GameClient({ host: "localhost:4000", playerName: "Alice", forceNewSession: true, autoReconnect: false });
+    const sent: string[] = [];
+    (client as any).ws = { readyState: 1, send: (message: string) => sent.push(message) };
+    (client as any).sessionToken = "stale-alice-token";
+
+    client.join("Bob", "ab12");
+
+    expect(client.roomCode).toBe("AB12");
+    expect(client.explicitRoomCode).toBe("AB12");
+    expect((client as any).sessionToken).toBeNull();
+    expect(JSON.parse(sent[0]!)).toMatchObject({ type: "client:join", name: "Bob", roomCode: "AB12" });
+  });
+
   describe("Room Creation, Visibility & Joining", () => {
     it("accepts a valid requested map and keeps its ID in lobby state", async () => {
       const client = new GameClient({ host: `localhost:${port}`, sessionFilePath: sessionFile1,
@@ -261,7 +275,7 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       p2.disconnect();
     });
 
-    it("quick match does NOT place players into open custom rooms", async () => {
+    it("rejects joining without a room code instead of creating a matchmaking room", async () => {
       cleanupSessionFiles();
 
       // Create an open custom room with 4 slots
@@ -281,7 +295,7 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       await customClient.waitForSnapshot((s) => s.phase === "lobby");
       const customCode = customClient.roomCode!;
 
-      // Now client 2 performs quick match (no roomCode specified)
+      // A client that does not choose a room must receive a clear error.
       const quickClient = new GameClient({
         host: `localhost:${port}`,
         sessionFilePath: sessionFile2,
@@ -289,11 +303,11 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
         autoReconnect: false,
       });
       await quickClient.connect();
-      quickClient.quickMatch("QuickPlayer");
-
-      await quickClient.waitForSnapshot((s) => s.phase === "lobby" || s.phase === "deployment");
-
-      // Quick match room must be different from custom room!
+      const error = new Promise<{ message: string; code?: string }>((resolve) => {
+        quickClient.onError((message, code) => resolve({ message, code }));
+      });
+      (quickClient as any).ws.send(JSON.stringify({ type: "client:join", name: "QuickPlayer" }));
+      expect(await error).toMatchObject({ code: "INVALID_MESSAGE" });
       expect(quickClient.roomCode).not.toBe(customCode);
 
       customClient.disconnect();
@@ -478,7 +492,7 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       p2.disconnect();
     });
 
-    it("leaving/switching rooms lifecycle: lobby -> leaveRoom() -> Quick Match and Create Game", async () => {
+    it("leaving/switching rooms lifecycle: lobby -> leaveRoom() -> Create Game", async () => {
       cleanupSessionFiles();
 
       const client = new GameClient({
@@ -505,9 +519,9 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       expect(client.state).toBeNull();
       expect(client.getCachedSession()).toBeNull();
 
-      // 3. Immediately Quick Match on the same socket
-      client.quickMatch();
-      await client.waitForSnapshot((s) => s.phase === "lobby" || s.phase === "deployment");
+      // 3. Create another room on the same socket.
+      client.createRoom({ playerName: "SwitchUser", roomName: "Second Realm", visibility: "public", maxPlayers: 2 });
+      await client.waitForSnapshot((s) => s.phase === "lobby");
       expect(client.roomCode).not.toBeNull();
       expect(client.roomCode).not.toBe(firstRoomCode);
 
@@ -516,7 +530,7 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       const oldRoom = rooms.find((r) => r.roomCode === firstRoomCode);
       expect(oldRoom?.playersCount ?? 0).toBe(0);
 
-      // 4. Leave Quick Match and Create New Game
+      // 4. Leave and create a new game.
       client.leaveRoom();
       client.createRoom({
         playerName: "SwitchUser",
@@ -883,7 +897,6 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
             playerName: "CommanderVanguard",
             roomCode: "R9XK",
           },
-          onQuickMatch: () => { actionTriggered = true; },
           onBrowseGames: () => {},
           onCreateGame: () => {},
           onJoinByCode: () => {},
@@ -902,7 +915,7 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       const frame = setup.captureCharFrame();
       expect(frame).toContain("CONQUEST.SH");
       expect(frame).toContain("RESUME [R9XK]");
-      expect(frame).toContain("QUICK MATCH");
+      expect(frame).not.toContain("QUICK MATCH");
       expect(frame).toContain("BROWSE GAMES");
       expect(frame).toContain("CREATE GAME");
       expect(frame).toContain("JOIN BY CODE");

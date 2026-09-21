@@ -1,5 +1,6 @@
 import React from "react";
 import type { GamePhase, Player, TerritoryState } from "@conquest/protocol";
+import { areTerritoriesConnected } from "@conquest/game-core";
 import {
   getDefaultMap,
   selectRenderVariant,
@@ -33,6 +34,14 @@ export interface MapCanvasProps {
   /** Called when an owned attack source is paired with a non-adjacent enemy. */
   onInvalidAttackTarget?: (sourceTerritoryId: string, targetTerritoryId: string) => void;
   onDeselect: () => void;
+  /** A short, map-local prompt or status panel rendered above the world. */
+  overlay?: { title: string; message: string; tone: "confirm" | "success" | "quantity"; quantity?: { value: number; minimum: number; maximum: number } } | null;
+  onOverlayConfirm?: () => void;
+  onOverlayCancel?: () => void;
+  onOverlayDecrease?: () => void;
+  onOverlayIncrease?: () => void;
+  onOverlayMinimum?: () => void;
+  onOverlayMaximum?: () => void;
 }
 
 interface CellStyle {
@@ -139,7 +148,13 @@ export function resolveTerritoryClick(
 
   if (!selectedIsOwned) return "select";
   if (phase === "fortify") {
-    return isNeighbor ? (targetTerritoryId === territoryId ? "clear-target" : "target") : "select";
+    // Fortification follows any continuous route through territories owned by
+    // the player. It is intentionally broader than attack adjacency and uses
+    // the same predicate as the authoritative game rule.
+    const connected = Boolean(myPlayerId && clickedIsOwned && areTerritoriesConnected(
+      territories, selectedTerritoryId, territoryId, myPlayerId,
+    ));
+    return connected ? (targetTerritoryId === territoryId ? "clear-target" : "target") : "select";
   }
 
   // An enemy-first click is only a map inspection. The next owned click must
@@ -458,6 +473,7 @@ export function getMapRenderLayout(
 export function mouseEventToMapCell(event: any): { x: number; y: number } | null {
   const target = event?.currentTarget;
   if (!target) return null;
+  // OpenTUI mouse x/y are relative to currentTarget; use its local origin.
   const originX = typeof target.x === "number" ? target.x : (target.screenX ?? 0);
   const originY = typeof target.y === "number" ? target.y : (target.screenY ?? 0);
   return {
@@ -483,6 +499,13 @@ export function MapCanvas({
   onSelectTarget,
   onInvalidAttackTarget,
   onDeselect,
+  overlay,
+  onOverlayConfirm,
+  onOverlayCancel,
+  onOverlayDecrease,
+  onOverlayIncrease,
+  onOverlayMinimum,
+  onOverlayMaximum,
 }: MapCanvasProps) {
   const terminalPane = terminalDimensions
     ? getMapContentDimensionsForLayout(
@@ -530,6 +553,10 @@ export function MapCanvas({
     else if (action === "invalid-attack-target" && selectedTerritoryId) {
       onInvalidAttackTarget?.(selectedTerritoryId, territoryId);
     } else onSelectTerritory(territoryId);
+  };
+
+  const labelTerritoryAt = (x: number, y: number): string | undefined => {
+    return labelMap[y]?.[x]?.territoryId;
   };
 
   // Precompute label and unit positions
@@ -837,7 +864,7 @@ export function MapCanvas({
               // Off-white is reserved for the outline, leaving ownership
               // legible throughout the selected territory.
               color: isPerimeter
-                ? "#f8fafc"
+                ? "#fef08a"
                 : isLobby || !hasOwner
                 ? getUnclaimedTint(territory?.regionColor ?? "#64748b", tid)
                 : getDarkTint(ownerColor, tid),
@@ -936,7 +963,7 @@ export function MapCanvas({
             // Selected perimeter: a neutral, high-contrast outline.
             cell = {
               char: isWestLandBorder ? "▌" : isEastLandBorder ? "▐" : "█",
-              fg: "#f8fafc",
+              fg: "#fef08a",
               // Preserve the owner-derived terrain fill under the outline.
               bg: isLobby || !hasOwner
                 ? getUnclaimedTint(activeMap.territories.find((t) => t.id === tid)?.regionColor ?? "#64748b", tid)
@@ -1015,36 +1042,34 @@ export function MapCanvas({
   const canCenterV = availableContentH >= renderLayout.height;
   const title =
     terminalDimensions && terminalDimensions.columns < 130
-      ? "! WORLD MAP                  Territories • Connections • Empires"
-      : "! WORLD MAP                                   Territories • Connections • Empires";
+      ? `! WORLD MAP${selectedTerritoryId ? "  [SELECTED]" : ""}                  Territories • Connections • Empires`
+      : `! WORLD MAP${selectedTerritoryId ? "  [SELECTED]" : ""}                                   Territories • Connections • Empires`;
 
-  return (
-    <box
-      title={title}
-      titleColor="#00d2ff"
-      border
-      borderStyle="single"
-      borderColor="#00d2ff"
-      backgroundColor="#080f1a"
-      alignItems={canCenterH ? "center" : undefined}
-      justifyContent={canCenterV ? "center" : undefined}
-      style={{ width: "100%", height: "100%" }}
-    >
+  const mapBody = (
       <box
         flexDirection="column"
         style={{ width: renderLayout.width, height: renderLayout.height }}
         onMouseDown={(event: any) => {
+          if (overlay) return;
           const cell = mouseEventToMapCell(event);
           if (!cell) return;
           const mapX = cell.x + renderLayout.sourceX;
           const mapY = cell.y + renderLayout.sourceY;
           const clickedId =
+            // Cartographic labels may extend beyond a small territory's
+            // raster. Clicking the visible label must select what it names.
+            labelTerritoryAt(mapX, mapY) ??
             getTerritoryAtCell(mapX, mapY, activeMap) ?? getTerritoryAt(mapX, mapY, activeMap);
           if (clickedId) {
             handleTerritoryClick(clickedId);
+          } else {
+            // An ocean click means the player is finished inspecting the
+            // current territory. This also clears a partially chosen action.
+            onDeselect();
           }
         }}
         onMouseMove={(event: any) => {
+          if (overlay) return;
           const cell = mouseEventToMapCell(event);
           if (!cell) {
             onHoverTerritory?.(null);
@@ -1053,6 +1078,7 @@ export function MapCanvas({
           const mapX = cell.x + renderLayout.sourceX;
           const mapY = cell.y + renderLayout.sourceY;
           const hoveredId =
+            labelTerritoryAt(mapX, mapY) ??
             getTerritoryAtCell(mapX, mapY, activeMap) ?? getTerritoryAt(mapX, mapY, activeMap);
           onHoverTerritory?.(hoveredId);
         }}
@@ -1076,6 +1102,77 @@ export function MapCanvas({
           </text>
         ))}
       </box>
+  );
+  const overlayPanel = overlay ? (
+        <box
+          position="absolute"
+          top="35%"
+          left="20%"
+          width="60%"
+          zIndex={10}
+          flexDirection="column"
+          alignItems="center"
+          border
+          borderStyle="double"
+          borderColor={overlay.tone === "confirm" ? "#f59e0b" : overlay.tone === "quantity" ? "#a78bfa" : "#00ff66"}
+          backgroundColor="#080f1a"
+          paddingLeft={2}
+          paddingRight={2}
+          paddingTop={1}
+          paddingBottom={1}
+        >
+          <text fg={overlay.tone === "confirm" ? "#f59e0b" : overlay.tone === "quantity" ? "#a78bfa" : "#00ff66"}><b>{overlay.title}</b></text>
+          <text fg="#e2e8f0"><b>{overlay.message}</b></text>
+          {overlay.quantity && <box flexDirection="row" gap={1} alignItems="center">
+            <box border borderColor="#a78bfa" paddingLeft={1} paddingRight={1} onMouseDown={onOverlayDecrease}><text fg="#a78bfa"><b>[−]</b></text></box>
+            <text fg="#f8fafc"><b>{overlay.quantity.value}</b>  ({overlay.quantity.minimum}–{overlay.quantity.maximum})</text>
+            <box border borderColor="#a78bfa" paddingLeft={1} paddingRight={1} onMouseDown={onOverlayIncrease}><text fg="#a78bfa"><b>[+]</b></text></box>
+            <box border borderColor="#64748b" paddingLeft={1} paddingRight={1} onMouseDown={onOverlayMinimum}><text fg="#94a3b8"><b>Min</b></text></box>
+            <box border borderColor="#64748b" paddingLeft={1} paddingRight={1} onMouseDown={onOverlayMaximum}><text fg="#94a3b8"><b>Max</b></text></box>
+          </box>}
+          {overlay.tone === "confirm" && (
+            <box flexDirection="row" gap={2} marginTop={1}>
+              <box border borderColor="#00ff66" paddingLeft={1} paddingRight={1} onMouseDown={() => onOverlayConfirm?.()}>
+                <text fg="#00ff66"><b>[Enter] Confirm</b></text>
+              </box>
+              <box border borderColor="#94a3b8" paddingLeft={1} paddingRight={1} onMouseDown={() => onOverlayCancel?.()}>
+                <text fg="#94a3b8"><b>[Esc] Cancel</b></text>
+              </box>
+            </box>
+          )}
+          {overlay.tone === "quantity" && (
+            <box flexDirection="row" gap={2} marginTop={1}>
+              <box border borderColor="#94a3b8" paddingLeft={1} paddingRight={1} onMouseDown={() => onOverlayCancel?.()}><text fg="#94a3b8"><b>[Esc] Cancel</b></text></box>
+              <box border borderColor="#00ff66" paddingLeft={1} paddingRight={1} onMouseDown={() => onOverlayConfirm?.()}><text fg="#00ff66"><b>[Enter] Confirm</b></text></box>
+            </box>
+          )}
+        </box>
+      ) : null;
+
+  const canvasProps = {
+    title,
+    titleColor: "#00d2ff",
+    border: true,
+    borderStyle: "single" as const,
+    borderColor: "#00d2ff",
+    backgroundColor: "#080f1a",
+    alignItems: canCenterH ? "center" as const : undefined,
+    justifyContent: canCenterV ? "center" as const : undefined,
+    style: { width: "100%" as const, height: "100%" as const },
+    onMouseDown: (event: any) => {
+      // The authored geography can be centered inside a larger pane. Clear
+      // selection when the player clicks that surrounding ocean as well.
+      if (!overlay && event?.target === event?.currentTarget) onDeselect();
+    },
+  };
+  // Preserve the ordinary map tree when no panel is active. Several render
+  // consumers inspect its rows directly, and a modal should not perturb that
+  // lightweight path.
+  if (!overlayPanel) return <box {...canvasProps}>{mapBody}</box>;
+  return (
+    <box {...canvasProps} position="relative">
+      {mapBody}
+      {overlayPanel}
     </box>
   );
 }

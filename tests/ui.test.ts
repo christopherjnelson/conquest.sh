@@ -675,7 +675,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         onEvent: () => () => {},
         leaveRoomCalls: 0,
         leaveRoom() { this.leaveRoomCalls += 1; },
-        quickMatch: () => {},
+        createRoom: () => {},
         requestRematch: () => {},
         sendChat: () => {},
       };
@@ -701,7 +701,11 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
       let homeExitCalls = 0;
       const homeSetup = await renderShell(homeClient, directEntry, () => { homeExitCalls += 1; });
       if (!directEntry) {
-        await act(async () => { homeSetup.mockInput.pressKey("1"); });
+        await homeSetup.waitFor(() => (homeSetup.renderer.keyInput as any).listenerCount("keypress") >= 1);
+        await act(async () => { (homeSetup.renderer.keyInput as any).emit("keypress", { name: "2" }); });
+        await act(async () => { await homeSetup.renderOnce(); });
+        expect(homeSetup.captureCharFrame()).toContain("HOST CUSTOM BATTLE");
+        await act(async () => { (homeSetup.renderer.keyInput as any).emit("keypress", { name: "return" }); });
         await act(async () => { await homeSetup.renderOnce(); });
       }
       expect(homeSetup.captureCharFrame()).toContain("VICTORY ACHIEVED");
@@ -716,7 +720,11 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
       let quitExitCalls = 0;
       const quitSetup = await renderShell(quitClient, directEntry, () => { quitExitCalls += 1; });
       if (!directEntry) {
-        await act(async () => { quitSetup.mockInput.pressKey("1"); });
+        await quitSetup.waitFor(() => (quitSetup.renderer.keyInput as any).listenerCount("keypress") >= 1);
+        await act(async () => { (quitSetup.renderer.keyInput as any).emit("keypress", { name: "2" }); });
+        await act(async () => { await quitSetup.renderOnce(); });
+        expect(quitSetup.captureCharFrame()).toContain("HOST CUSTOM BATTLE");
+        await act(async () => { (quitSetup.renderer.keyInput as any).emit("keypress", { name: "return" }); });
         await act(async () => { await quitSetup.renderOnce(); });
       }
       expect(quitSetup.captureCharFrame()).toContain("VICTORY ACHIEVED");

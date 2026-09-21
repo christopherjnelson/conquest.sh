@@ -27,7 +27,6 @@ Inspired by classic grand strategy territory-control loops, reimagined as a term
   - **Standard Mode** ($130\text{--}179$ cols and $38\text{--}50$ rows): Compact branding bar maximizing vertical space for the map and sidebar.
   - **Compact Mode** ($< 130$ cols or $< 38$ rows): Full-width map canvas paired with an integrated bottom tactical inspector strip.
 - **Multiplayer Front Door**:
-  - **Quick Match**: Immediate matchmaking into available public lobbies.
   - **Public Room Browser**: Interactive list of active open games with live player counts and status.
   - **Custom Game Creation**: Host public or unlisted matches with custom room names and player capacities (2–6 players).
   - **Join by Code**: Direct entry for private or unlisted matches using exactly 4-character uppercase alphanumeric room codes.
@@ -81,8 +80,6 @@ Arrives at the multiplayer home screen:
 │                CONQUER • NEGOTIATE • SURVIVE                 │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│                     [ QUICK MATCH ]                          │
-│                                                              │
 │                     [ BROWSE GAMES ]                         │
 │                                                              │
 │                     [ CREATE GAME ]                          │
@@ -105,9 +102,6 @@ Arrives at the multiplayer home screen:
 Automation, scripts, and power users can bypass the front door directly:
 
 ```bash
-# Connect and immediately enter Quick Match
-./conquest.sh --quick --name Alice
-
 # Join an existing room by code
 ./conquest.sh --room ABCD --name Bob
 
@@ -191,15 +185,16 @@ Built-in registration belongs in `packages/map-engine`; client components, serve
 ### Mouse
 - **Click Territory**: Selects territory for orders, troop deployment, and inspection.
 - **Click Adjacent Enemy**: Selects adjacent territory as attack target.
-- **Click Adjacent Friendly**: Selects connected friendly territory as fortify destination.
+- **Click Friendly Territory**: Selects any friendly territory connected through your owned territories as a fortify destination.
 - **Click Action Buttons**: Choose a deployment amount with `−`, `+`, or `All`, then use `[ Deploy ]` on any territory you own. Use `[ Attack ]`, `[ Fortify ]`, `[ Skip / End Turn ]`, or `[ Ready ]` as the phase allows.
 - **After a Conquest**: Choose how many surviving troops enter the captured territory with `−` and `+`, then confirm the move before continuing the attack phase.
-- **Skip / End Turn**: Click once to request the phase change, then click the confirmation action to proceed. `Esc` cancels.
+- **Skip / End Turn**: Click once to open the confirmation dialog on the world map, then use its Confirm or Cancel control. `Enter` confirms and `Esc` cancels.
 - **Hover**: Previews territory intel, owner, and defensive garrison armies in real time.
 
 ### Keyboard
 - **`Arrow Keys`**: Spatial 2D navigation between territories using centroid geometry.
 - **`Tab` / `Shift+Tab`**: Cycle selected territory across the continent.
+- **`N` / `Shift+N`**: Cycle legal targets while keeping the selected attack or fortify source armed.
 - **`[` / `]` / `0`**: Decrease, increase, or set the deployment amount to one.
 - **`D`**: Deploy the chosen amount to the selected owned territory. You can split reinforcements across territories.
 - **`A`**: Attack targeted enemy province from selected territory.

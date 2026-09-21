@@ -409,8 +409,8 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       wsA.onmessage = (e) => messagesA.push(JSON.parse(e.data.toString()));
       await new Promise((r) => (wsA.onopen = r));
 
-      // Join room
-      wsA.send(JSON.stringify({ type: "client:join", name: "Leaver" }));
+      // Create an explicit room before exercising finished-room cleanup.
+      wsA.send(JSON.stringify({ type: "client:create_room", playerName: "Leaver", displayName: "Cleanup test", maxPlayers: 2, visibility: "public" }));
       await new Promise((r) => setTimeout(r, 50));
 
       const roomCode = messagesA.find((m) => m.type === "server:welcome")?.roomCode;
@@ -471,13 +471,15 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
         forceNewSession: true,
       });
 
-      // 1. Both connect and join quick match
+      // 1. Commander A creates an explicit room and Commander B joins by code.
       await clientA.connect();
-      clientA.join("CommanderA");
+      clientA.createRoom({ playerName: "CommanderA", displayName: "Lifecycle test", maxPlayers: 2 });
       const snapA = await clientA.waitForSnapshot((s) => s.phase === "lobby" || s.phase === "deployment");
 
       await clientB.connect();
       clientB.join("CommanderB", snapA.roomCode);
+      clientA.ready();
+      clientB.ready();
 
       await clientA.waitForSnapshot((s) => s.phase === "deployment");
       await clientB.waitForSnapshot((s) => s.phase === "deployment");
