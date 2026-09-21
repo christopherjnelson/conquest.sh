@@ -67,7 +67,7 @@ async function renderApp(state: GameState, selectedTerritoryId: string) {
 
   const press = async (key: string) => {
     await act(async () => {
-      setup.mockInput.pressKey(key);
+      (setup.renderer.keyInput as any).emit("keypress", { name: key === "enter" ? "return" : key });
       await setup.renderOnce();
     });
   };
@@ -124,11 +124,14 @@ describe("Earth target cycling through the rendered client", () => {
     try {
       await press("n");
       await press("f");
+      expect(setup.captureCharFrame()).toContain("FORTIFY TROOP MOVEMENT");
+      await press("[");
+      await press("enter");
       expect(sent).toEqual([{
         kind: "fortify",
         source: "oc_eastern_australia",
         target: "oc_indonesia",
-        units: 4,
+        units: 3,
       }]);
     } finally {
       await act(async () => { setup.renderer.destroy(); });
@@ -156,12 +159,75 @@ describe("Earth target cycling through the rendered client", () => {
         await setup.renderOnce();
       });
       await press("f");
+      await press("enter");
       expect(sent).toEqual([{
         kind: "fortify",
         source: "oc_eastern_australia",
         target: "oc_indonesia",
         units: 4,
       }]);
+    } finally {
+      await act(async () => { setup.renderer.destroy(); });
+    }
+  });
+
+  it("cycles AS4 Kamchatka to AS3 Yakutia, never directly to Urals", async () => {
+    const { setup, act, press, sent } = await renderApp(
+      earthState("attack", ["as_kamchatka"]),
+      "as_kamchatka",
+    );
+    try {
+      await press("n");
+      await press("a");
+      expect(sent).toEqual([{ kind: "attack", source: "as_kamchatka", target: "as_yakutia" }]);
+    } finally {
+      await act(async () => { setup.renderer.destroy(); });
+    }
+  });
+
+  it("offers AS5 Baikal as a direct enemy target from AS4 Kamchatka", async () => {
+    const { setup, act, press, sent } = await renderApp(
+      earthState("attack", ["as_kamchatka"]),
+      "as_kamchatka",
+    );
+    try {
+      await press("n"); // Yakutia
+      await press("n"); // Baikal
+      await press("a");
+      expect(sent).toEqual([{ kind: "attack", source: "as_kamchatka", target: "as_baikal" }]);
+    } finally {
+      await act(async () => { setup.renderer.destroy(); });
+    }
+  });
+
+  it("cycles AS7 Japan to AS4 Kamchatka, never directly to Urals", async () => {
+    const { setup, act, press, sent } = await renderApp(
+      earthState("attack", ["as_japan"]),
+      "as_japan",
+    );
+    try {
+      await press("n");
+      await press("a");
+      expect(sent).toEqual([{ kind: "attack", source: "as_japan", target: "as_kamchatka" }]);
+    } finally {
+      await act(async () => { setup.renderer.destroy(); });
+    }
+  });
+
+  it("cycles AS11 Indochina to AS10 India; Urals is only reachable through AS12 North China", async () => {
+    const { setup, act, press, sent } = await renderApp(
+      earthState("attack", ["as_indochina"]),
+      "as_indochina",
+    );
+    try {
+      await press("n");
+      await press("a");
+      await press("n");
+      await press("a");
+      expect(sent).toEqual([
+        { kind: "attack", source: "as_indochina", target: "as_indian_subcontinent" },
+        { kind: "attack", source: "as_indochina", target: "as_north_china" },
+      ]);
     } finally {
       await act(async () => { setup.renderer.destroy(); });
     }

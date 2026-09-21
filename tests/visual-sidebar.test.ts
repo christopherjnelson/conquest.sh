@@ -66,6 +66,25 @@ function activeClient() {
   } as any;
 }
 
+function earthInspectorClient() {
+  const earthPlayers: Player[] = [
+    { ...players[0], name: "Redwurm" },
+    { ...players[1], name: "Sable" },
+  ];
+  const state = createInitialGameState("earth-inspector", "NILE", earthPlayers, earthBundle.definition);
+  state.phase = "attack";
+  state.activePlayerIndex = 0;
+  state.territories.af_nile_valley = { ...state.territories.af_nile_valley!, ownerId: "p1", units: 7 };
+  return {
+    state,
+    myPlayerId: "p1",
+    status: "connected",
+    roomCode: "NILE",
+    onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {}, onError: () => () => {},
+    sendChat: () => {}, deploy: () => {}, attack: () => {}, fortify: () => {}, skipPhase: () => {}, endTurn: () => {}, ready: () => {},
+  } as any;
+}
+
 function findNodeWithSize(node: any, width: number, height: number): any | null {
   if (node?.width === width && node?.height === height) return node;
   for (const child of node?.getChildren?.() ?? []) {
@@ -213,7 +232,39 @@ describe("visual sidebar composition", () => {
     await act(async () => { setup.renderer.destroy(); });
   });
 
-  it("renders the post-conquest move amount without a dollar sign", async () => {
+  for (const [columns, rows] of [[140, 45], [180, 51]] as const) {
+    it(`keeps the full App Earth inspector lanes clear at ${columns}x${rows}`, async () => {
+      const setup = await testRender(
+        React.createElement(App, {
+          client: earthInspectorClient(), terminalDimensions: { columns, rows },
+          initialSelectedTerritoryId: "af_nile_valley", initialHoveredTerritoryId: "af_nile_valley",
+          initialTargetTerritoryId: "na_atlantic_states",
+        }),
+        { width: columns, height: rows },
+      );
+      await act(async () => { await setup.renderOnce(); });
+      const lines = setup.captureCharFrame().split("\n");
+      const frame = lines.join("\n");
+      expect(frame).toContain("Nile Valley");
+      expect(frame).toContain("Redwurm");
+      expect(frame).not.toContain("na_atlantic_states");
+      if (columns >= 140) {
+        const ownerLine = lines.find((line: string) => line.includes("Owner"))!;
+        const nameLine = lines.find((line: string) => line.includes("Nile Valley"))!;
+        expect(ownerLine).toContain("Redwurm");
+        expect(ownerLine).not.toContain("Nile Valley");
+        expect(nameLine).not.toContain("Owner");
+        expect(frame).toContain("NA8");
+      } else {
+        const inspectorLine = lines.find((line: string) => line.includes("[AF2]"))!;
+        expect(inspectorLine).toContain("Nile Valley");
+        expect(inspectorLine).toContain("Redwurm");
+      }
+      await act(async () => { setup.renderer.destroy(); });
+    });
+  }
+
+  it("routes post-conquest troop selection to the map without inline amount controls", async () => {
     const state = selectedState();
     state.phase = "attack";
     state.pendingConquestMove = { sourceTerritoryId: "B2", targetTerritoryId: "B1", defenderId: "p2", minimumUnits: 3, maximumUnits: 7 };
@@ -224,14 +275,15 @@ describe("visual sidebar composition", () => {
       const setup = await testRender(
         React.createElement(Component, {
           mapBundle: ironreachBundle, state, myPlayerId: "p1", selectedTerritoryId: "B2", targetTerritoryId: "B1", phase: "attack",
-          pendingConquestMove: state.pendingConquestMove, conquestMoveUnits: 5,
+          pendingConquestMove: state.pendingConquestMove,
           onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {}, ...props,
         }),
         { width, height: 38 }
       );
       await act(async () => { await setup.renderOnce(); });
       const frame = setup.captureCharFrame();
-      expect(frame).toContain("Move 5 / 7");
+      expect(frame).toContain("MOVE TROOPS…");
+      expect(frame).not.toContain("Move 5 / 7");
       expect(frame).not.toContain("$");
       await act(async () => { setup.renderer.destroy(); });
     }

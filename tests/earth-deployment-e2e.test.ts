@@ -74,7 +74,7 @@ describe("Earth deployment through the client UI", () => {
     expect(deployments).toBe(2);
   });
 
-  it("lets a player split reinforcements before deploying to any selected owned territory", () => {
+  it("opens deployment quantity selection from any selected owned territory", () => {
     const earth = getMap("earth-42")!;
     const players = [
       { id: "p1", name: "Alpha", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
@@ -84,28 +84,20 @@ describe("Earth deployment through the client UI", () => {
     const selected = Object.values(state.territories).find(territory => territory.ownerId === "p1");
     expect(selected).toBeDefined();
     if (!selected) throw new Error("Expected an owned Earth territory");
-    const calls = { decrease: 0, increase: 0, minimum: 0, all: 0, deploy: 0 };
+    const calls = { deploy: 0 };
     const props = {
       mapBundle: earth, state, myPlayerId: "p1", selectedTerritoryId: selected.id,
       hoveredTerritoryId: null, targetTerritoryId: null, phase: "deployment" as const,
-      deploymentCount: 1,
-      onDecreaseDeployment: () => { calls.decrease++; },
-      onIncreaseDeployment: () => { calls.increase++; },
-      onSelectMinimumDeployment: () => { calls.minimum++; },
-      onSelectAllDeployments: () => { calls.all++; },
       onDeploy: () => { calls.deploy++; }, onAttack: () => {}, onFortify: () => {},
       onSkipPhase: () => {}, onEndTurn: () => {},
     };
 
     for (const inspector of [Sidebar({ ...props, layoutMode: "wide" }), CompactInspector(props)]) {
-      expect(containsText(inspector, `1/${state.pendingReinforcements}`)).toBe(true);
-      findClickableText(inspector, "[−]")?.();
-      findClickableText(inspector, "[+]")?.();
-      findClickableText(inspector, "[1]")?.();
-      findClickableText(inspector, "[All]")?.();
+      expect(containsText(inspector, "Deploy…")).toBe(true);
+      expect(containsText(inspector, "[All]")).toBe(false);
       findClickableDeploy(inspector)?.();
     }
-    expect(calls).toEqual({ decrease: 2, increase: 2, minimum: 2, all: 2, deploy: 2 });
+    expect(calls).toEqual({ deploy: 2 });
   });
 
   it("sends an active player's selected Earth territory deployment to the authoritative server", async () => {
@@ -196,6 +188,13 @@ describe("Earth deployment through the client UI", () => {
       let afterDeployment: typeof deployedState | undefined;
       await act(async () => {
         setup.mockInput.pressKey("d");
+        await setup.renderOnce();
+      });
+      await act(async () => {
+        const lines = setup.captureCharFrame().split("\n");
+        const row = lines.findIndex((line: string) => line.includes("[Enter] Confirm"));
+        expect(row).toBeGreaterThanOrEqual(0);
+        await setup.mockMouse.click(lines[row]!.indexOf("[Enter] Confirm") + 4, row);
         afterDeployment = await alpha.waitForSnapshot(state =>
           state.phase === "attack" && state.territories[territory.id]?.units === unitsBefore + reinforcements,
         );
@@ -280,6 +279,13 @@ describe("Earth deployment through the client UI", () => {
       let deployed: typeof initial | undefined;
       await act(async () => {
         setup.mockInput.pressKey("d");
+        await setup.renderOnce();
+      });
+      await act(async () => {
+        const lines = setup.captureCharFrame().split("\n");
+        const row = lines.findIndex((line: string) => line.includes("[Enter] Confirm"));
+        expect(row).toBeGreaterThanOrEqual(0);
+        await setup.mockMouse.click(lines[row]!.indexOf("[Enter] Confirm") + 4, row);
         deployed = await alpha.waitForSnapshot(state =>
           state.phase === "attack" && Boolean(state.territories[territory.id]?.units === unitsBefore + reinforcements),
         );
@@ -353,13 +359,17 @@ describe("Earth deployment through the client UI", () => {
 
       const firstPoint = pointFor(first.id);
       await act(async () => { await setup.mockMouse.click(firstPoint.x, firstPoint.y); });
-      // The UI starts at all reinforcements. Reduce the choice to one, then deploy it.
+      // Open the map dialog, reduce the default all-reinforcements amount to one, then confirm it.
+      await act(async () => { setup.mockInput.pressKey("d"); await setup.renderOnce(); });
       for (let count = initial.pendingReinforcements; count > 1; count--) {
         await act(async () => { setup.mockInput.pressKey("["); await setup.renderOnce(); });
       }
       let afterFirst: typeof initial | undefined;
       await act(async () => {
-        setup.mockInput.pressKey("d");
+        const lines = setup.captureCharFrame().split("\n");
+        const row = lines.findIndex((line: string) => line.includes("[Enter] Confirm"));
+        expect(row).toBeGreaterThanOrEqual(0);
+        await setup.mockMouse.click(lines[row]!.indexOf("[Enter] Confirm") + 4, row);
         afterFirst = await alpha.waitForSnapshot(state => state.phase === "deployment" &&
           state.pendingReinforcements === initial.pendingReinforcements - 1 &&
           state.territories[first.id]?.units === initial.territories[first.id]!.units + 1);
@@ -369,13 +379,16 @@ describe("Earth deployment through the client UI", () => {
 
       const secondPoint = pointFor(second.id);
       await act(async () => { await setup.mockMouse.click(secondPoint.x, secondPoint.y); await setup.renderOnce(); });
-      // Exercise both quantity controls on the second territory, returning to
-      // the remaining pool before committing it.
+      // Reopen the dialog and exercise both quantity controls before confirming.
+      await act(async () => { setup.mockInput.pressKey("d"); await setup.renderOnce(); });
       await act(async () => { setup.mockInput.pressKey("["); await setup.renderOnce(); });
       await act(async () => { setup.mockInput.pressKey("]"); await setup.renderOnce(); });
       let afterSecond: typeof initial | undefined;
       await act(async () => {
-        setup.mockInput.pressKey("d");
+        const lines = setup.captureCharFrame().split("\n");
+        const row = lines.findIndex((line: string) => line.includes("[Enter] Confirm"));
+        expect(row).toBeGreaterThanOrEqual(0);
+        await setup.mockMouse.click(lines[row]!.indexOf("[Enter] Confirm") + 4, row);
         afterSecond = await alpha.waitForSnapshot(state => state.phase === "attack" && state.pendingReinforcements === 0);
       });
       if (!afterSecond) throw new Error("Expected split deployment to advance to attack");
@@ -467,7 +480,8 @@ describe("Earth deployment through the client UI", () => {
       expect(pending.territories[source.id]?.units).toBe(7);
       expect(pending.territories[target.id]?.units).toBe(3);
       const pendingFrame = setup.captureCharFrame();
-      expect(pendingFrame).toContain("Move 3 / 9");
+      expect(pendingFrame).toContain("MOVE TROOPS INTO CONQUERED TERRITORY");
+      expect(pendingFrame).toContain("3  (3–9)");
       expect(pendingFrame).toContain("[Enter] Confirm");
 
       const clickControl = async (label: string) => {
@@ -477,7 +491,7 @@ describe("Earth deployment through the client UI", () => {
         await setup.mockMouse.click(lines[row]!.indexOf(label) + Math.floor(label.length / 2), row);
       };
       await act(async () => { await clickControl("[+]"); await setup.renderOnce(); });
-      expect(setup.captureCharFrame()).toContain("Move 4 / 9");
+      expect(setup.captureCharFrame()).toContain("4  (3–9)");
       let completed: any;
       await act(async () => {
         await clickControl("[Enter] Confirm");
