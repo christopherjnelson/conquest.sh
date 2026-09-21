@@ -39,7 +39,6 @@ export function Footer({
       paddingRight={1}
       marginTop={0}
     >
-      {/* Left Pills matching ref.png */}
       <box flexDirection="row" gap={1} alignItems="center">
         {pills.map((pill) => {
           const isActive = pill.id === activeTab;

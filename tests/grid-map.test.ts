@@ -121,7 +121,7 @@ describe("grid-map: 2D Ironreach territory grid engine", () => {
     }
   });
 
-  it("defines exactly 6 sectors with appropriate bonuses and colors matching ref.png", () => {
+  it("defines exactly 6 sectors with appropriate bonuses and colors", () => {
     expect(GRID_SECTORS.length).toBe(6);
     expect(MAP_GRID_IRONREACH.sectors.length).toBe(6);
 
