@@ -16,6 +16,7 @@ import {
   createInitialGameState,
   deployUnits,
   endTurn,
+  forfeitTurn,
   fortifyUnits,
   skipPhase,
   type ActionResult,
@@ -23,6 +24,17 @@ import {
 } from "@conquest/game-core";
 import { getDefaultMap } from "@conquest/map-engine";
 import { generateId, generateRoomCode, getPlayerColor, logger } from "@conquest/shared";
+
+/** Minimal timer abstraction for testability. */
+export interface TimerScheduler {
+  setTimeout(fn: () => void, ms: number): ReturnType<typeof setTimeout>;
+  clearTimeout(id: ReturnType<typeof setTimeout>): void;
+}
+
+const defaultScheduler: TimerScheduler = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (id) => clearTimeout(id),
+};
 
 export interface RoomSocket {
   send(data: string): void;
@@ -40,6 +52,18 @@ export interface GameRoomOptions {
   kind?: RoomKind;
   createdAt?: number;
   onDeserted?: (roomCode: string) => void;
+  /** ms to wait before forfeiting a disconnected active player's turn (0 = disabled) */
+  disconnectGraceMs?: number;
+  /** per-turn time limit in ms (0 = disabled) */
+  turnTimeoutMs?: number;
+  /** ms before removing a room where everyone is disconnected (0 = disabled) */
+  abandonTimeoutMs?: number;
+  /** injectable timer for tests */
+  scheduler?: TimerScheduler;
+  /** chat rate limit: max messages per window */
+  chatBucketCapacity?: number;
+  /** chat rate limit: refill window in ms */
+  chatRefillMs?: number;
 }
 
 export interface RoomPlayerSummary {
@@ -68,6 +92,22 @@ export class GameRoom {
   private playerSockets = new Map<string, RoomSocket>();
   private playerTokens = new Map<string, string>();
 
+  // Timer configuration
+  private readonly disconnectGraceMs: number;
+  private readonly turnTimeoutMs: number;
+  private readonly abandonTimeoutMs: number;
+  private readonly scheduler: TimerScheduler;
+
+  // Active timers
+  private disconnectForfeitTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private turnTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private abandonTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Chat rate limiting: per-player token buckets
+  private chatBuckets = new Map<string, { tokens: number; lastRefill: number }>();
+  public readonly chatBucketCapacity: number;
+  public readonly chatRefillMs: number;
+
   constructor(options: GameRoomOptions) {
     this.roomCode = options.roomCode.toUpperCase();
     this.kind = options.kind ?? "custom";
@@ -81,6 +121,12 @@ export class GameRoom {
     this.visibility = options.visibility ?? "public";
     this.createdAt = options.createdAt ?? Date.now();
     this.onDeserted = options.onDeserted;
+    this.disconnectGraceMs = options.disconnectGraceMs ?? 60_000;
+    this.turnTimeoutMs = options.turnTimeoutMs ?? 0;
+    this.abandonTimeoutMs = options.abandonTimeoutMs ?? 600_000;
+    this.scheduler = options.scheduler ?? defaultScheduler;
+    this.chatBucketCapacity = options.chatBucketCapacity ?? 5;
+    this.chatRefillMs = options.chatRefillMs ?? 10_000;
 
     const initialSectors: Record<string, Sector> = {};
     for (const s of this.map.sectors) {
@@ -336,6 +382,10 @@ export class GameRoom {
     }
     this.broadcastSnapshot();
 
+    // Clear all timers from previous match and start fresh
+    this.clearAllTimers();
+    this.scheduleTurnTimeout();
+
     logger.info(
       `Rematch #${this.matchNumber} started in room ${this.roomCode} with ${participatingPlayers.length} players. Active player: ${activePlayer.name}`
     );
@@ -372,6 +422,9 @@ export class GameRoom {
     // Broadcast full snapshot with assigned player identities to all sockets
     this.broadcastSnapshot();
 
+    // Start per-turn timeout if configured
+    this.scheduleTurnTimeout();
+
     logger.info(
       `Game started in room ${this.roomCode} with ${activePlayers.length} players. Active player: ${activePlayers[0].name}`
     );
@@ -388,6 +441,11 @@ export class GameRoom {
     player.connected = true;
     this.playerSockets.set(playerId, socket);
 
+    // Cancel any pending disconnect forfeit timer for this player
+    this.cancelDisconnectForfeit(playerId);
+    // Cancel abandon timer since someone is back
+    this.cancelAbandonTimer();
+
     const event: GameEvent = {
       type: "player_reconnected",
       playerId,
@@ -400,6 +458,12 @@ export class GameRoom {
 
     // Send full snapshot to the reconnecting player
     this.sendSnapshot(playerId);
+
+    // If this player was the active player and we have a turn timeout, restart it
+    const activePlayer = this.state.players[this.state.activePlayerIndex];
+    if (activePlayer?.id === playerId) {
+      this.scheduleTurnTimeout();
+    }
 
     logger.info(`Player ${player.name} (${playerId}) reconnected to room ${this.roomCode}`);
     return true;
@@ -479,10 +543,160 @@ export class GameRoom {
     this.broadcastEvent(event, this.state);
 
     logger.info(`Player ${player.name} (${playerId}) disconnected from room ${this.roomCode}`);
+
+    // Schedule disconnect forfeit if this player is the active player
+    const activePlayer = this.state.players[this.state.activePlayerIndex];
+    if (activePlayer?.id === playerId && this.disconnectGraceMs > 0) {
+      this.scheduleDisconnectForfeit(playerId);
+    }
+
+    // Schedule room abandonment if all players are now disconnected
+    const connectedCount = this.state.players.filter((p) => p.connected).length;
+    if (connectedCount === 0 && this.abandonTimeoutMs > 0) {
+      this.scheduleAbandonTimer();
+    }
   }
 
   removePlayer(playerId: string, reason?: string) {
     this.disconnectPlayer(playerId, reason ?? "removed");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Timer management
+  // ---------------------------------------------------------------------------
+
+  /** Schedule a forfeit for a disconnected active player after the grace period. */
+  private scheduleDisconnectForfeit(playerId: string) {
+    this.cancelDisconnectForfeit(playerId);
+    const timer = this.scheduler.setTimeout(() => {
+      this.disconnectForfeitTimers.delete(playerId);
+      this.executeForfeit(playerId, "disconnected");
+    }, this.disconnectGraceMs);
+    this.disconnectForfeitTimers.set(playerId, timer);
+  }
+
+  /** Cancel a pending disconnect forfeit for a player. */
+  private cancelDisconnectForfeit(playerId: string) {
+    const existing = this.disconnectForfeitTimers.get(playerId);
+    if (existing !== undefined) {
+      this.scheduler.clearTimeout(existing);
+      this.disconnectForfeitTimers.delete(playerId);
+    }
+  }
+
+  /** Schedule the per-turn timeout (if configured). Clears any existing timer first. */
+  scheduleTurnTimeout() {
+    this.cancelTurnTimeout();
+    if (this.turnTimeoutMs <= 0) return;
+    const activePlayer = this.state.players[this.state.activePlayerIndex];
+    if (!activePlayer?.isAlive) return;
+    const deadline = Date.now() + this.turnTimeoutMs;
+    this.state = { ...this.state, turnDeadlineAt: deadline };
+    this.turnTimeoutTimer = this.scheduler.setTimeout(() => {
+      this.turnTimeoutTimer = null;
+      const ap = this.state.players[this.state.activePlayerIndex];
+      if (ap) this.executeForfeit(ap.id, "timeout");
+    }, this.turnTimeoutMs);
+  }
+
+  /** Cancel the per-turn timeout timer. */
+  private cancelTurnTimeout() {
+    if (this.turnTimeoutTimer !== null) {
+      this.scheduler.clearTimeout(this.turnTimeoutTimer);
+      this.turnTimeoutTimer = null;
+    }
+    this.state = { ...this.state, turnDeadlineAt: null };
+  }
+
+  /** Schedule room removal if abandoned (all players disconnected during active game). */
+  private scheduleAbandonTimer() {
+    this.cancelAbandonTimer();
+    if (this.abandonTimeoutMs <= 0) return;
+    this.abandonTimer = this.scheduler.setTimeout(() => {
+      this.abandonTimer = null;
+      logger.info(`Room ${this.roomCode} abandoned — removing after ${this.abandonTimeoutMs}ms`);
+      this.onDeserted?.(this.roomCode);
+    }, this.abandonTimeoutMs);
+  }
+
+  /** Cancel the abandon timer (called when a player reconnects). */
+  cancelAbandonTimer() {
+    if (this.abandonTimer !== null) {
+      this.scheduler.clearTimeout(this.abandonTimer);
+      this.abandonTimer = null;
+    }
+  }
+
+  /** Clear all pending timers. Should be called when removing a room. */
+  clearAllTimers() {
+    for (const [pid, timer] of this.disconnectForfeitTimers) {
+      this.scheduler.clearTimeout(timer);
+    }
+    this.disconnectForfeitTimers.clear();
+    this.cancelTurnTimeout();
+    this.cancelAbandonTimer();
+  }
+
+  /** Execute a forfeit for the given player. No-op if they are no longer the active player. */
+  private executeForfeit(playerId: string, reason: "disconnected" | "timeout") {
+    if (this.state.phase === "game_over") return;
+    const activePlayer = this.state.players[this.state.activePlayerIndex];
+    if (!activePlayer || activePlayer.id !== playerId) return;
+    if (!activePlayer.isAlive) return;
+
+    logger.info(`Forfeiting turn for player ${activePlayer.name} (${playerId}) in room ${this.roomCode} — reason: ${reason}`);
+
+    // Cancel timers that will be restarted after turn advance
+    this.cancelTurnTimeout();
+    // Also cancel any pending disconnect forfeit for this player
+    this.cancelDisconnectForfeit(playerId);
+
+    const result = forfeitTurn(this.state, playerId, reason);
+    if (result.ok) {
+      this.state = result.state;
+      for (const event of result.events) {
+        this.broadcastEvent(event, this.state);
+      }
+      this.broadcastSnapshot();
+      // Start turn timeout for next player if they are connected
+      this.scheduleTurnTimeout();
+      // If the new active player is also disconnected, schedule their forfeit too
+      const nextPlayer = this.state.players[this.state.activePlayerIndex];
+      if (nextPlayer && !nextPlayer.connected && this.disconnectGraceMs > 0) {
+        this.scheduleDisconnectForfeit(nextPlayer.id);
+      }
+    } else {
+      logger.warn(`forfeitTurn failed for ${playerId} in ${this.roomCode}: ${result.error}`);
+    }
+  }
+
+  /**
+   * Apply an action result: update state, broadcast events, reset timers if turn advanced.
+   */
+  private applyResult<T>(
+    prevActiveIndex: number,
+    result: ActionResult<T>
+  ): ActionResult<T> {
+    if (result.ok) {
+      this.state = result.state;
+      for (const event of result.events) {
+        this.broadcastEvent(event, this.state);
+      }
+      // If game ended, clear all timers
+      if (this.state.phase === "game_over") {
+        this.clearAllTimers();
+      } else if (this.state.activePlayerIndex !== prevActiveIndex) {
+        // Turn advanced — reset turn timeout and cancel forfeit for previous player
+        this.cancelTurnTimeout();
+        this.scheduleTurnTimeout();
+        // If the new active player is disconnected, schedule their forfeit
+        const newActive = this.state.players[this.state.activePlayerIndex];
+        if (newActive && !newActive.connected && this.disconnectGraceMs > 0) {
+          this.scheduleDisconnectForfeit(newActive.id);
+        }
+      }
+    }
+    return result;
   }
 
   /**
@@ -496,14 +710,8 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = deployUnits(this.state, playerId, territoryId, count);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
-      }
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, deployUnits(this.state, playerId, territoryId, count));
   }
 
   /**
@@ -524,23 +732,13 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = attackTerritory(this.state, playerId, sourceId, targetId, units);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
-      }
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, attackTerritory(this.state, playerId, sourceId, targetId, units));
   }
 
   completeConquestMove(playerId: string, units: number): ActionResult<void> {
-    const result = completeConquestMove(this.state, playerId, units);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) this.broadcastEvent(event, this.state);
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, completeConquestMove(this.state, playerId, units));
   }
 
   /**
@@ -555,14 +753,8 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = fortifyUnits(this.state, playerId, sourceId, targetId, units);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
-      }
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, fortifyUnits(this.state, playerId, sourceId, targetId, units));
   }
 
   /**
@@ -572,14 +764,8 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = skipPhase(this.state, playerId);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
-      }
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, skipPhase(this.state, playerId));
   }
 
   /**
@@ -589,18 +775,12 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = endTurn(this.state, playerId);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
-      }
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, endTurn(this.state, playerId));
   }
 
   /**
-   * Authoritative chat action.
+   * Authoritative chat action. Enforces per-player token-bucket rate limit.
    */
   chat(playerId: string, text: string): ActionResult<{ event: GameEvent }> {
     const player = this.getPlayer(playerId);
@@ -608,13 +788,32 @@ export class GameRoom {
       return { ok: false, error: "Player not found in room" };
     }
 
+    // Token-bucket rate limiting
+    const now = Date.now();
+    let bucket = this.chatBuckets.get(playerId);
+    if (!bucket) {
+      bucket = { tokens: this.chatBucketCapacity, lastRefill: now };
+      this.chatBuckets.set(playerId, bucket);
+    }
+    // Refill tokens based on elapsed time
+    const elapsed = now - bucket.lastRefill;
+    if (elapsed >= this.chatRefillMs) {
+      const refills = Math.floor(elapsed / this.chatRefillMs);
+      bucket.tokens = Math.min(this.chatBucketCapacity, bucket.tokens + refills);
+      bucket.lastRefill = now - (elapsed % this.chatRefillMs);
+    }
+    if (bucket.tokens <= 0) {
+      return { ok: false, error: "RATE_LIMITED" };
+    }
+    bucket.tokens -= 1;
+
     const event: GameEvent = {
       type: "chat_message",
       senderId: playerId,
       senderName: player.name,
       channel: "game",
       text,
-      timestamp: Date.now(),
+      timestamp: now,
     };
     this.state.history.push(event);
     this.broadcastEvent(event, this.state);
@@ -717,14 +916,37 @@ export class GameRoom {
   }
 }
 
+export interface RoomManagerOptions {
+  defaultMap?: MapDefinition;
+  defaultMaxPlayers?: number;
+  maxRooms?: number;
+  disconnectGraceMs?: number;
+  turnTimeoutMs?: number;
+  abandonTimeoutMs?: number;
+  scheduler?: TimerScheduler;
+  chatBucketCapacity?: number;
+  chatRefillMs?: number;
+}
+
 export class RoomManager {
   private rooms = new Map<string, GameRoom>();
   public readonly defaultMap: MapDefinition;
   public readonly defaultMaxPlayers: number;
+  public readonly maxRooms: number;
+  private readonly roomDefaults: Partial<GameRoomOptions>;
 
-  constructor(options?: { defaultMap?: MapDefinition; defaultMaxPlayers?: number }) {
+  constructor(options?: RoomManagerOptions) {
     this.defaultMap = options?.defaultMap ?? getDefaultMap().definition;
     this.defaultMaxPlayers = options?.defaultMaxPlayers ?? 4;
+    this.maxRooms = options?.maxRooms ?? 500;
+    this.roomDefaults = {
+      disconnectGraceMs: options?.disconnectGraceMs,
+      turnTimeoutMs: options?.turnTimeoutMs,
+      abandonTimeoutMs: options?.abandonTimeoutMs,
+      scheduler: options?.scheduler,
+      chatBucketCapacity: options?.chatBucketCapacity,
+      chatRefillMs: options?.chatRefillMs,
+    };
   }
 
   getRoom(roomCode: string): GameRoom | undefined {
@@ -738,6 +960,7 @@ export class RoomManager {
     }
     const room = new GameRoom({
       map: this.defaultMap,
+      ...this.roomDefaults,
       onDeserted: (c) => this.removeRoom(c),
       ...options,
       roomCode: code,
@@ -751,7 +974,10 @@ export class RoomManager {
     visibility?: RoomVisibility;
     maxPlayers?: number;
     map?: MapDefinition;
-  }): GameRoom {
+  }): GameRoom | null {
+    if (this.rooms.size >= this.maxRooms) {
+      return null;
+    }
     let code: string;
     do {
       code = generateRoomCode();
@@ -765,6 +991,7 @@ export class RoomManager {
       autoStart: false,
       maxPlayers: options?.maxPlayers ?? 4,
       map: options?.map ?? this.defaultMap,
+      ...this.roomDefaults,
       onDeserted: (c) => this.removeRoom(c),
     });
     this.rooms.set(code, room);
@@ -780,6 +1007,7 @@ export class RoomManager {
         map: options?.map ?? this.defaultMap,
         maxPlayers: options?.maxPlayers ?? this.defaultMaxPlayers,
         autoStart: options?.autoStart ?? false,
+        ...this.roomDefaults,
         onDeserted: (c) => this.removeRoom(c),
         ...options,
       });
@@ -789,7 +1017,12 @@ export class RoomManager {
   }
 
   removeRoom(roomCode: string): boolean {
-    return this.rooms.delete(roomCode.toUpperCase());
+    const code = roomCode.toUpperCase();
+    const room = this.rooms.get(code);
+    if (room) {
+      room.clearAllTimers();
+    }
+    return this.rooms.delete(code);
   }
 
   getRoomsCount(): number {

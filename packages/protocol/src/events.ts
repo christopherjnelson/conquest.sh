@@ -184,6 +184,12 @@ export const GameEventSchema = z.discriminatedUnion("type", [
     startingPlayerId: z.string(),
     timestamp: z.number(),
   }),
+  z.object({
+    type: z.literal("turn_forfeited"),
+    playerId: z.string(),
+    reason: z.enum(["disconnected", "timeout"]),
+    timestamp: z.number(),
+  }),
 ]);
 export type GameEvent = z.infer<typeof GameEventSchema>;
 
@@ -212,5 +218,6 @@ export const GameStateSchema = z.object({
   startedAt: z.number().optional(),
   endedAt: z.number().nullable().optional(),
   history: z.array(GameEventSchema),
+  turnDeadlineAt: z.number().nullable().optional(),
 });
 export type GameState = z.infer<typeof GameStateSchema>;
