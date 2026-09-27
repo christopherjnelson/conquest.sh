@@ -782,8 +782,10 @@ describe("GameClient: Client Flow & State Synchronization", () => {
   });
 
   it("runs full game flow against default MAP_GRID_IRONREACH server: distributes 20 territories, deploys, attacks, ends turn", async () => {
-    const sessionFileAliceGrid = path.resolve(process.cwd(), ".conquest-test-grid-alice.json");
-    const sessionFileBobGrid = path.resolve(process.cwd(), ".conquest-test-grid-bob.json");
+    // Use the per-run temp dir set by tests/setup.ts (same as the rest of the suite)
+    // so we never write session files into the project working directory.
+    const sessionFileAliceGrid = path.join(testSessionDir, ".conquest-test-grid-alice.json");
+    const sessionFileBobGrid = path.join(testSessionDir, ".conquest-test-grid-bob.json");
 
     const cleanupGrid = () => {
       try {
