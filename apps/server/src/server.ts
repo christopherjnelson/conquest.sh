@@ -295,17 +295,15 @@ export class ConquestServer {
         if (room && room.hasPlayer(session.playerId)) {
           this.sessionStore.updateLastSeen(session.token, room.roomCode);
 
-          // Close any stale old socket for this player (superseded reconnect)
-          const oldSocket = room.getPlayerSocket(session.playerId);
-          if (oldSocket && oldSocket !== ws) {
-            try {
-              (oldSocket as ServerWebSocket<WSData>).close(4001, "superseded");
-            } catch { /* ignore if already closed */ }
-          }
-
           ws.data.sessionToken = session.token;
           ws.data.playerId = session.playerId;
           ws.data.roomCode = room.roomCode;
+
+          // Register the new socket FIRST so the room immediately starts
+          // routing to it; then close the old socket.  This removes any
+          // dependence on the async delivery order of the close event.
+          const oldSocket = room.getPlayerSocket(session.playerId);
+          room.reconnectPlayer(session.playerId, ws);
 
           // Welcome handshake
           const welcome: ServerWelcome = {
@@ -317,8 +315,12 @@ export class ConquestServer {
           };
           this.send(ws, welcome);
 
-          // Reconnect player in room (updates socket registration AFTER old closed)
-          room.reconnectPlayer(session.playerId, ws);
+          // Close any stale old socket after the new one is registered.
+          if (oldSocket && oldSocket !== ws) {
+            try {
+              (oldSocket as ServerWebSocket<WSData>).close(4001, "superseded");
+            } catch { /* ignore if already closed */ }
+          }
           return;
         } else {
           logger.info(

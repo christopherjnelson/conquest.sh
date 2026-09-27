@@ -362,6 +362,43 @@ describe("Turn timeout timer", () => {
     expect(room.state.turnDeadlineAt).not.toBeNull();
     expect(typeof room.state.turnDeadlineAt).toBe("number");
   });
+
+  it("broadcasts turnDeadlineAt in the first event/snapshot for a new turn", () => {
+    // Fix 1: deadline must be stamped on this.state BEFORE broadcasts so
+    // clients see it in the very first message for the new turn.
+    const sched = new FakeScheduler();
+    const room = new GameRoom({
+      roomCode: "TDBR",
+      map: MAP_GRID_IRONREACH,
+      scheduler: sched,
+      turnTimeoutMs: 5000,
+      disconnectGraceMs: 0,
+      abandonTimeoutMs: 0,
+    });
+    const socketA = makeRoomSocket();
+    const socketB = makeRoomSocket();
+    room.addPlayer("p1", "Alice", socketA);
+    room.addPlayer("p2", "Bob", socketB);
+
+    // Clear messages accumulated during addPlayer, then start game.
+    socketA.messages.length = 0;
+    socketB.messages.length = 0;
+    room.startGame();
+
+    // Every message broadcast during startGame should carry a non-null deadline.
+    for (const raw of socketA.messages) {
+      const msg = JSON.parse(raw) as { type: string; state?: { turnDeadlineAt?: number | null } };
+      if (msg.state) {
+        expect(msg.state.turnDeadlineAt).not.toBeNull();
+        expect(typeof msg.state.turnDeadlineAt).toBe("number");
+      }
+    }
+    // Sanity: there should have been at least one message with state.
+    const withState = socketA.messages
+      .map((r) => JSON.parse(r) as { state?: unknown })
+      .filter((m) => m.state != null);
+    expect(withState.length).toBeGreaterThan(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

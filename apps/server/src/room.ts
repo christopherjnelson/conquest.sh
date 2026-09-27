@@ -377,14 +377,17 @@ export class GameRoom {
     initialState.history.unshift(rematchEvent);
     this.state = initialState;
 
+    // Clear timers from previous match, then stamp deadline before broadcasting.
+    this.clearAllTimers();
+    this.applyTurnDeadline();
+
     for (const event of this.state.history) {
       this.broadcastEvent(event, this.state);
     }
     this.broadcastSnapshot();
 
-    // Clear all timers from previous match and start fresh
-    this.clearAllTimers();
-    this.scheduleTurnTimeout();
+    // Arm the timer now that broadcasts have gone out.
+    this.armTurnTimer();
 
     logger.info(
       `Rematch #${this.matchNumber} started in room ${this.roomCode} with ${participatingPlayers.length} players. Active player: ${activePlayer.name}`
@@ -414,6 +417,9 @@ export class GameRoom {
 
     this.state = initialState;
 
+    // Stamp the turn deadline BEFORE broadcasting so clients see it immediately.
+    this.applyTurnDeadline();
+
     // Broadcast state transition events
     for (const event of initialState.history) {
       this.broadcastEvent(event, this.state);
@@ -422,8 +428,8 @@ export class GameRoom {
     // Broadcast full snapshot with assigned player identities to all sockets
     this.broadcastSnapshot();
 
-    // Start per-turn timeout if configured
-    this.scheduleTurnTimeout();
+    // Arm the timer now that broadcasts have gone out.
+    this.armTurnTimer();
 
     logger.info(
       `Game started in room ${this.roomCode} with ${activePlayers.length} players. Active player: ${activePlayers[0].name}`
@@ -584,19 +590,45 @@ export class GameRoom {
     }
   }
 
-  /** Schedule the per-turn timeout (if configured). Clears any existing timer first. */
-  scheduleTurnTimeout() {
-    this.cancelTurnTimeout();
+  /**
+   * Step 1 of turn-timeout setup: compute the deadline and stamp it onto
+   * `this.state` so that every broadcast that follows will carry the deadline.
+   * Must be called BEFORE any broadcastEvent / broadcastSnapshot for the new turn.
+   */
+  private applyTurnDeadline() {
     if (this.turnTimeoutMs <= 0) return;
     const activePlayer = this.state.players[this.state.activePlayerIndex];
     if (!activePlayer?.isAlive) return;
     const deadline = Date.now() + this.turnTimeoutMs;
     this.state = { ...this.state, turnDeadlineAt: deadline };
+  }
+
+  /**
+   * Step 2 of turn-timeout setup: arm the actual timer.
+   * Must be called AFTER broadcasts so the deadline is already in the state
+   * clients received.
+   */
+  private armTurnTimer() {
+    if (this.turnTimeoutMs <= 0) return;
+    const activePlayer = this.state.players[this.state.activePlayerIndex];
+    if (!activePlayer?.isAlive) return;
     this.turnTimeoutTimer = this.scheduler.setTimeout(() => {
       this.turnTimeoutTimer = null;
       const ap = this.state.players[this.state.activePlayerIndex];
       if (ap) this.executeForfeit(ap.id, "timeout");
     }, this.turnTimeoutMs);
+  }
+
+  /**
+   * Convenience: cancel any running timer + deadline, set deadline, arm timer.
+   * Use this only when no broadcast needs to carry the new deadline (e.g. tests
+   * that call scheduleTurnTimeout directly).  In normal game flow prefer calling
+   * applyTurnDeadline() before broadcasts and armTurnTimer() after.
+   */
+  scheduleTurnTimeout() {
+    this.cancelTurnTimeout();
+    this.applyTurnDeadline();
+    this.armTurnTimer();
   }
 
   /** Cancel the per-turn timeout timer. */
@@ -654,12 +686,14 @@ export class GameRoom {
     const result = forfeitTurn(this.state, playerId, reason);
     if (result.ok) {
       this.state = result.state;
+      // Stamp the turn deadline BEFORE broadcasting so clients receive it.
+      this.applyTurnDeadline();
       for (const event of result.events) {
         this.broadcastEvent(event, this.state);
       }
       this.broadcastSnapshot();
-      // Start turn timeout for next player if they are connected
-      this.scheduleTurnTimeout();
+      // Arm the timer after broadcasts.
+      this.armTurnTimer();
       // If the new active player is also disconnected, schedule their forfeit too
       const nextPlayer = this.state.players[this.state.activePlayerIndex];
       if (nextPlayer && !nextPlayer.connected && this.disconnectGraceMs > 0) {
@@ -679,16 +713,24 @@ export class GameRoom {
   ): ActionResult<T> {
     if (result.ok) {
       this.state = result.state;
+      // Detect turn advancement early so we can stamp the deadline BEFORE
+      // any broadcast, ensuring clients receive the new turnDeadlineAt.
+      const turnAdvanced =
+        this.state.phase !== "game_over" &&
+        this.state.activePlayerIndex !== prevActiveIndex;
+      if (turnAdvanced) {
+        this.cancelTurnTimeout();
+        this.applyTurnDeadline();
+      }
       for (const event of result.events) {
         this.broadcastEvent(event, this.state);
       }
       // If game ended, clear all timers
       if (this.state.phase === "game_over") {
         this.clearAllTimers();
-      } else if (this.state.activePlayerIndex !== prevActiveIndex) {
-        // Turn advanced — reset turn timeout and cancel forfeit for previous player
-        this.cancelTurnTimeout();
-        this.scheduleTurnTimeout();
+      } else if (turnAdvanced) {
+        // Turn advanced — arm the timer now that broadcasts have gone out.
+        this.armTurnTimer();
         // If the new active player is disconnected, schedule their forfeit
         const newActive = this.state.players[this.state.activePlayerIndex];
         if (newActive && !newActive.connected && this.disconnectGraceMs > 0) {

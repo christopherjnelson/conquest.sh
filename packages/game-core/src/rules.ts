@@ -476,6 +476,67 @@ export function skipPhase(state: GameState, playerId: string): ActionResult<void
 }
 
 /**
+ * Shared internal helper: advance state to the next living player, emitting
+ * turn_ended + phase_changed events.  Callers must ensure that all `priorEvents`
+ * are already reflected in `state.history` before calling.
+ */
+function advanceToNextPlayer(
+  state: GameState,
+  previousPlayerId: string,
+  priorEvents: GameEvent[]
+): ActionResult<void> {
+  const totalPlayers = state.players.length;
+  let nextIndex = (state.activePlayerIndex + 1) % totalPlayers;
+  let wrappedAround = nextIndex <= state.activePlayerIndex;
+
+  let loopCount = 0;
+  while (!state.players[nextIndex]?.isAlive && loopCount < totalPlayers) {
+    nextIndex = (nextIndex + 1) % totalPlayers;
+    if (nextIndex === 0) wrappedAround = true;
+    loopCount++;
+  }
+
+  const nextPlayer = state.players[nextIndex];
+  if (!nextPlayer || !nextPlayer.isAlive) {
+    return { ok: false, error: "No eligible next player found" };
+  }
+
+  const nextTurnNumber = wrappedAround ? state.turnNumber + 1 : state.turnNumber;
+  const reinforcements = calculateReinforcements(state, nextPlayer.id);
+  const now = Date.now();
+
+  const turnEndEvents: GameEvent[] = [
+    {
+      type: "turn_ended",
+      previousPlayerId,
+      nextPlayerId: nextPlayer.id,
+      turnNumber: nextTurnNumber,
+      reinforcements,
+      timestamp: now,
+    },
+    {
+      type: "phase_changed",
+      phase: "deployment",
+      activePlayerId: nextPlayer.id,
+      reinforcements,
+      timestamp: now,
+    },
+  ];
+
+  const finalState: GameState = {
+    ...state,
+    activePlayerIndex: nextIndex,
+    turnNumber: nextTurnNumber,
+    phase: "deployment",
+    pendingReinforcements: reinforcements,
+    hasConqueredThisTurn: false,
+    history: [...state.history, ...turnEndEvents],
+  };
+
+  return { ok: true, state: finalState, events: [...priorEvents, ...turnEndEvents] };
+}
+
+/**
  * End the current player's turn and advance to the next alive player.
  * Authoritatively requires fortify phase.
  */
@@ -501,57 +562,13 @@ export function endTurn(
     return { ok: false, error: "Eliminated players cannot end turn" };
   }
 
-  // Find next living player
-  const totalPlayers = state.players.length;
-  let nextIndex = (state.activePlayerIndex + 1) % totalPlayers;
-  let wrappedAround = nextIndex <= state.activePlayerIndex;
+  // Fold priorEvents into history so advanceToNextPlayer can work uniformly.
+  const stateWithPrior: GameState =
+    priorEvents.length > 0
+      ? { ...state, history: [...state.history, ...priorEvents] }
+      : state;
 
-  let loopCount = 0;
-  while (!state.players[nextIndex].isAlive && loopCount < totalPlayers) {
-    nextIndex = (nextIndex + 1) % totalPlayers;
-    if (nextIndex === 0) wrappedAround = true;
-    loopCount++;
-  }
-
-  const nextPlayer = state.players[nextIndex];
-  if (!nextPlayer || !nextPlayer.isAlive) {
-    return { ok: false, error: "No eligible next player found" };
-  }
-
-  const nextTurnNumber = wrappedAround ? state.turnNumber + 1 : state.turnNumber;
-  const reinforcements = calculateReinforcements(state, nextPlayer.id);
-  const now = Date.now();
-
-  const events: GameEvent[] = [
-    ...priorEvents,
-    {
-      type: "turn_ended",
-      previousPlayerId: playerId,
-      nextPlayerId: nextPlayer.id,
-      turnNumber: nextTurnNumber,
-      reinforcements,
-      timestamp: now,
-    },
-    {
-      type: "phase_changed",
-      phase: "deployment",
-      activePlayerId: nextPlayer.id,
-      reinforcements,
-      timestamp: now,
-    },
-  ];
-
-  const nextState: GameState = {
-    ...state,
-    activePlayerIndex: nextIndex,
-    turnNumber: nextTurnNumber,
-    phase: "deployment",
-    pendingReinforcements: reinforcements,
-    hasConqueredThisTurn: false,
-    history: [...state.history, ...events],
-  };
-
-  return { ok: true, state: nextState, events };
+  return advanceToNextPlayer(stateWithPrior, playerId, priorEvents);
 }
 
 /**
@@ -619,10 +636,14 @@ export function forfeitTurn(
       }
       const victoryRes = evaluateVictory(workingState, playerId);
       if (victoryRes.isVictory && victoryRes.winnerId) {
-        const finalRes = finalizeMatch(workingState, victoryRes.winnerId, victoryRes.reason ?? "conquest", now);
+        // Emit turn_forfeited BEFORE game_won so event order reads causally.
         const forfeitEvent: GameEvent = { type: "turn_forfeited", playerId, reason, timestamp: now };
-        finalRes.state.history = [...finalRes.state.history, forfeitEvent];
-        return { ok: true, state: finalRes.state, events: [...priorEvents, ...finalRes.events, forfeitEvent] };
+        const stateWithForfeit: GameState = {
+          ...workingState,
+          history: [...workingState.history, forfeitEvent],
+        };
+        const finalRes = finalizeMatch(stateWithForfeit, victoryRes.winnerId, victoryRes.reason ?? "conquest", now);
+        return { ok: true, state: finalRes.state, events: [...priorEvents, forfeitEvent, ...finalRes.events] };
       }
     }
   }
@@ -693,53 +714,7 @@ export function forfeitTurn(
     history: [...workingState.history, forfeitEvent],
   };
 
-  // Step 5: Advance to next player (bypass normal phase check)
-  const totalPlayers = workingState.players.length;
-  let nextIndex = (workingState.activePlayerIndex + 1) % totalPlayers;
-  let wrappedAround = nextIndex <= workingState.activePlayerIndex;
-
-  let loopCount = 0;
-  while (!workingState.players[nextIndex]?.isAlive && loopCount < totalPlayers) {
-    nextIndex = (nextIndex + 1) % totalPlayers;
-    if (nextIndex === 0) wrappedAround = true;
-    loopCount++;
-  }
-
-  const nextPlayer = workingState.players[nextIndex];
-  if (!nextPlayer || !nextPlayer.isAlive) {
-    return { ok: false, error: "No eligible next player found" };
-  }
-
-  const nextTurnNumber = wrappedAround ? workingState.turnNumber + 1 : workingState.turnNumber;
-  const reinforcements = calculateReinforcements(workingState, nextPlayer.id);
-
-  const turnEndEvents: GameEvent[] = [
-    {
-      type: "turn_ended",
-      previousPlayerId: playerId,
-      nextPlayerId: nextPlayer.id,
-      turnNumber: nextTurnNumber,
-      reinforcements,
-      timestamp: now,
-    },
-    {
-      type: "phase_changed",
-      phase: "deployment",
-      activePlayerId: nextPlayer.id,
-      reinforcements,
-      timestamp: now,
-    },
-  ];
-
-  const finalState: GameState = {
-    ...workingState,
-    activePlayerIndex: nextIndex,
-    turnNumber: nextTurnNumber,
-    phase: "deployment",
-    pendingReinforcements: reinforcements,
-    hasConqueredThisTurn: false,
-    history: [...workingState.history, ...turnEndEvents],
-  };
-
-  return { ok: true, state: finalState, events: [...priorEvents, ...turnEndEvents] };
+  // Step 5: Advance to next player using shared helper (workingState.history already
+  // includes all priorEvents, so advanceToNextPlayer can build on it directly).
+  return advanceToNextPlayer(workingState, playerId, priorEvents);
 }
