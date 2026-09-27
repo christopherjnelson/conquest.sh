@@ -23,7 +23,7 @@ import {
   type MapDefinition,
 } from "@conquest/game-core";
 import { getDefaultMap } from "@conquest/map-engine";
-import { generateId, generateRoomCode, getPlayerColor, logger } from "@conquest/shared";
+import { generateId, generateRoomCode, getPlayerColor, logger, generateRngSeed, makeSfc32, makeShuffleFn } from "@conquest/shared";
 
 /** Minimal timer abstraction for testability. */
 export interface TimerScheduler {
@@ -64,6 +64,8 @@ export interface GameRoomOptions {
   chatBucketCapacity?: number;
   /** chat rate limit: refill window in ms */
   chatRefillMs?: number;
+  /** Deterministic seed for tests. Production code omits this and generates one via crypto. */
+  rngSeed?: Uint8Array;
 }
 
 export interface RoomPlayerSummary {
@@ -87,6 +89,12 @@ export class GameRoom {
   public readonly kind: RoomKind;
   public readonly createdAt: number;
   public onDeserted?: (roomCode: string) => void;
+  /** Seeded PRNG for the current match: drives shuffles and dice rolls. NOT broadcast to clients. */
+  public rng: () => number;
+  /** The raw seed used to create rng (kept for debug logging at match end). */
+  private rngSeed: Uint8Array;
+  /** Optional test-injected seed; when set, every match reuses it deterministically. */
+  private readonly injectedSeed?: Uint8Array;
 
   public state: GameState;
   private playerSockets = new Map<string, RoomSocket>();
@@ -127,6 +135,10 @@ export class GameRoom {
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.chatBucketCapacity = options.chatBucketCapacity ?? 5;
     this.chatRefillMs = options.chatRefillMs ?? 10_000;
+    this.injectedSeed = options.rngSeed;
+    // Provide a no-op rng until the first match starts.
+    this.rngSeed = new Uint8Array(16);
+    this.rng = Math.random;
 
     const initialSectors: Record<string, Sector> = {};
     for (const s of this.map.sectors) {
@@ -340,6 +352,7 @@ export class GameRoom {
       }
     }
 
+    this.reseedForMatch();
     this.matchNumber += 1;
     this.gameId = generateId("game");
 
@@ -361,7 +374,7 @@ export class GameRoom {
       participatingPlayers,
       this.map,
       3,
-      undefined,
+      makeShuffleFn(this.rng),
       this.matchNumber
     );
 
@@ -396,6 +409,16 @@ export class GameRoom {
   }
 
   /**
+   * Generate a fresh match seed and rng. Uses the injected test seed if one was
+   * supplied, otherwise draws fresh bytes from crypto. Called at the start of
+   * every match so the logged seed replays exactly that match.
+   */
+  private reseedForMatch(): void {
+    this.rngSeed = this.injectedSeed ? new Uint8Array(this.injectedSeed) : generateRngSeed();
+    this.rng = makeSfc32(this.rngSeed);
+  }
+
+  /**
    * Start the match authoritative state transition.
    * Only connected players participate in the starting match.
    */
@@ -404,6 +427,7 @@ export class GameRoom {
     const activePlayers = this.state.players.filter((p) => p.connected);
     if (activePlayers.length < 2) return false;
 
+    this.reseedForMatch();
     this.matchNumber = 1;
     const initialState = createInitialGameState(
       this.gameId,
@@ -411,7 +435,7 @@ export class GameRoom {
       activePlayers,
       this.map,
       3,
-      undefined,
+      makeShuffleFn(this.rng),
       1
     );
 
@@ -725,9 +749,13 @@ export class GameRoom {
       for (const event of result.events) {
         this.broadcastEvent(event, this.state);
       }
-      // If game ended, clear all timers
+      // If game ended, clear all timers and log the RNG seed for reproducibility
       if (this.state.phase === "game_over") {
         this.clearAllTimers();
+        logger.debug(
+          `Match ${this.matchNumber} ended in room ${this.roomCode}. ` +
+          `RNG seed (hex): ${Buffer.from(this.rngSeed).toString("hex")}`
+        );
       } else if (turnAdvanced) {
         // Turn advanced — arm the timer now that broadcasts have gone out.
         this.armTurnTimer();
@@ -775,7 +803,7 @@ export class GameRoom {
       return { ok: false, error: "Game is over" };
     }
     const prev = this.state.activePlayerIndex;
-    return this.applyResult(prev, attackTerritory(this.state, playerId, sourceId, targetId, units));
+    return this.applyResult(prev, attackTerritory(this.state, playerId, sourceId, targetId, units, this.rng));
   }
 
   completeConquestMove(playerId: string, units: number): ActionResult<void> {

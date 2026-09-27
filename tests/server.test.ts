@@ -248,10 +248,27 @@ describe("ConquestServer: Full Integration Flow", () => {
     // Verify pending reinforcements for Player 1
     expect(snapshotA.state.pendingReinforcements).toBeGreaterThanOrEqual(3);
 
+    // Territory ownership is shuffled per game. Find a territory Alice owns and
+    // one that Bob owns that is adjacent to it for the deploy + attack steps.
+    const territories = Object.values(snapshotA.state.territories);
+    const aliceTerrs = territories.filter((t) => t.ownerId === aliceId);
+    const aliceDeployTarget = aliceTerrs[0]!;
+    // Find a territory Bob owns adjacent to an Alice territory with ≥ 2 units
+    const aliceAttackSource = aliceTerrs.find((src) =>
+      src.units >= 2 &&
+      src.neighbors.some((n) => snapshotA.state.territories[n]?.ownerId === bobId)
+    ) ?? aliceTerrs.find((src) =>
+      (src.units + snapshotA.state.pendingReinforcements) >= 2 &&
+      src.neighbors.some((n) => snapshotA.state.territories[n]?.ownerId === bobId)
+    ) ?? aliceTerrs[0]!;
+    const bobAdjacentId = aliceAttackSource.neighbors.find(
+      (n) => snapshotA.state.territories[n]?.ownerId === bobId
+    )!;
+
     // 3. Player 1 deploys units -> verify both clients receive units_deployed event
     const deployMsg: ClientDeploy = {
       type: "client:deploy",
-      territoryId: "A1",
+      territoryId: aliceDeployTarget.id,
       count: snapshotA.state.pendingReinforcements,
     };
     clientA.send(deployMsg);
@@ -266,14 +283,14 @@ describe("ConquestServer: Full Integration Flow", () => {
     expect(deployEventA.event.type).toBe("units_deployed");
     if (deployEventA.event.type === "units_deployed") {
       expect(deployEventA.event.playerId).toBe(aliceId);
-      expect(deployEventA.event.territoryId).toBe("A1");
+      expect(deployEventA.event.territoryId).toBe(aliceDeployTarget.id);
       expect(deployEventA.event.count).toBe(snapshotA.state.pendingReinforcements);
     }
 
     expect(deployEventB.event.type).toBe("units_deployed");
     if (deployEventB.event.type === "units_deployed") {
       expect(deployEventB.event.playerId).toBe(aliceId);
-      expect(deployEventB.event.territoryId).toBe("A1");
+      expect(deployEventB.event.territoryId).toBe(aliceDeployTarget.id);
     }
 
     // Both should also receive phase_changed to "attack"
@@ -282,12 +299,13 @@ describe("ConquestServer: Full Integration Flow", () => {
     );
     expect(attackPhaseEventA).toBeDefined();
 
-    // 4. Player 1 attacks Player 2 -> verify both receive attack_resolved event
-    // Alice owns A1, Bob owns adjacent territory A2
+    // 4. Player 1 attacks Player 2 -> verify both receive attack_resolved event.
+    // Use territories derived from the actual (shuffled) game state.
+    const attackSourceId = aliceAttackSource.id;
     const attackMsg: ClientAttack = {
       type: "client:attack",
-      sourceTerritoryId: "A1",
-      targetTerritoryId: "A2",
+      sourceTerritoryId: attackSourceId,
+      targetTerritoryId: bobAdjacentId,
       units: 3,
     };
     clientA.send(attackMsg);
@@ -303,8 +321,8 @@ describe("ConquestServer: Full Integration Flow", () => {
     if (attackEventA.event.type === "attack_resolved") {
       expect(attackEventA.event.attackerId).toBe(aliceId);
       expect(attackEventA.event.defenderId).toBe(bobId);
-      expect(attackEventA.event.sourceTerritoryId).toBe("A1");
-      expect(attackEventA.event.targetTerritoryId).toBe("A2");
+      expect(attackEventA.event.sourceTerritoryId).toBe(attackSourceId);
+      expect(attackEventA.event.targetTerritoryId).toBe(bobAdjacentId);
       expect(attackEventA.event.attackerRolls.length).toBeGreaterThan(0);
       expect(attackEventA.event.defenderRolls.length).toBeGreaterThan(0);
     }

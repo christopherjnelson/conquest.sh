@@ -14,9 +14,12 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
   let server: ConquestServer;
   let port: number;
 
-  const sessionFile1 = path.resolve(process.cwd(), ".conquest-test-lobby-1.json");
-  const sessionFile2 = path.resolve(process.cwd(), ".conquest-test-lobby-2.json");
-  const sessionFile3 = path.resolve(process.cwd(), ".conquest-test-lobby-3.json");
+  // CONQUEST_SESSION_DIR is set globally by tests/setup.ts (bunfig.toml preload).
+  const testSessionDir = process.env["CONQUEST_SESSION_DIR"]!;
+
+  const sessionFile1 = path.join(testSessionDir, ".conquest-test-lobby-1.json");
+  const sessionFile2 = path.join(testSessionDir, ".conquest-test-lobby-2.json");
+  const sessionFile3 = path.join(testSessionDir, ".conquest-test-lobby-3.json");
 
   const cleanupSessionFiles = () => {
     try {
