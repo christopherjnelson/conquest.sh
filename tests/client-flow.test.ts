@@ -884,17 +884,23 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       expect(gameSnapshotA.activePlayerIndex).toBe(0);
       expect(gameSnapshotA.players[0].id).toBe(aliceId);
 
-      // 3. Alice deploys to C2 (or whichever territory she owns)
-      const deployTerritoryId = gameSnapshotA.territories["C2"]?.ownerId === aliceId
-        ? "C2"
-        : (aliceTerritories.find((id) =>
-            gameSnapshotA.territories[id].neighbors.some((nId) => gameSnapshotA.territories[nId].ownerId === bobId)
-          ) ?? aliceTerritories[0]);
+      // 3. Alice deploys to a territory she owns that borders at least one Bob territory.
+      // The per-match shuffle means any specific territory (e.g. "C2") may end up
+      // all-Alice-neighbored; we must pick a border territory explicitly.
+      const deployTerritoryId = aliceTerritories.find((id) =>
+        gameSnapshotA.territories[id].neighbors.some(
+          (nId) => gameSnapshotA.territories[nId]?.ownerId === bobId
+        )
+      );
+      expect(deployTerritoryId).toBeDefined(
+        // With a 2-player 20-territory split the map is always connected, so at least
+        // one Alice territory must border a Bob territory.
+      );
 
       const pendingReinforcements = clientA.state!.pendingReinforcements;
       expect(pendingReinforcements).toBeGreaterThanOrEqual(3);
 
-      clientA.deploy(deployTerritoryId, pendingReinforcements);
+      clientA.deploy(deployTerritoryId!, pendingReinforcements);
 
       // Both clients receive units_deployed event
       const deployEventA = await clientA.waitForEvent((e) => e.type === "units_deployed");
@@ -903,7 +909,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       expect(deployEventA.type).toBe("units_deployed");
       if (deployEventA.type === "units_deployed") {
         expect(deployEventA.playerId).toBe(aliceId);
-        expect(deployEventA.territoryId).toBe(deployTerritoryId);
+        expect(deployEventA.territoryId).toBe(deployTerritoryId!);
         expect(deployEventA.count).toBe(pendingReinforcements);
       }
       expect(deployEventB.type).toBe("units_deployed");
@@ -911,15 +917,15 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       // Game transitions to attack phase
       const attackPhaseA = await clientA.waitForSnapshot((s) => s.phase === "attack");
       expect(attackPhaseA.phase).toBe("attack");
-      expect(clientA.state?.territories[deployTerritoryId].units).toBeGreaterThanOrEqual(pendingReinforcements);
+      expect(clientA.state?.territories[deployTerritoryId!].units).toBeGreaterThanOrEqual(pendingReinforcements);
 
-      // 4. Alice attacks an adjacent territory
-      const targetTerritoryId = gameSnapshotA.territories[deployTerritoryId].neighbors.find(
-        (nId) => gameSnapshotA.territories[nId].ownerId === bobId
+      // 4. Alice attacks an adjacent Bob territory (guaranteed by the deployTerritoryId choice above).
+      const targetTerritoryId = gameSnapshotA.territories[deployTerritoryId!].neighbors.find(
+        (nId) => gameSnapshotA.territories[nId]?.ownerId === bobId
       )!;
       expect(targetTerritoryId).toBeDefined();
 
-      clientA.attack(deployTerritoryId, targetTerritoryId, 3);
+      clientA.attack(deployTerritoryId!, targetTerritoryId, 3);
 
       const attackEventA = await clientA.waitForEvent((e) => e.type === "attack_resolved");
       const attackEventB = await clientB.waitForEvent((e) => e.type === "attack_resolved");
@@ -928,7 +934,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       if (attackEventA.type === "attack_resolved") {
         expect(attackEventA.attackerId).toBe(aliceId);
         expect(attackEventA.defenderId).toBe(bobId);
-        expect(attackEventA.sourceTerritoryId).toBe(deployTerritoryId);
+        expect(attackEventA.sourceTerritoryId).toBe(deployTerritoryId!);
         expect(attackEventA.targetTerritoryId).toBe(targetTerritoryId);
         expect(attackEventA.attackerRolls.length).toBeGreaterThan(0);
         expect(attackEventA.defenderRolls.length).toBeGreaterThan(0);
