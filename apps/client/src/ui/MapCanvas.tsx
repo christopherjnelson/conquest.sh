@@ -1163,14 +1163,21 @@ export function MapCanvas({
   // FULL_W/FULL_H/COND_W/COND_H are imported from BattlePanel to stay in sync.
   let battlePanelEl: React.ReactNode = null;
   if (battle) {
-    // innerH = pane height minus the MapCanvas border (top + bottom = 2 rows).
-    // vOffset shifts the raster down when the pane is taller than the land.
-    // maxRows caps findPanelCorner's bottom-corner search so the panel fits
-    // within the inner canvas and doesn't bleed past the map's visible area.
+    // innerH/innerW = pane dimensions minus the MapCanvas frame (top+bottom=2, left+right=2).
+    // vOffset/hOffset track how many content-area rows/cols precede the land raster when
+    // the pane is larger than the geography (justifyContent/alignItems "center").
+    // These must be derived from innerH/innerW (not the full pane) because
+    // position="absolute" is relative to the canvas content area, not the border box.
+    // maxRows caps findPanelCorner's bottom-corner search. The panel's bottom content row
+    // is (top + panelH − 1) where top = 1 + vOffset + row; that must be strictly less than
+    // innerH (i.e., <= innerH − 1) so the panel stays inside the frame's last content row.
+    // Substituting: vOffset + row + panelH <= innerH − 1, and row = landH − panelH where
+    // landH = min(land.height, maxRows), gives maxRows = innerH − vOffset − 1.
     const innerH = availableContentH - 2;
-    const hOffset = canCenterH ? Math.floor((availableContentW - renderLayout.width) / 2) : 0;
-    const vOffset = canCenterV ? Math.floor((availableContentH - renderLayout.height) / 2) : 0;
-    const maxRows = innerH - vOffset;
+    const innerW = availableContentW - 2;
+    const hOffset = canCenterH ? Math.floor((innerW - renderLayout.width) / 2) : 0;
+    const vOffset = canCenterV ? Math.floor((innerH - renderLayout.height) / 2) : 0;
+    const maxRows = innerH - vOffset - 1;
     const fullCorner = findPanelCorner(activeMap, FULL_W, FULL_H, undefined, maxRows);
     const condensedCorner = !fullCorner ? findPanelCorner(activeMap, COND_W, COND_H, undefined, maxRows) : null;
     const chosenCorner = fullCorner ?? condensedCorner;
