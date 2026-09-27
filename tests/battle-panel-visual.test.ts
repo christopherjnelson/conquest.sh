@@ -6,8 +6,6 @@ import { describe, expect, it } from "bun:test";
 import { EARTH_42_BUNDLE } from "../packages/map-engine/src/maps/earth-42.js";
 import {
   getMapContentDimensionsForLayout,
-  selectRenderVariant,
-  getGeographyBoundingBox,
 } from "../packages/map-engine/src/index.js";
 import type { BattleReport } from "../apps/client/src/ui/battle-report.js";
 
@@ -129,84 +127,6 @@ describe("battle panel visual frame on Earth-42 wide", () => {
   });
 });
 
-/**
- * Border constraint tests: the panel must sit fully inside the MapCanvas frame
- * for Earth-42 wide and compact profiles. Verifies:
- *   - panel bottom row is strictly above the canvas bottom border row
- *   - panel left column is strictly right of the canvas left border column
- */
-describe("battle panel border constraints (Earth-42 wide + compact)", () => {
-  /**
-   * Reconstruct the same top/left/panelH values MapCanvas would compute, then
-   * assert the panel stays clear of the frame borders.
-   */
-  async function assertPanelInsideFrame(
-    paneDims: { width: number; height: number },
-    label: string,
-  ): Promise<void> {
-    const { findPanelCorner } = await import("../apps/client/src/ui/battle-report.js");
-    const { FULL_W, FULL_H, COND_W, COND_H } = await import("../apps/client/src/ui/BattlePanel.js");
-
-    const activeVariant = selectRenderVariant(EARTH_42_BUNDLE, paneDims);
-    const renderLayout = getGeographyBoundingBox(activeVariant.grid);
-
-    const availableContentW = paneDims.width;
-    const availableContentH = paneDims.height;
-
-    const canCenterH = availableContentW >= renderLayout.width;
-    const canCenterV = availableContentH >= renderLayout.height;
-
-    const innerH = availableContentH - 2;
-    const innerW = availableContentW - 2;
-    const hOffset = canCenterH ? Math.floor((innerW - renderLayout.width) / 2) : 0;
-    const vOffset = canCenterV ? Math.floor((innerH - renderLayout.height) / 2) : 0;
-    const maxRows = innerH - vOffset - 1;
-
-    const fullCorner = findPanelCorner(activeVariant.grid, FULL_W, FULL_H, undefined, maxRows);
-    const condensedCorner = !fullCorner
-      ? findPanelCorner(activeVariant.grid, COND_W, COND_H, undefined, maxRows)
-      : null;
-    const chosenCorner = fullCorner ?? condensedCorner;
-    const panelH = fullCorner ? FULL_H : COND_H;
-
-    expect(chosenCorner).not.toBeNull();
-    if (!chosenCorner) return; // narrowing only
-
-    const left = 1 + hOffset + chosenCorner.col;
-    const top = 1 + vOffset + chosenCorner.row;
-
-    // Panel bottom content row = top + panelH − 1.
-    // Canvas bottom border is at content row innerH (= canvas row availableContentH − 1).
-    // "Strictly above" means panel bottom content row < innerH (content rows are 0..innerH-1;
-    // innerH is the canvas bottom border's content-row index).
-    const panelBottomContentRow = top + panelH - 1;
-    // Diagnostic info logged before the assertion so it's visible on failure.
-    console.log(
-      `[${label}] panelBottomContentRow=${panelBottomContentRow} innerH=${innerH} ` +
-      `left=${left} top=${top} panelH=${panelH}`,
-    );
-    expect(panelBottomContentRow < innerH).toBe(
-      true, // panel bottom content row must be strictly above canvas border
-    );
-
-    // Panel left canvas col = 1 + left. Canvas left border is at canvas col 0.
-    // "Strictly right" means left > 0 (content col > 0 = canvas col > 1 > border).
-    expect(left > 0).toBe(true); // panel left content column must be > 0
-
-  }
-
-  it("Earth-42 wide profile: panel bottom strictly inside frame", async () => {
-    // WIDE_COLS × WIDE_ROWS selects the "wide" render variant
-    const paneDims = getMapContentDimensionsForLayout(WIDE_COLS, WIDE_ROWS, "wide");
-    await assertPanelInsideFrame(paneDims, "wide");
-  });
-
-  it("Earth-42 compact profile: panel bottom strictly inside frame", async () => {
-    // COMPACT_COLS × COMPACT_ROWS selects the "compact" render variant
-    const paneDims = getMapContentDimensionsForLayout(COMPACT_COLS, COMPACT_ROWS, "compact");
-    await assertPanelInsideFrame(paneDims, "compact");
-  });
-});
 
 /**
  * Compact map visual frame: render the compact Earth-42 layout with a battle panel

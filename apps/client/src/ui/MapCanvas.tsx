@@ -1163,16 +1163,21 @@ export function MapCanvas({
   // FULL_W/FULL_H/COND_W/COND_H are imported from BattlePanel to stay in sync.
   let battlePanelEl: React.ReactNode = null;
   if (battle) {
-    // innerH/innerW = pane dimensions minus the MapCanvas frame (top+bottom=2, left+right=2).
-    // vOffset/hOffset track how many content-area rows/cols precede the land raster when
-    // the pane is larger than the geography (justifyContent/alignItems "center").
-    // These must be derived from innerH/innerW (not the full pane) because
-    // position="absolute" is relative to the canvas content area, not the border box.
-    // maxRows caps findPanelCorner's bottom-corner search. The panel's bottom content row
-    // is (top + panelH − 1) where top = 1 + vOffset + row; that must be strictly less than
-    // innerH (i.e., <= innerH − 1) so the panel stays inside the frame's last content row.
-    // Substituting: vOffset + row + panelH <= innerH − 1, and row = landH − panelH where
-    // landH = min(land.height, maxRows), gives maxRows = innerH − vOffset − 1.
+    // innerH/innerW = pane content-area size (excluding the MapCanvas frame border).
+    // position="absolute" in OpenTUI is content-area relative (top=0 = first content row).
+    //
+    // vOffset/hOffset mirror OpenTUI's justifyContent/alignItems centering:
+    //   floor((innerH - land.height) / 2)   — may be negative when the land is taller than
+    //   the content area but still fits in the total pane (the frame border rows absorb the
+    //   remainder). A negative value means OpenTUI clips the top/left of the map.
+    //
+    // top = vOffset + corner.row  places the panel at content row (vOffset + row), which is
+    // the same content row where land row `row` appears. No +1 offset: that would shift the
+    // panel one row below findPanelCorner's verified-ocean area, causing an off-by-one that
+    // exposes coastline (▀/▄) on profiles where the map nearly fills the content area.
+    //
+    // maxRows caps findPanelCorner: the panel's bottom content row is vOffset + row + panelH − 1,
+    // which must be < innerH. With row = landH − panelH this gives maxRows = innerH − vOffset − 1.
     const innerH = availableContentH - 2;
     const innerW = availableContentW - 2;
     const hOffset = canCenterH ? Math.floor((innerW - renderLayout.width) / 2) : 0;
@@ -1183,10 +1188,14 @@ export function MapCanvas({
     const chosenCorner = fullCorner ?? condensedCorner;
     const isCondensed = !fullCorner && !!condensedCorner;
     if (chosenCorner) {
-      // chosenCorner.col/row are in land-crop coordinates (0..land.width-1, 0..land.height-1)
-      // +1 for the border of the canvas box
-      const left = 1 + hOffset + chosenCorner.col;
-      const top = 1 + vOffset + chosenCorner.row;
+      // chosenCorner.col/row are in land-crop coordinates (0..land.width-1, 0..land.height-1).
+      // Math.max(0, …) prevents the panel from landing outside the content area when the map
+      // is slightly wider/taller than innerW/innerH (hOffset or vOffset negative): in that
+      // case, clamp to content col/row 0 (frame col/row 1 — inside the border).  Clamping is
+      // applied to the SUM so that when vOffset/hOffset are non-negative the result equals
+      // vOffset+row/hOffset+col without any additional bias.
+      const left = Math.max(0, hOffset + chosenCorner.col);
+      const top  = Math.max(0, vOffset + chosenCorner.row);
       battlePanelEl = (
         <BattlePanel
           report={battle}

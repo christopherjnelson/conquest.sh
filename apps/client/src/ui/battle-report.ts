@@ -4,7 +4,7 @@
  */
 import type { GameEvent, Player } from "@conquest/protocol";
 import type { MapBundle, GridMapDefinition } from "@conquest/map-engine";
-import { getTerritoryAt, getGeographyBoundingBox } from "@conquest/map-engine";
+import { getTerritoryAt, getMicroTerritoryAt, getGeographyBoundingBox } from "@conquest/map-engine";
 
 // ─── View model ──────────────────────────────────────────────────────────────
 
@@ -231,13 +231,19 @@ export function findPanelCorner(
     // Clamp to grid
     if (startX < 0 || startY < 0 || startX + panelW > landW || startY + panelH > landH) continue;
 
-    // Check every cell in the rectangle for land
+    // Check every cell in the rectangle for land.
+    // Use micro-territory checks (both half-rows per cell) so that coastal cells
+    // rendered as ▀/▄ (one micro-half is land, the other ocean) are also rejected.
+    // getTerritoryAt alone misses these: the normal template marks them as ocean.
     let hasLand = false;
     outer: for (let dy = 0; dy < panelH && !hasLand; dy++) {
       for (let dx = 0; dx < panelW; dx++) {
         const gx = originX + startX + dx;
         const gy = originY + startY + dy;
-        if (getTerritoryAt(gx, gy, grid) !== null) { hasLand = true; break outer; }
+        if (
+          getMicroTerritoryAt(gx, 2 * gy, grid) !== null ||
+          getMicroTerritoryAt(gx, 2 * gy + 1, grid) !== null
+        ) { hasLand = true; break outer; }
       }
     }
 
