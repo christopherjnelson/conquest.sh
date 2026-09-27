@@ -22,7 +22,7 @@ import {
   type MapDefinition,
 } from "@conquest/game-core";
 import { getDefaultMap } from "@conquest/map-engine";
-import { generateId, generateRoomCode, getPlayerColor, logger } from "@conquest/shared";
+import { generateId, generateRoomCode, getPlayerColor, logger, generateRngSeed, makeSfc32, makeShuffleFn } from "@conquest/shared";
 
 export interface RoomSocket {
   send(data: string): void;
@@ -40,6 +40,8 @@ export interface GameRoomOptions {
   kind?: RoomKind;
   createdAt?: number;
   onDeserted?: (roomCode: string) => void;
+  /** Deterministic seed for tests. Production code omits this and generates one via crypto. */
+  rngSeed?: Uint8Array;
 }
 
 export interface RoomPlayerSummary {
@@ -63,6 +65,10 @@ export class GameRoom {
   public readonly kind: RoomKind;
   public readonly createdAt: number;
   public onDeserted?: (roomCode: string) => void;
+  /** Seeded PRNG for this room: drives shuffles and dice rolls. NOT broadcast to clients. */
+  public rng: () => number;
+  /** The raw seed used to create rng (kept for debug logging at match end). */
+  private rngSeed: Uint8Array;
 
   public state: GameState;
   private playerSockets = new Map<string, RoomSocket>();
@@ -81,6 +87,8 @@ export class GameRoom {
     this.visibility = options.visibility ?? "public";
     this.createdAt = options.createdAt ?? Date.now();
     this.onDeserted = options.onDeserted;
+    this.rngSeed = options.rngSeed ?? generateRngSeed();
+    this.rng = makeSfc32(this.rngSeed);
 
     const initialSectors: Record<string, Sector> = {};
     for (const s of this.map.sectors) {
@@ -315,7 +323,7 @@ export class GameRoom {
       participatingPlayers,
       this.map,
       3,
-      undefined,
+      makeShuffleFn(this.rng),
       this.matchNumber
     );
 
@@ -358,7 +366,7 @@ export class GameRoom {
       activePlayers,
       this.map,
       3,
-      undefined,
+      makeShuffleFn(this.rng),
       1
     );
 
@@ -524,7 +532,7 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = attackTerritory(this.state, playerId, sourceId, targetId, units);
+    const result = attackTerritory(this.state, playerId, sourceId, targetId, units, this.rng);
     if (result.ok) {
       this.state = result.state;
       for (const event of result.events) {
@@ -594,6 +602,12 @@ export class GameRoom {
       this.state = result.state;
       for (const event of result.events) {
         this.broadcastEvent(event, this.state);
+      }
+      if (this.state.phase === "game_over") {
+        logger.debug(
+          `Match ${this.matchNumber} ended in room ${this.roomCode}. ` +
+          `RNG seed (hex): ${Buffer.from(this.rngSeed).toString("hex")}`
+        );
       }
     }
     return result;

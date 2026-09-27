@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   createInitialGameState,
   deployUnits,
@@ -17,6 +20,10 @@ import type { GameState, Player, ServerEvent, ServerSnapshot } from "../packages
 import { GameRoom, RoomManager } from "../apps/server/src/room.js";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
+
+// Route default session files to a temp dir so they never land in the working tree.
+const _matchLifecycleSessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "conquest-match-lifecycle-"));
+process.env["CONQUEST_SESSION_DIR"] = _matchLifecycleSessionDir;
 
 describe("Match Lifecycle, Victory, Results & Rematch", () => {
   const createTestPlayers = (count: number = 2): Player[] => {

@@ -1,4 +1,7 @@
 import { z } from "zod";
+
+/** Canonical protocol version. Bump the minor on backward-compatible additions, major on breaks. */
+export const PROTOCOL_VERSION = "0.3.0";
 import { GamePhaseSchema } from "./events.js";
 
 export const RoomVisibilitySchema = z.enum(["public", "unlisted"]);

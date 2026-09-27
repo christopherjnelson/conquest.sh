@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
@@ -10,9 +11,12 @@ describe("GameClient: Client Flow & State Synchronization", () => {
   let server: ConquestServer;
   let port: number;
 
-  const sessionFileAlice = path.resolve(process.cwd(), ".conquest-test-session-alice.json");
-  const sessionFileBob = path.resolve(process.cwd(), ".conquest-test-session-bob.json");
-  const sessionFileRecon = path.resolve(process.cwd(), ".conquest-test-session-recon.json");
+  // Use a dedicated temp dir so session files never land in the working tree.
+  const testSessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "conquest-client-flow-"));
+
+  const sessionFileAlice = path.join(testSessionDir, ".conquest-test-session-alice.json");
+  const sessionFileBob = path.join(testSessionDir, ".conquest-test-session-bob.json");
+  const sessionFileRecon = path.join(testSessionDir, ".conquest-test-session-recon.json");
 
   const cleanupSessionFiles = () => {
     try {
@@ -25,6 +29,8 @@ describe("GameClient: Client Flow & State Synchronization", () => {
   };
 
   beforeAll(() => {
+    // Route all default session files into our temp dir so cwd stays clean.
+    process.env["CONQUEST_SESSION_DIR"] = testSessionDir;
     cleanupSessionFiles();
     server = new ConquestServer({
       port: 0,
@@ -39,6 +45,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
   afterAll(() => {
     server.stop();
     cleanupSessionFiles();
+    delete process.env["CONQUEST_SESSION_DIR"];
   });
 
   it("executes the full game flow: join, deploy, attack, chat, end turn, disconnect, and reconnect with session token", async () => {
@@ -298,8 +305,9 @@ describe("GameClient: Client Flow & State Synchronization", () => {
   });
 
   it("allows two clients in the same working directory with different names to join, start a 2-player match, and reconnect independently without session collisions", async () => {
-    const sessionFileAliceDefault = path.resolve(process.cwd(), `.conquest-session-alice-${port}.json`);
-    const sessionFileBobDefault = path.resolve(process.cwd(), `.conquest-session-bob-${port}.json`);
+    // CONQUEST_SESSION_DIR is set in beforeAll to testSessionDir.
+    const sessionFileAliceDefault = path.join(testSessionDir, `.conquest-session-alice-${port}.json`);
+    const sessionFileBobDefault = path.join(testSessionDir, `.conquest-session-bob-${port}.json`);
 
     // Clean up any existing session files
     try {

@@ -2,23 +2,22 @@ import type { Server, ServerWebSocket } from "bun";
 import {
   ClientMessageSchema,
   RoomCodeSchema,
+  PROTOCOL_VERSION,
   type ClientCreateRoom,
   type ClientJoin,
   type ClientMessage,
-  type GamePhase,
   type ServerError,
   type ServerMessage,
   type ServerWelcome,
 } from "@conquest/protocol";
-import type { MapDefinition } from "@conquest/game-core";
+import { isActiveMatchPhase, type MapDefinition } from "@conquest/game-core";
 import { getDefaultMap, getMap, listMaps } from "@conquest/map-engine";
 import { logger } from "@conquest/shared";
 import { RoomManager, type GameRoom } from "./room.js";
 import { SessionStore, type SessionRecord } from "./session.js";
 
-export function isActiveMatchPhase(phase: GamePhase): boolean {
-  return phase === "deployment" || phase === "attack" || phase === "fortify";
-}
+// Re-export so existing imports from server.ts continue to work.
+export { isActiveMatchPhase };
 
 export interface ConquestServerOptions {
   port?: number;
@@ -77,7 +76,7 @@ export class ConquestServer {
         if (url.pathname === "/api/server") {
           return Response.json({
             serverName: self.serverName,
-            protocolVersion: "0.3.0",
+            protocolVersion: PROTOCOL_VERSION,
             roomsCount: self.roomManager.getRoomsCount(),
             playersCount: self.roomManager.getTotalPlayersCount(),
             defaultMap: self.roomManager.defaultMap.name,

@@ -2,6 +2,7 @@ import {
   ServerInfoSchema,
   RoomSummarySchema,
   RoomSummariesSchema,
+  PROTOCOL_VERSION,
   type ClientAttack,
   type ClientChat,
   type ClientCreateRoom,
@@ -92,9 +93,7 @@ export class GameClient {
     if (options.sessionFilePath) {
       this.sessionFilePath = options.sessionFilePath;
     } else {
-      const safeName = (this.playerName || "default").replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
-      const portOrHost = this.extractPortOrHost(this.wsUrl);
-      this.sessionFilePath = path.resolve(process.cwd(), `.conquest-session-${safeName}-${portOrHost}.json`);
+      this.sessionFilePath = this.defaultSessionFilePath();
     }
 
     if (options.forceNewSession) {
@@ -152,6 +151,36 @@ export class GameClient {
       }
       return "4000";
     }
+  }
+
+  /**
+   * Compute the default session file path.
+   * Uses CONQUEST_SESSION_DIR env if set, otherwise falls back to
+   * ${XDG_STATE_HOME:-$HOME/.local/state}/conquest.sh/sessions/.
+   * Creates the directory if it does not exist.
+   */
+  private defaultSessionFilePath(): string {
+    const safeName = (this.playerName || "default").replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
+    const portOrHost = this.extractPortOrHost(this.wsUrl);
+    const filename = `.conquest-session-${safeName}-${portOrHost}.json`;
+
+    let dir: string;
+    const envDir = process.env["CONQUEST_SESSION_DIR"];
+    if (envDir) {
+      dir = envDir;
+    } else {
+      const xdgState = process.env["XDG_STATE_HOME"];
+      const stateBase = xdgState || path.join(process.env["HOME"] || "~", ".local", "state");
+      dir = path.join(stateBase, "conquest.sh", "sessions");
+    }
+
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      // Ignore mkdir errors; saveSession will also fail silently
+    }
+
+    return path.join(dir, filename);
   }
 
   public loadSession(): SessionData | null {
@@ -216,6 +245,8 @@ export class GameClient {
         this.reconnectAttempts = 0;
         this.notifyStatusChange("connected");
         resolve();
+        // Check protocol version compatibility asynchronously (best-effort).
+        this.checkProtocolVersion().catch(() => {/* ignore network errors */});
       };
 
       this.ws.onmessage = (event) => {
@@ -392,9 +423,7 @@ export class GameClient {
     this.playerName = name;
 
     if (!this.options.sessionFilePath && (!previousName || previousName !== name)) {
-      const safeName = (this.playerName || "default").replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
-      const portOrHost = this.extractPortOrHost(this.wsUrl);
-      this.sessionFilePath = path.resolve(process.cwd(), `.conquest-session-${safeName}-${portOrHost}.json`);
+      this.sessionFilePath = this.defaultSessionFilePath();
     }
 
     if (this.sessionToken && previousName && previousName !== name) {
@@ -606,6 +635,27 @@ export class GameClient {
     this.explicitRoomCode = undefined;
     this.state = null;
     this.clearSession();
+  }
+
+  /**
+   * Fetch server info and emit a warning error if the server's major.minor
+   * protocol version differs from the client's.
+   */
+  private async checkProtocolVersion(): Promise<void> {
+    try {
+      const info = await this.fetchServerInfo();
+      const [cMaj, cMin] = PROTOCOL_VERSION.split(".").map(Number);
+      const [sMaj, sMin] = info.protocolVersion.split(".").map(Number);
+      if (cMaj !== sMaj || cMin !== sMin) {
+        this.notifyError(
+          `Protocol version mismatch: client is ${PROTOCOL_VERSION}, server is ${info.protocolVersion}. ` +
+            "Some features may not work correctly.",
+          "PROTOCOL_VERSION_MISMATCH"
+        );
+      }
+    } catch {
+      // Network errors are silently ignored; the WebSocket will report them
+    }
   }
 
   public async fetchServerInfo(): Promise<ServerInfo> {
