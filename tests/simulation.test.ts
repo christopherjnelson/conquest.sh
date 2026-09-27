@@ -179,12 +179,15 @@ function runBotTurn(
       allAttackables;
 
     const choice = attackables[Math.floor(rng() * attackables.length)]!;
-    const beforeArmies = totalArmies(state);
     const r = attackTerritory(state, playerId, choice.src.id, choice.tgt.id, undefined, rng);
     if (!r.ok) break;
     state = r.state;
-    // Loss = reduction in total armies due to combat (both sides combined)
-    losses += beforeArmies - totalArmies(state);
+    // Extract losses from the emitted attack_resolved event so the invariant
+    // checks game-core applied the dice outcome correctly (not circular).
+    const resolvedEvent = r.events.find((e) => e.type === "attack_resolved");
+    if (resolvedEvent && resolvedEvent.type === "attack_resolved") {
+      losses += resolvedEvent.attackerLosses + resolvedEvent.defenderLosses;
+    }
     if (state.phase === "game_over") return { state, deployments, losses };
   }
 

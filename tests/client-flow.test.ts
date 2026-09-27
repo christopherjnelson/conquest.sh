@@ -120,9 +120,23 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     expect(gameSnapshotA.players[0].id).toBe(aliceId);
     expect(gameSnapshotA.pendingReinforcements).toBeGreaterThanOrEqual(3);
 
-    // 3. Alice deploys reinforcements to territory A1
+    // Derive a deploy target from Alice's actual territory distribution (shuffle may
+    // vary run-to-run).  Pick a border territory if one exists so it also serves as
+    // the attack source later; fall back to any owned territory.
+    const aliceTerrsBefore = Object.values(gameSnapshotA.territories).filter(
+      (t) => t.ownerId === aliceId
+    );
+    const aliceBorderTerr = aliceTerrsBefore.find((src) =>
+      src.units >= 2 &&
+      src.neighbors.some((n) => gameSnapshotA.territories[n]?.ownerId === bobId)
+    ) ?? aliceTerrsBefore.find((src) =>
+      src.neighbors.some((n) => gameSnapshotA.territories[n]?.ownerId === bobId)
+    ) ?? aliceTerrsBefore[0]!;
+    const deployTerritoryId = aliceBorderTerr.id;
+
+    // 3. Alice deploys all reinforcements to the chosen territory
     const alicePending = clientA.state!.pendingReinforcements;
-    clientA.deploy("A1", alicePending);
+    clientA.deploy(deployTerritoryId, alicePending);
 
     // Both clients receive units_deployed event
     const deployEventA = await clientA.waitForEvent((e) => e.type === "units_deployed");
@@ -131,7 +145,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     expect(deployEventA.type).toBe("units_deployed");
     if (deployEventA.type === "units_deployed") {
       expect(deployEventA.playerId).toBe(aliceId);
-      expect(deployEventA.territoryId).toBe("A1");
+      expect(deployEventA.territoryId).toBe(deployTerritoryId);
       expect(deployEventA.count).toBe(alicePending);
     }
     expect(deployEventB.type).toBe("units_deployed");
@@ -139,11 +153,24 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     // State should now transition to "attack" phase
     const attackPhaseA = await clientA.waitForSnapshot((s) => s.phase === "attack");
     expect(attackPhaseA.phase).toBe("attack");
-    expect(clientA.state?.territories["A1"].units).toBeGreaterThanOrEqual(alicePending);
+    expect(clientA.state?.territories[deployTerritoryId].units).toBeGreaterThanOrEqual(alicePending);
 
-    // 4. Alice attacks Bob's adjacent territory (A2)
-    // In Ironreach, A1 is adjacent to A2
-    clientA.attack("A1", "A2", 3);
+    // 4. Alice attacks an adjacent enemy territory. Derive src/target from the
+    // actual post-deploy snapshot so the test is seed-independent.
+    const aliceTerrsAfterDeploy = Object.values(attackPhaseA.territories).filter(
+      (t) => t.ownerId === aliceId
+    );
+    const attackSrc = aliceTerrsAfterDeploy.find(
+      (src) =>
+        src.units >= 2 &&
+        src.neighbors.some((n) => attackPhaseA.territories[n]?.ownerId === bobId)
+    )!;
+    expect(attackSrc).toBeDefined();
+    const attackTgtId = attackSrc.neighbors.find(
+      (n) => attackPhaseA.territories[n]?.ownerId === bobId
+    )!;
+    expect(attackTgtId).toBeDefined();
+    clientA.attack(attackSrc.id, attackTgtId, 3);
 
     const attackEventA = await clientA.waitForEvent((e) => e.type === "attack_resolved");
     const attackEventB = await clientB.waitForEvent((e) => e.type === "attack_resolved");
@@ -152,8 +179,8 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     if (attackEventA.type === "attack_resolved") {
       expect(attackEventA.attackerId).toBe(aliceId);
       expect(attackEventA.defenderId).toBe(bobId);
-      expect(attackEventA.sourceTerritoryId).toBe("A1");
-      expect(attackEventA.targetTerritoryId).toBe("A2");
+      expect(attackEventA.sourceTerritoryId).toBe(attackSrc.id);
+      expect(attackEventA.targetTerritoryId).toBe(attackTgtId);
       expect(attackEventA.attackerRolls.length).toBeGreaterThan(0);
       expect(attackEventA.defenderRolls.length).toBeGreaterThan(0);
     }
