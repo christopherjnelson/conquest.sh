@@ -150,10 +150,17 @@ describe("Bandwidth and state projection", () => {
       autoReconnect: false,
     });
 
-    // Byte-tracking for client A — patch onmessage BEFORE connecting
+    // Byte-tracking for client A — patch onmessage BEFORE connecting.
+    // We also reconstruct what the old protocol would have sent for each
+    // server:event: `{type:"server:event", event, state: fullServerState}`.
     let totalBytesNew = 0;
+    let totalBytesOld = 0;
     let maxMsgBytesNew = 0;
     let msgCount = 0;
+
+    // We need a reference to the server room to capture the full state for old-protocol reconstruction.
+    // This is captured lazily once the room is known.
+    let serverRoomRef: ReturnType<typeof server.roomManager.findRoomByPlayerId> = undefined;
 
     await clientA.connect();
     await clientB.connect();
@@ -166,6 +173,32 @@ describe("Bandwidth and state projection", () => {
       totalBytesNew += bytes;
       msgCount++;
       if (bytes > maxMsgBytesNew) maxMsgBytesNew = bytes;
+
+      // Reconstruct old-protocol payload: for server:event, replace delta with
+      // the full server state (as the old protocol sent state in every event).
+      try {
+        const parsed = JSON.parse(raw) as { type: string; event?: unknown };
+        if (parsed.type === "server:event" && parsed.event) {
+          // Capture the room reference lazily
+          if (!serverRoomRef && clientA.myPlayerId) {
+            serverRoomRef = server.roomManager.findRoomByPlayerId(clientA.myPlayerId);
+          }
+          if (serverRoomRef) {
+            const oldPayload = JSON.stringify({
+              type: "server:event",
+              event: parsed.event,
+              state: serverRoomRef.state, // full state with full history (old protocol)
+            });
+            totalBytesOld += oldPayload.length;
+          }
+        } else {
+          // For non-event messages (welcome, snapshot, pong), assume old and new were identical.
+          totalBytesOld += bytes;
+        }
+      } catch {
+        totalBytesOld += bytes;
+      }
+
       origHandler.call(clientA.ws!, ev);
     };
 
@@ -176,6 +209,11 @@ describe("Bandwidth and state projection", () => {
     clientB.join("Bravo", roomCode);
     await clientA.waitForSnapshot(s => s.players.length === 2, 5000);
     await clientB.waitForSnapshot(s => s.players.length === 2, 5000);
+
+    // Capture the room reference after both players have joined.
+    if (!serverRoomRef && clientA.myPlayerId) {
+      serverRoomRef = server.roomManager.findRoomByPlayerId(clientA.myPlayerId);
+    }
 
     clientA.ready();
     clientB.ready();
@@ -244,38 +282,25 @@ describe("Bandwidth and state projection", () => {
 
     // ── Bandwidth numbers ────────────────────────────────────────────────────
 
-    // Old protocol estimate: every event carried the full server GameState.
-    // Compute what one full-state event message would look like at game end.
+    // `totalBytesOld` was accumulated by reconstructing what the old protocol
+    // would have sent for each server:event: `{type, event, state: fullState}`.
+    // This is a real measurement, not an estimate.
     const serverRoom = server.roomManager.findRoomByPlayerId(clientA.myPlayerId!);
     const serverState = serverRoom?.state;
-
-    let oldEstimatedBytes = 0;
-    if (serverState) {
-      const sampleOldEvent = JSON.stringify({
-        type: "server:event",
-        event: { type: "units_deployed", playerId: "p1", territoryId: "t1",
-                 count: 3, remainingReinforcements: 0, timestamp: Date.now() },
-        state: serverState,  // full state with full history
-      });
-      // Old protocol: every message (event AND snapshot) carried full state.
-      // Conservative estimate: only events (not snapshots) at full-state size.
-      // Actual old behavior would be even larger.
-      oldEstimatedBytes = sampleOldEvent.length * msgCount;
-    }
 
     console.log("\n─── Bandwidth Report ─────────────────────────────────────────");
     console.log(`  Messages received by client A:   ${msgCount}`);
     console.log(`  Total bytes (new δ protocol):    ${totalBytesNew.toLocaleString()}`);
     console.log(`  Max single message (new):        ${maxMsgBytesNew.toLocaleString()} bytes`);
-    if (oldEstimatedBytes > 0) {
-      console.log(`  Estimated old-protocol total:    ${oldEstimatedBytes.toLocaleString()} bytes`);
-      console.log(`  Reduction vs old:                ${((1 - totalBytesNew / oldEstimatedBytes) * 100).toFixed(1)}%`);
+    if (totalBytesOld > 0) {
+      console.log(`  Old-protocol total (real):       ${totalBytesOld.toLocaleString()} bytes`);
+      console.log(`  Reduction vs old:                ${((1 - totalBytesNew / totalBytesOld) * 100).toFixed(1)}%`);
     }
     console.log("─────────────────────────────────────────────────────────────");
 
-    // Assert new protocol is smaller than old estimate
-    if (oldEstimatedBytes > 0) {
-      expect(totalBytesNew).toBeLessThan(oldEstimatedBytes);
+    // Assert new protocol is smaller than old (real reconstruction)
+    if (totalBytesOld > 0) {
+      expect(totalBytesNew).toBeLessThan(totalBytesOld);
     }
 
     // ── End-of-game state equality ───────────────────────────────────────────

@@ -3,32 +3,22 @@ import { GameEventSchema, GameStateSchema, PlayerSchema, TerritoryStateSchema, G
 import { RoomVisibilitySchema, RoomCodeSchema } from "./api.js";
 
 /**
- * A minimal state delta: only the fields that changed since the previous
- * projected state. `territories` is a partial record of changed territory ids.
- * Absent keys mean "unchanged". Null scalar values mean "set to null".
- * History is never included in deltas — events arrive as discrete `server:event` items.
+ * A generic state delta. Keys match the top-level keys of `GameState`.
+ *
+ * - `set`: fields that changed, serialised as JSON-safe values. The special
+ *   key `"territories"` is a partial record (only changed territory ids).
+ *   `"history"` is never included — events carry the increment discretely.
+ * - `unset`: top-level keys present in the previous state that are now absent
+ *   or explicitly `undefined`. Needed because JSON drops `undefined` values,
+ *   so a deletion can't be represented as a key with value `undefined`.
+ *
+ * New fields added to `GameState` propagate automatically; no manual list.
  */
 export const StateDeltaSchema = z.object({
-  territories: z.record(TerritoryStateSchema).optional(),
-  players: z.array(PlayerSchema).optional(),
-  phase: GamePhaseSchema.optional(),
-  activePlayerIndex: z.number().int().optional(),
-  turnNumber: z.number().int().optional(),
-  pendingReinforcements: z.number().optional(),
-  pendingConquestMove: z.object({
-    sourceTerritoryId: z.string(),
-    targetTerritoryId: z.string(),
-    defenderId: z.string(),
-    minimumUnits: z.number().int().min(1),
-    maximumUnits: z.number().int().min(1),
-  }).nullable().optional(),
-  hasConqueredThisTurn: z.boolean().optional(),
-  winnerId: z.string().nullable().optional(),
-  result: MatchResultSchema.nullable().optional(),
-  turnDeadlineAt: z.number().nullable().optional(),
-  matchNumber: z.number().int().optional(),
-  startedAt: z.number().optional(),
-  endedAt: z.number().nullable().optional(),
+  /** Changed fields (partial GameState, `territories` is a keyed-record diff). */
+  set: z.record(z.unknown()).optional(),
+  /** Keys to delete from the client state (present in prev, absent in next). */
+  unset: z.array(z.string()).optional(),
 });
 export type StateDelta = z.infer<typeof StateDeltaSchema>;
 

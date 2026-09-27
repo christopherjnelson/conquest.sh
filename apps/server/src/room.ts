@@ -80,46 +80,72 @@ export interface RoomPlayerSummary {
 }
 
 /**
- * Compute the minimal delta between two projected states.
- * Only fields that actually changed are included.
- * History is never in deltas — events carry the history increments.
+ * Compute the minimal delta between two projected states generically.
+ *
+ * Iterates the union of all top-level keys in prev and next (excluding
+ * `history`, which is never diffed — events carry the increment).
+ * `territories` is treated as a keyed-record diff so only changed territory
+ * entries are transmitted.  All other fields are deep-compared via
+ * JSON.stringify; if changed they land in `set`, if removed they land in
+ * `unset`.
+ *
+ * Because the diff iterates keys generically, any new GameState field (card
+ * hands, trade counters, …) propagates to clients automatically without
+ * manual list maintenance.
  */
 function diffProjectedStates(prev: GameState, next: GameState): StateDelta {
-  const delta: StateDelta = {};
+  const set: Record<string, unknown> = {};
+  const unset: string[] = [];
 
-  // Territories: include only changed ones
-  const changedTerritories: Record<string, GameState["territories"][string]> = {};
-  const allIds = new Set([...Object.keys(prev.territories), ...Object.keys(next.territories)]);
-  for (const id of allIds) {
-    const pT = prev.territories[id];
-    const nT = next.territories[id];
-    if (JSON.stringify(pT) !== JSON.stringify(nT)) {
-      if (nT) changedTerritories[id] = nT;
+  const prevRec = prev as Record<string, unknown>;
+  const nextRec = next as Record<string, unknown>;
+  const allKeys = new Set([
+    ...Object.keys(prevRec),
+    ...Object.keys(nextRec),
+  ]);
+
+  for (const key of allKeys) {
+    if (key === "history") continue; // history flows via discrete events
+
+    const prevVal = prevRec[key];
+    const nextVal = nextRec[key];
+
+    // Key removed in next
+    if (!(key in nextRec) || nextVal === undefined) {
+      unset.push(key);
+      continue;
+    }
+
+    // Key added in next (wasn't in prev)
+    if (!(key in prevRec) || prevVal === undefined) {
+      set[key] = nextVal;
+      continue;
+    }
+
+    // Special case: territories → keyed record diff (only changed territory ids)
+    if (key === "territories") {
+      const prevT = prev.territories;
+      const nextT = next.territories;
+      const changedT: Record<string, unknown> = {};
+      const allIds = new Set([...Object.keys(prevT), ...Object.keys(nextT)]);
+      for (const id of allIds) {
+        if (JSON.stringify(prevT[id]) !== JSON.stringify(nextT[id])) {
+          changedT[id] = nextT[id]; // undefined means the territory was removed
+        }
+      }
+      if (Object.keys(changedT).length > 0) set["territories"] = changedT;
+      continue;
+    }
+
+    // Generic: deep JSON compare
+    if (JSON.stringify(prevVal) !== JSON.stringify(nextVal)) {
+      set[key] = nextVal;
     }
   }
-  if (Object.keys(changedTerritories).length > 0) delta.territories = changedTerritories;
 
-  // Players: include full array if anything changed
-  if (JSON.stringify(prev.players) !== JSON.stringify(next.players)) {
-    delta.players = next.players;
-  }
-
-  // Scalar fields
-  if (prev.phase !== next.phase) delta.phase = next.phase;
-  if (prev.activePlayerIndex !== next.activePlayerIndex) delta.activePlayerIndex = next.activePlayerIndex;
-  if (prev.turnNumber !== next.turnNumber) delta.turnNumber = next.turnNumber;
-  if (prev.pendingReinforcements !== next.pendingReinforcements) delta.pendingReinforcements = next.pendingReinforcements;
-  if (JSON.stringify(prev.pendingConquestMove) !== JSON.stringify(next.pendingConquestMove)) {
-    delta.pendingConquestMove = next.pendingConquestMove;
-  }
-  if (prev.hasConqueredThisTurn !== next.hasConqueredThisTurn) delta.hasConqueredThisTurn = next.hasConqueredThisTurn;
-  if (prev.winnerId !== next.winnerId) delta.winnerId = next.winnerId;
-  if (JSON.stringify(prev.result) !== JSON.stringify(next.result)) delta.result = next.result;
-  if ((prev.turnDeadlineAt ?? null) !== (next.turnDeadlineAt ?? null)) delta.turnDeadlineAt = next.turnDeadlineAt ?? null;
-  if (prev.matchNumber !== next.matchNumber) delta.matchNumber = next.matchNumber;
-  if ((prev.startedAt ?? null) !== (next.startedAt ?? null)) delta.startedAt = next.startedAt;
-  if ((prev.endedAt ?? null) !== (next.endedAt ?? null)) delta.endedAt = next.endedAt ?? null;
-
+  const delta: StateDelta = {};
+  if (Object.keys(set).length > 0) delta.set = set;
+  if (unset.length > 0) delta.unset = unset;
   return delta;
 }
 
@@ -145,8 +171,14 @@ export class GameRoom {
   public state: GameState;
   /** Monotonically increasing state version. Increments on every successful applyResult. */
   public stateVersion: number = 0;
-  /** The projected state BEFORE the last applyResult, used for delta computation. */
-  private prevProjectedState: GameState | null = null;
+  /**
+   * Per-viewer baseline projected states, keyed by playerId.
+   * When computing the delta for a `server:event`, each player's delta is
+   * computed from their own baseline so the delta is personalised to their
+   * projection (future: card hands visible only to the holder, etc.).
+   * Baselines are reset on start/rematch/join/reconnect/resync.
+   */
+  private prevProjectedStates = new Map<string, GameState>();
   private playerSockets = new Map<string, RoomSocket>();
   private playerTokens = new Map<string, string>();
 
@@ -440,7 +472,7 @@ export class GameRoom {
     initialState.history.unshift(rematchEvent);
     this.state = initialState;
     this.stateVersion++;
-    this.prevProjectedState = null;
+    this.prevProjectedStates.clear();
 
     // Clear timers from previous match, then stamp deadline before broadcasting.
     this.clearAllTimers();
@@ -493,7 +525,7 @@ export class GameRoom {
 
     this.state = initialState;
     this.stateVersion++;
-    this.prevProjectedState = null;
+    this.prevProjectedStates.clear();
 
     // Stamp the turn deadline BEFORE broadcasting so clients see it immediately.
     this.applyTurnDeadline();
@@ -785,14 +817,16 @@ export class GameRoom {
 
   /**
    * Apply an action result: update state, broadcast events, reset timers if turn advanced.
+   *
+   * Per-viewer deltas: each connected player receives a delta computed from
+   * their own baseline projection so that per-player hidden information
+   * (card hands, etc.) is naturally personalised.
    */
   private applyResult<T>(
     prevActiveIndex: number,
     result: ActionResult<T>
   ): ActionResult<T> {
     if (result.ok) {
-      // Capture the projected previous state for delta computation.
-      const prevProjected = projectStateFor(this.state, null);
       this.state = result.state;
       // Detect turn advancement early so we can stamp the deadline BEFORE
       // any broadcast, ensuring clients receive the new turnDeadlineAt.
@@ -803,14 +837,34 @@ export class GameRoom {
         this.cancelTurnTimeout();
         this.applyTurnDeadline();
       }
-      // Increment version and compute delta after deadline is applied.
+      // Increment version after deadline is applied.
       this.stateVersion++;
-      const nextProjected = projectStateFor(this.state, null);
-      const delta = diffProjectedStates(prevProjected, nextProjected);
-      this.prevProjectedState = nextProjected;
+
+      // Compute per-viewer projected state and delta, then serialize per socket.
       for (const event of result.events) {
-        this.broadcastEventWithDelta(event, this.stateVersion, delta);
+        const eventJson = JSON.stringify(event);
+        for (const [pId, socket] of this.playerSockets.entries()) {
+          const nextProjected = projectStateFor(this.state, pId);
+          const prevProjected = this.prevProjectedStates.get(pId);
+          const delta = prevProjected
+            ? diffProjectedStates(prevProjected, nextProjected)
+            : {};
+          // Update the per-viewer baseline for next event in this applyResult.
+          this.prevProjectedStates.set(pId, nextProjected);
+          const message = JSON.stringify({
+            type: "server:event",
+            event: JSON.parse(eventJson),
+            version: this.stateVersion,
+            delta,
+          });
+          try {
+            socket.send(message);
+          } catch (err) {
+            logger.error(`Error sending event to player ${pId} in room ${this.roomCode}:`, err);
+          }
+        }
       }
+
       // If game ended, clear all timers and log the RNG seed for reproducibility
       if (this.state.phase === "game_over") {
         this.clearAllTimers();
@@ -969,20 +1023,6 @@ export class GameRoom {
   }
 
   /**
-   * Broadcast a server:event with a precomputed delta to all sockets.
-   * This is the internal method used by applyResult.
-   */
-  private broadcastEventWithDelta(event: GameEvent, version: number, delta: StateDelta, excludePlayerId?: string) {
-    const message: ServerEvent = {
-      type: "server:event",
-      event,
-      version,
-      delta,
-    };
-    this.broadcast(message, excludePlayerId);
-  }
-
-  /**
    * Broadcast a server:event for lobby/game-management events that don't
    * go through applyResult (e.g. player_joined, player_left, player_reconnected).
    * These carry an empty delta since state changes for these events are delivered
@@ -1000,10 +1040,15 @@ export class GameRoom {
 
   /**
    * Broadcast full server:snapshot to all connected sockets in this room.
+   * Resets each player's per-viewer delta baseline to the snapshot projection,
+   * so future deltas are computed from the state the client is known to have.
    */
   broadcastSnapshot() {
     for (const [pId, socket] of this.playerSockets.entries()) {
       const projected = projectStateFor(this.state, pId);
+      // Reset the per-viewer baseline: after this snapshot the client's state
+      // is exactly `projected`, so the next delta should diff from here.
+      this.prevProjectedStates.set(pId, projected);
       const message: ServerSnapshot = {
         type: "server:snapshot",
         state: projected,
@@ -1020,12 +1065,15 @@ export class GameRoom {
 
   /**
    * Send full server:snapshot to a specific player.
+   * Resets that player's per-viewer delta baseline.
    */
   sendSnapshot(playerId: string) {
     const socket = this.playerSockets.get(playerId);
     if (!socket) return;
 
     const projected = projectStateFor(this.state, playerId);
+    // Reset the per-viewer baseline for this player.
+    this.prevProjectedStates.set(playerId, projected);
     const message: ServerSnapshot = {
       type: "server:snapshot",
       state: projected,
@@ -1040,9 +1088,12 @@ export class GameRoom {
   }
 
   /**
-   * Handle a resync request from a client: send them the current snapshot.
+   * Handle a resync request from a client: send them the current snapshot
+   * and reset their delta baseline.
    */
   handleResync(playerId: string) {
+    // Delete the baseline so the next snapshot resets it cleanly.
+    this.prevProjectedStates.delete(playerId);
     this.sendSnapshot(playerId);
   }
 

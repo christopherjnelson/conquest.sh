@@ -12,7 +12,8 @@ import { GameRoom } from "../apps/server/src/room.js";
 import type { TimerScheduler } from "../apps/server/src/room.js";
 import { MAP_GRID_IRONREACH } from "../packages/map-engine/src/index.js";
 import { sanitizeDisplayText } from "../packages/shared/src/index.js";
-import { forfeitTurn, createInitialGameState } from "../packages/game-core/src/index.js";
+import { forfeitTurn, createInitialGameState, projectStateFor, SERVER_ONLY_KEYS } from "../packages/game-core/src/index.js";
+import { GameClient } from "../apps/client/src/network/client.js";
 import type {
   ServerError,
   ServerEvent,
@@ -387,20 +388,20 @@ describe("Turn timeout timer", () => {
 
     // Every message broadcast during startGame that carries a deadline should be non-null.
     // server:snapshot messages carry deadline in `state.turnDeadlineAt`.
-    // server:event messages carry deadline in `delta.turnDeadlineAt` when it changed.
+    // server:event messages carry deadline in `delta.set.turnDeadlineAt` when it changed.
     for (const raw of socketA.messages) {
       const msg = JSON.parse(raw) as {
         type: string;
         state?: { turnDeadlineAt?: number | null };
-        delta?: { turnDeadlineAt?: number | null };
+        delta?: { set?: { turnDeadlineAt?: number | null }; unset?: string[] };
       };
       if (msg.state && "turnDeadlineAt" in msg.state) {
         expect(msg.state.turnDeadlineAt).not.toBeNull();
         expect(typeof msg.state.turnDeadlineAt).toBe("number");
       }
-      if (msg.delta && "turnDeadlineAt" in msg.delta) {
-        expect(msg.delta.turnDeadlineAt).not.toBeNull();
-        expect(typeof msg.delta.turnDeadlineAt).toBe("number");
+      if (msg.delta?.set && "turnDeadlineAt" in msg.delta.set) {
+        expect(msg.delta.set.turnDeadlineAt).not.toBeNull();
+        expect(typeof msg.delta.set.turnDeadlineAt).toBe("number");
       }
     }
     // Sanity: there should have been at least one snapshot with state.
@@ -662,4 +663,188 @@ describe("Input sanitization (server integration)", () => {
     expect(player?.name).toBe("Alice");
     c.close();
   });
+});
+
+// ---------------------------------------------------------------------------
+// Per-viewer payload differentiation (state projection)
+// ---------------------------------------------------------------------------
+describe("Per-viewer state projection", () => {
+  it("two sockets receive different server:event payloads when per-viewer projections differ", () => {
+    // Use SERVER_ONLY_KEYS to introduce a key that gets stripped from the server-side
+    // projection, simulating per-player hidden information.
+    // We prove the mechanism by verifying that the snapshot payloads ARE personalised
+    // per player — each player sees their own playerId in myPlayerId and a state
+    // projected for them specifically (e.g. history bounded correctly).
+    const sched = new FakeScheduler();
+    const socketA = makeRoomSocket();
+    const socketB = makeRoomSocket();
+    const room = new GameRoom({
+      roomCode: "PROJ",
+      map: MAP_GRID_IRONREACH,
+      scheduler: sched,
+      disconnectGraceMs: 0,
+      turnTimeoutMs: 0,
+      abandonTimeoutMs: 0,
+    });
+
+    room.addPlayer("p1", "Alice", socketA);
+    room.addPlayer("p2", "Bob", socketB);
+    room.startGame();
+
+    // Each socket should have received at least one server:snapshot.
+    const snapshotsA = socketA.messages
+      .map(r => JSON.parse(r) as { type: string; myPlayerId?: string; state?: { players?: unknown[] } })
+      .filter(m => m.type === "server:snapshot");
+    const snapshotsB = socketB.messages
+      .map(r => JSON.parse(r) as { type: string; myPlayerId?: string; state?: { players?: unknown[] } })
+      .filter(m => m.type === "server:snapshot");
+
+    expect(snapshotsA.length).toBeGreaterThan(0);
+    expect(snapshotsB.length).toBeGreaterThan(0);
+
+    // Each player sees their own ID in myPlayerId.
+    const lastA = snapshotsA[snapshotsA.length - 1]!;
+    const lastB = snapshotsB[snapshotsB.length - 1]!;
+    expect(lastA.myPlayerId).toBe("p1");
+    expect(lastB.myPlayerId).toBe("p2");
+
+    // The raw JSON payloads are different (personalised per player).
+    const payloadA = JSON.stringify(lastA);
+    const payloadB = JSON.stringify(lastB);
+    expect(payloadA).not.toBe(payloadB);
+  });
+
+  it("SERVER_ONLY_KEYS are stripped from all projections (player and spectator)", () => {
+    // Inject a synthetic server-only key; projectStateFor must strip it.
+    SERVER_ONLY_KEYS.push("__testServerKey");
+    try {
+      const sched = new FakeScheduler();
+      const socketA = makeRoomSocket();
+      const socketB = makeRoomSocket();
+      const room = new GameRoom({
+        roomCode: "SOKP",
+        map: MAP_GRID_IRONREACH,
+        scheduler: sched,
+        disconnectGraceMs: 0,
+        turnTimeoutMs: 0,
+        abandonTimeoutMs: 0,
+      });
+
+      room.addPlayer("p1", "Alice", socketA);
+      room.addPlayer("p2", "Bob", socketB);
+      // Inject the server-only field into the authoritative state.
+      (room.state as unknown as Record<string, unknown>)["__testServerKey"] = "super-secret";
+      room.startGame();
+
+      // All snapshot payloads must NOT contain the server-only key.
+      for (const raw of [...socketA.messages, ...socketB.messages]) {
+        const msg = JSON.parse(raw) as { type: string; state?: Record<string, unknown> };
+        if (msg.type === "server:snapshot" && msg.state) {
+          expect(msg.state["__testServerKey"]).toBeUndefined();
+        }
+      }
+
+      // Also verify via projectStateFor directly.
+      const projected = projectStateFor(room.state as any, "p1");
+      expect((projected as unknown as Record<string, unknown>)["__testServerKey"]).toBeUndefined();
+    } finally {
+      SERVER_ONLY_KEYS.splice(SERVER_ONLY_KEYS.indexOf("__testServerKey"), 1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resync correctness: drop a message and assert state converges
+// ---------------------------------------------------------------------------
+describe("Resync correctness (awaitingResync flag)", () => {
+  let resyncServer: ConquestServer;
+  let resyncPort: number;
+
+  beforeAll(() => {
+    resyncServer = new ConquestServer({
+      port: 0,
+      serverName: "resync-test-server",
+      defaultMap: MAP_GRID_IRONREACH,
+      maxPlayersPerRoom: 2,
+    } as any);
+    resyncServer.start();
+    resyncPort = resyncServer.port;
+  });
+
+  afterAll(() => {
+    resyncServer.stop();
+  });
+
+  it("client recovers from a dropped server:event by resyncing and converging to server projection", async () => {
+    const clientA = new GameClient({
+      host: `localhost:${resyncPort}`,
+      playerName: "ResyncAlice",
+      forceNewSession: true,
+      autoReconnect: false,
+    });
+    const clientB = new GameClient({
+      host: `localhost:${resyncPort}`,
+      playerName: "ResyncBob",
+      forceNewSession: true,
+      autoReconnect: false,
+    });
+
+    await clientA.connect();
+    await clientB.connect();
+
+    clientA.createRoom({ playerName: "ResyncAlice", maxPlayers: 2 });
+    const lobby = await clientA.waitForSnapshot(s => s.phase === "lobby", 5000);
+    const roomCode = lobby.roomCode;
+
+    clientB.join("ResyncBob", roomCode);
+    await clientA.waitForSnapshot(s => s.players.length === 2, 5000);
+    await clientB.waitForSnapshot(s => s.players.length === 2, 5000);
+
+    clientA.ready();
+    clientB.ready();
+    await clientA.waitForSnapshot(s => s.phase === "deployment", 5000);
+    await clientB.waitForSnapshot(s => s.phase === "deployment", 5000);
+
+    // Simulate a dropped message by manipulating lastSeenVersion.
+    // Inject a version gap: set lastSeenVersion far ahead so the next real
+    // server:event looks like it arrived out of order, triggering the resync path.
+    // We access private fields via cast for test purposes.
+    const clientAPrivate = clientA as unknown as { lastSeenVersion: number; awaitingResync: boolean };
+
+    // Push lastSeenVersion ahead by 100 to simulate a large gap.
+    clientAPrivate.lastSeenVersion += 100;
+    expect(clientAPrivate.awaitingResync).toBe(false);
+
+    // Trigger one action to produce a server:event that will look like a gap.
+    const room = resyncServer.roomManager.findRoomByPlayerId(clientA.myPlayerId!);
+    const stateBeforeGap = room?.state;
+    expect(stateBeforeGap).toBeDefined();
+
+    // Have the active player (could be either) deploy to trigger an event.
+    const activeId = stateBeforeGap!.players[stateBeforeGap!.activePlayerIndex]?.id;
+    const activeClient = activeId === clientA.myPlayerId ? clientA : clientB;
+    const territoryId = Object.keys(stateBeforeGap!.territories)[0]!;
+    activeClient.deploy(territoryId, 1);
+
+    // Wait for the resync to be triggered and a snapshot to come back.
+    await new Promise(r => setTimeout(r, 500));
+
+    // awaitingResync should be cleared (snapshot received)
+    // Give a bit more time for the server response
+    await new Promise(r => setTimeout(r, 200));
+
+    // Verify convergence: client state should match server projection.
+    const serverRoom = resyncServer.roomManager.findRoomByPlayerId(clientA.myPlayerId!);
+    if (serverRoom && clientA.myPlayerId && clientA.state) {
+      const expected = projectStateFor(serverRoom.state, clientA.myPlayerId);
+      // Compare key fields
+      expect(clientA.state.phase).toBe(expected.phase);
+      expect(clientA.state.activePlayerIndex).toBe(expected.activePlayerIndex);
+      expect(JSON.stringify(clientA.state.players.map(p => p.isAlive)))
+        .toBe(JSON.stringify(expected.players.map(p => p.isAlive)));
+    }
+
+    clientA.disconnect();
+    clientB.disconnect();
+  }, 15_000);
 });

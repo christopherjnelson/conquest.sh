@@ -33,27 +33,46 @@ export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "di
 
 /**
  * Apply a server-sent state delta onto the current client state.
- * Delta fields are absolute values, not increments, so this is idempotent.
+ *
+ * Generic inverse of `diffProjectedStates` on the server:
+ * - `delta.set`: fields that changed; merged into the state. The special key
+ *   `"territories"` is a partial record diff — merged entry-by-entry so only
+ *   changed territory ids are updated.
+ * - `delta.unset`: top-level keys to delete from the state (present in prev,
+ *   gone in next).
+ *
+ * Because `set` and `unset` are generic maps, any new GameState field
+ * propagates to clients automatically without manual list maintenance.
  */
 function applyStateDelta(state: GameState, delta: StateDelta): GameState {
-  const next: GameState = { ...state };
-  if (delta.territories) {
-    next.territories = { ...state.territories, ...delta.territories };
+  const next = { ...state } as Record<string, unknown>;
+
+  if (delta.set) {
+    for (const [key, value] of Object.entries(delta.set)) {
+      if (key === "territories" && typeof value === "object" && value !== null) {
+        // Merge keyed-record diff: only changed territory entries
+        const merged = { ...(state.territories ?? {}) } as Record<string, unknown>;
+        for (const [tid, tval] of Object.entries(value as Record<string, unknown>)) {
+          if (tval === undefined || tval === null) {
+            delete merged[tid];
+          } else {
+            merged[tid] = tval;
+          }
+        }
+        next["territories"] = merged;
+      } else {
+        next[key] = value;
+      }
+    }
   }
-  if (delta.players !== undefined) next.players = delta.players;
-  if (delta.phase !== undefined) next.phase = delta.phase;
-  if (delta.activePlayerIndex !== undefined) next.activePlayerIndex = delta.activePlayerIndex;
-  if (delta.turnNumber !== undefined) next.turnNumber = delta.turnNumber;
-  if (delta.pendingReinforcements !== undefined) next.pendingReinforcements = delta.pendingReinforcements;
-  if ("pendingConquestMove" in delta) next.pendingConquestMove = delta.pendingConquestMove ?? null;
-  if (delta.hasConqueredThisTurn !== undefined) next.hasConqueredThisTurn = delta.hasConqueredThisTurn;
-  if ("winnerId" in delta) next.winnerId = delta.winnerId ?? null;
-  if ("result" in delta) next.result = delta.result ?? null;
-  if ("turnDeadlineAt" in delta) next.turnDeadlineAt = delta.turnDeadlineAt ?? null;
-  if (delta.matchNumber !== undefined) next.matchNumber = delta.matchNumber;
-  if (delta.startedAt !== undefined) next.startedAt = delta.startedAt;
-  if ("endedAt" in delta) next.endedAt = delta.endedAt ?? null;
-  return next;
+
+  if (delta.unset) {
+    for (const key of delta.unset) {
+      delete next[key];
+    }
+  }
+
+  return next as GameState;
 }
 
 export interface SessionData {
@@ -89,6 +108,13 @@ export class GameClient {
   private lastSeenVersion: number = -1;
   /** Last version for which we fully applied a delta (prevents re-applying same version). */
   private lastAppliedVersion: number = -1;
+  /**
+   * True when a version gap has been detected and we have sent `client:resync`.
+   * While awaiting the resync snapshot, incoming deltas are ignored (state is
+   * corrupt until the snapshot arrives) but events are still logged so the
+   * event history stays complete.  Cleared when the next snapshot arrives.
+   */
+  private awaitingResync: boolean = false;
 
   public readonly wsUrl: string;
   public sessionFilePath: string;
@@ -390,6 +416,8 @@ export class GameClient {
           this.myPlayerId = msg.myPlayerId;
           this.lastSeenVersion = msg.version;
           this.lastAppliedVersion = msg.version;
+          // Resync complete: deltas can flow again.
+          this.awaitingResync = false;
           // Reset event history to the snapshot's history tail (dedup by replacement).
           this.eventHistory = msg.state.history ? [...msg.state.history] : [];
           this.notifySnapshot(msg.state, msg.myPlayerId);
@@ -399,35 +427,39 @@ export class GameClient {
         case "server:event": {
           const { version, delta } = msg;
 
-          // Gap detection: if we skipped a version, request a resync.
-          // Management events (player_joined, etc.) share the same version as
-          // the preceding state and have empty deltas — these are safe to accept
-          // without a gap check since they don't change version.
+          // Gap detection: if we skipped a version, request a resync and enter
+          // the waiting state. Management events share the same version as the
+          // preceding state and have empty deltas — safe to accept without a gap
+          // check since they don't advance the version.
           const versionGap = version > this.lastSeenVersion + 1 &&
             version > this.lastAppliedVersion + 1;
-          if (versionGap) {
+          if (versionGap && !this.awaitingResync) {
+            this.awaitingResync = true;
             this.sendResync();
           }
 
-          // Apply the delta to reconstruct the new state (idempotent per version).
-          if (this.state) {
+          // Always advance the seen-version tracker and log the event.
+          this.lastSeenVersion = Math.max(this.lastSeenVersion, version);
+          this.eventHistory.push(msg.event);
+          this.notifyEvent(msg.event);
+
+          // Skip delta application while waiting for a resync snapshot —
+          // our local state is potentially corrupt so applying deltas would
+          // compound the error.  The snapshot will restore a clean baseline.
+          if (!this.awaitingResync && this.state) {
             if (version > this.lastAppliedVersion) {
               this.state = applyStateDelta(this.state, delta);
               this.lastAppliedVersion = version;
             }
-            this.lastSeenVersion = Math.max(this.lastSeenVersion, version);
-          }
 
-          this.eventHistory.push(msg.event);
-          this.notifyEvent(msg.event);
-
-          if (this.state && this.myPlayerId) {
             // Keep history in sync with our event log.
             this.state = {
               ...this.state,
               history: this.eventHistory,
             };
-            this.notifySnapshot(this.state, this.myPlayerId);
+            if (this.myPlayerId) {
+              this.notifySnapshot(this.state, this.myPlayerId);
+            }
           }
           break;
         }
