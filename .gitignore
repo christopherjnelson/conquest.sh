@@ -10,3 +10,4 @@ dist/
 /ref.png
 /visual_*.png
 /screenshots/
+.claude/worktrees/

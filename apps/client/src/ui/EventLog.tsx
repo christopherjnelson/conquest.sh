@@ -110,9 +110,12 @@ export function formatEvent(
         };
       }
 
-      const losses = `-${e.attackerLosses} att, -${e.defenderLosses} def`;
+      const atkDice = `[${[...e.attackerRolls].sort((a, b) => b - a).join(" ")}]`;
+      const defDice = `[${[...e.defenderRolls].sort((a, b) => b - a).join(" ")}]`;
+      const sourceName = getTerritoryName(e.sourceTerritoryId);
+      const losses = `−${e.attackerLosses}/−${e.defenderLosses}`;
       return {
-        text: `🎲 Battle at ${territory}: ${attacker} vs ${defender} (${losses})`,
+        text: `🎲 ${attacker} ⚔ ${defender} · ${sourceName} ▸ ${territory}: ${atkDice} vs ${defDice} (${losses})`,
         color: "#f97316",
       };
     }
