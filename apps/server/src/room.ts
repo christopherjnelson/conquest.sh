@@ -65,10 +65,12 @@ export class GameRoom {
   public readonly kind: RoomKind;
   public readonly createdAt: number;
   public onDeserted?: (roomCode: string) => void;
-  /** Seeded PRNG for this room: drives shuffles and dice rolls. NOT broadcast to clients. */
+  /** Seeded PRNG for the current match: drives shuffles and dice rolls. NOT broadcast to clients. */
   public rng: () => number;
   /** The raw seed used to create rng (kept for debug logging at match end). */
   private rngSeed: Uint8Array;
+  /** Optional test-injected seed; when set, every match reuses it deterministically. */
+  private readonly injectedSeed?: Uint8Array;
 
   public state: GameState;
   private playerSockets = new Map<string, RoomSocket>();
@@ -87,8 +89,10 @@ export class GameRoom {
     this.visibility = options.visibility ?? "public";
     this.createdAt = options.createdAt ?? Date.now();
     this.onDeserted = options.onDeserted;
-    this.rngSeed = options.rngSeed ?? generateRngSeed();
-    this.rng = makeSfc32(this.rngSeed);
+    this.injectedSeed = options.rngSeed;
+    // Provide a no-op rng until the first match starts.
+    this.rngSeed = new Uint8Array(16);
+    this.rng = Math.random;
 
     const initialSectors: Record<string, Sector> = {};
     for (const s of this.map.sectors) {
@@ -302,6 +306,7 @@ export class GameRoom {
       }
     }
 
+    this.reseedForMatch();
     this.matchNumber += 1;
     this.gameId = generateId("game");
 
@@ -351,6 +356,16 @@ export class GameRoom {
   }
 
   /**
+   * Generate a fresh match seed and rng. Uses the injected test seed if one was
+   * supplied, otherwise draws fresh bytes from crypto. Called at the start of
+   * every match so the logged seed replays exactly that match.
+   */
+  private reseedForMatch(): void {
+    this.rngSeed = this.injectedSeed ? new Uint8Array(this.injectedSeed) : generateRngSeed();
+    this.rng = makeSfc32(this.rngSeed);
+  }
+
+  /**
    * Start the match authoritative state transition.
    * Only connected players participate in the starting match.
    */
@@ -359,6 +374,7 @@ export class GameRoom {
     const activePlayers = this.state.players.filter((p) => p.connected);
     if (activePlayers.length < 2) return false;
 
+    this.reseedForMatch();
     this.matchNumber = 1;
     const initialState = createInitialGameState(
       this.gameId,

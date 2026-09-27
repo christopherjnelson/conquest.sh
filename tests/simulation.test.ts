@@ -12,7 +12,6 @@ import {
   deployUnits,
   attackTerritory,
   completeConquestMove,
-  fortifyUnits,
   skipPhase,
 } from "../packages/game-core/src/index.js";
 import { listMaps } from "../packages/map-engine/src/index.js";
@@ -43,9 +42,10 @@ function totalArmies(state: GameState): number {
 
 function assertInvariants(
   state: GameState,
-  deploymentDelta: number,
-  combatLosses: number,
-  tag: string
+  initialArmies: number,
+  totalDeployments: number,
+  totalLosses: number,
+  seedHex: string
 ) {
   const territories = Object.values(state.territories);
 
@@ -55,9 +55,17 @@ function assertInvariants(
     expect(state.players.some((p) => p.id === t.ownerId)).toBe(true);
   }
 
-  // 2. Total armies = initialArmies + deployments − combatLosses
-  //    We track this relative to the baseline in the simulation loop.
-  // (validated externally via expectedTotal)
+  // 2. Exact army conservation: total = initial + deployments − losses
+  //    Conquest moves and fortifies move troops but conserve the total.
+  const expected = initialArmies + totalDeployments - totalLosses;
+  const actual = totalArmies(state);
+  if (actual !== expected) {
+    throw new Error(
+      `Army conservation violated (seed ${seedHex}): ` +
+        `expected ${expected} (${initialArmies} initial + ${totalDeployments} deployed − ${totalLosses} losses), ` +
+        `got ${actual}. Phase: ${state.phase}, turn: ${state.turnNumber}.`
+    );
+  }
 
   // 3. Eliminated players own nothing
   for (const p of state.players) {
@@ -85,12 +93,10 @@ function assertInvariants(
 
   // 6. game_over iff one owner holds everything
   const aliveOwners = new Set(territories.map((t) => t.ownerId));
-  const alivePlayers = state.players.filter((p) => p.isAlive);
   if (state.phase === "game_over") {
     expect(aliveOwners.size).toBe(1);
     expect(state.winnerId).not.toBeNull();
   } else {
-    // Not game_over → at least 2 distinct alive owners
     const aliveOwnerIds = [...aliveOwners].filter((id) =>
       state.players.some((p) => p.id === id && p.isAlive)
     );
@@ -100,46 +106,45 @@ function assertInvariants(
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Simple aggressive bot
+// Returns { state, deployments, losses } so caller can track exact totals.
 // ──────────────────────────────────────────────────────────────────────────────
 
 function runBotTurn(
   state: GameState,
-  rng: () => number,
-  actionLog: { deployments: number; losses: number }
-): GameState {
+  rng: () => number
+): { state: GameState; deployments: number; losses: number } {
   const activePlayer = state.players[state.activePlayerIndex]!;
   const playerId = activePlayer.id;
   const myTerritories = () =>
     Object.values(state.territories).filter((t) => t.ownerId === playerId);
+
+  let deployments = 0;
+  let losses = 0;
 
   // ── deployment ──────────────────────────────────────────────────────────────
   // Deploy all reinforcements. The last deployUnits call automatically
   // transitions phase to "attack" when pendingReinforcements reaches 0.
   while (state.phase === "deployment") {
     const remaining = state.pendingReinforcements;
-    if (remaining === 0) {
-      // Should not happen: deployUnits transitions on last unit, but guard anyway
-      break;
-    }
-    // Prefer border territories (adj to enemy), else any own territory
+    if (remaining === 0) break; // guard: deployUnits transitions automatically
+
     const borderTerrs = myTerritories().filter((t) =>
       t.neighbors.some((n) => state.territories[n]?.ownerId !== playerId)
     );
     const candidates = borderTerrs.length > 0 ? borderTerrs : myTerritories();
     if (candidates.length === 0) break;
     const target = candidates[Math.floor(rng() * candidates.length)]!;
-    // Deploy all remaining to one territory to keep it simple
     const r = deployUnits(state, playerId, target.id, remaining);
     if (!r.ok) break;
-    actionLog.deployments += remaining;
+    deployments += remaining;
     state = r.state;
-    // state.phase is now "attack" (deployUnits auto-transitions)
+    // state.phase is now "attack" (deployUnits auto-transitions on last unit)
   }
-  if (state.phase === "game_over") return state;
+  if (state.phase === "game_over") return { state, deployments, losses };
 
   // ── attack ───────────────────────────────────────────────────────────────────
   while (state.phase === "attack") {
-    // Handle pending conquest move first
+    // Handle pending conquest move first (units conserved, no losses)
     if (state.pendingConquestMove) {
       const p = state.pendingConquestMove;
       const range = p.maximumUnits - p.minimumUnits;
@@ -147,13 +152,11 @@ function runBotTurn(
       const r = completeConquestMove(state, playerId, units);
       if (!r.ok) break;
       state = r.state;
-      if (state.phase === "game_over") return state;
+      if (state.phase === "game_over") return { state, deployments, losses };
       continue;
     }
 
-    // Find attackable pairs: own territory with ≥2 units adj to any enemy.
-    // Prefer advantaged attacks (src > tgt), but fall back to any attack so the
-    // game doesn't stall when armies are evenly matched.
+    // Find attackable pairs with ≥2 units adj to any enemy.
     const allAttackables = myTerritories()
       .filter((src) => src.units >= 2)
       .flatMap((src) =>
@@ -165,45 +168,42 @@ function runBotTurn(
           .map((nid) => ({ src, tgt: state.territories[nid]! }))
       );
 
-    if (allAttackables.length === 0) break; // no enemies reachable
+    if (allAttackables.length === 0) break;
 
-    // Prefer when attacker is strictly stronger; fall back to equal or any match.
+    // Prefer strictly stronger attacks; fall back to equal/any to avoid stalemate.
     const strictlyBetter = allAttackables.filter(({ src, tgt }) => src.units > tgt.units);
     const equalOrBetter = allAttackables.filter(({ src, tgt }) => src.units >= tgt.units);
-    const attackables = strictlyBetter.length > 0 ? strictlyBetter
-      : equalOrBetter.length > 0 ? equalOrBetter
-      : allAttackables;
+    const attackables =
+      strictlyBetter.length > 0 ? strictlyBetter :
+      equalOrBetter.length > 0 ? equalOrBetter :
+      allAttackables;
 
     const choice = attackables[Math.floor(rng() * attackables.length)]!;
-    const before = totalArmies(state);
+    const beforeArmies = totalArmies(state);
     const r = attackTerritory(state, playerId, choice.src.id, choice.tgt.id, undefined, rng);
     if (!r.ok) break;
     state = r.state;
-    // losses (army reduction from combat) tracked for invariant
-    const after = totalArmies(state);
-    // after will be ≤ before (never > because deployments only happen in deploy phase)
-    void before; void after;
-    if (state.phase === "game_over") return state;
+    // Loss = reduction in total armies due to combat (both sides combined)
+    losses += beforeArmies - totalArmies(state);
+    if (state.phase === "game_over") return { state, deployments, losses };
   }
 
-  // Transition attack → fortify → end turn
+  // Transition attack → fortify
   if (state.phase === "attack") {
-    // No more attacks: skip to fortify
     const r = skipPhase(state, playerId);
     if (r.ok) {
       state = r.state;
-      if (state.phase === "game_over") return state;
+      if (state.phase === "game_over") return { state, deployments, losses };
     }
   }
 
-  // ── fortify ──────────────────────────────────────────────────────────────────
+  // Fortify → end turn (skip)
   if (state.phase === "fortify") {
-    // skip fortify → triggers endTurn
     const r = skipPhase(state, playerId);
     if (r.ok) state = r.state;
   }
 
-  return state;
+  return { state, deployments, losses };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -212,30 +212,32 @@ function runBotTurn(
 
 describe("simulation: full-game invariant tests", () => {
   const MAX_ACTIONS = 5000;
-  const PLAYER_COUNTS = [2, 3, 4];
-  const SEEDS_PER_CONFIG = 3;
+  const ALL_PLAYER_COUNTS = [2, 3, 4, 5, 6];
+  const SEEDS_PER_CONFIG = 2;
 
   interface GameStats {
     mapId: string;
     players: number;
     seed: number;
     turns: number;
+    actions: number;
   }
   const allStats: GameStats[] = [];
-  let totalGames = 0;
 
   const maps = listMaps();
   expect(maps.length).toBeGreaterThan(0);
 
   for (const { definition: map } of maps) {
-    for (const playerCount of PLAYER_COUNTS) {
-      if (playerCount > map.territories.length) continue;
-      if (playerCount < (map.recommendedPlayers?.min ?? 2)) continue;
-      if (playerCount > (map.recommendedPlayers?.max ?? 6)) continue;
+    const minP = map.recommendedPlayers?.min ?? 2;
+    const maxP = Math.min(map.recommendedPlayers?.max ?? 6, 6, map.territories.length);
+
+    for (const playerCount of ALL_PLAYER_COUNTS) {
+      if (playerCount < minP || playerCount > maxP) continue;
 
       for (let seedNum = 1; seedNum <= SEEDS_PER_CONFIG; seedNum++) {
         it(`${map.id} / ${playerCount}p / seed=${seedNum}`, () => {
           const seed = seedFromNumber(seedNum * 100 + playerCount * 10);
+          const seedHex = Buffer.from(seed).toString("hex");
           const rng = makeSfc32(seed);
 
           const players: Player[] = Array.from({ length: playerCount }, (_, i) => ({
@@ -258,35 +260,25 @@ describe("simulation: full-game invariant tests", () => {
             makeShuffleFn(rng)
           );
 
+          const initialArmies = totalArmies(state);
           let totalDeployments = 0;
           let totalLosses = 0;
-          const initialArmies = totalArmies(state);
 
-          assertInvariants(state, 0, 0, "initial");
+          assertInvariants(state, initialArmies, 0, 0, seedHex);
 
           let actions = 0;
           let turns = 0;
 
           while (state.phase !== "game_over" && actions < MAX_ACTIONS) {
-            const log = { deployments: 0, losses: 0 };
             const prevTurn = state.turnNumber;
-            state = runBotTurn(state, rng, log);
-            totalDeployments += log.deployments;
-            totalLosses += log.losses;
+            const result = runBotTurn(state, rng);
+            state = result.state;
+            totalDeployments += result.deployments;
+            totalLosses += result.losses;
             if (state.turnNumber > prevTurn) turns++;
             actions++;
 
-            // Army conservation: total = initial + deployments − losses
-            const expected = initialArmies + totalDeployments;
-            // losses are counted as army reduction (deaths on both sides)
-            // actual total should equal expected minus deaths so far
-            const actual = totalArmies(state);
-            // Instead of tracking losses precisely via event parsing, just verify
-            // total armies never exceeds what could have been deployed
-            expect(actual).toBeLessThanOrEqual(expected);
-            expect(actual).toBeGreaterThan(0);
-
-            assertInvariants(state, totalDeployments, totalLosses, `action ${actions}`);
+            assertInvariants(state, initialArmies, totalDeployments, totalLosses, seedHex);
           }
 
           if (state.phase !== "game_over") {
@@ -294,28 +286,43 @@ describe("simulation: full-game invariant tests", () => {
               `Game did not finish within ${MAX_ACTIONS} bot turns. ` +
                 `Map: ${map.id}, players: ${playerCount}, seed: ${seedNum}. ` +
                 `Final phase: ${state.phase}, turn: ${state.turnNumber}. ` +
-                `Seed hex: ${Buffer.from(seed).toString("hex")}`
+                `Seed hex: ${seedHex}`
             );
           }
 
           expect(state.winnerId).not.toBeNull();
-          allStats.push({ mapId: map.id, players: playerCount, seed: seedNum, turns });
-          totalGames++;
+          allStats.push({ mapId: map.id, players: playerCount, seed: seedNum, turns, actions });
         });
       }
     }
   }
 
   it("simulation summary (always passes)", () => {
-    const avgTurns =
-      allStats.length > 0
-        ? (allStats.reduce((s, g) => s + g.turns, 0) / allStats.length).toFixed(1)
-        : "N/A";
-    // Just log — this test always passes, it's informational
-    console.log(
-      `\nSimulation: ${allStats.length} games across ${new Set(allStats.map((g) => g.mapId)).size} maps. ` +
-        `Avg turns: ${avgTurns}.`
-    );
+    if (allStats.length === 0) {
+      console.log("\nSimulation: no games recorded.");
+      expect(true).toBe(true);
+      return;
+    }
+
+    const mapIds = [...new Set(allStats.map((g) => g.mapId))];
+    const lines: string[] = [
+      `\nSimulation: ${allStats.length} games across ${mapIds.length} maps.`,
+    ];
+
+    for (const mapId of mapIds) {
+      const mapGames = allStats.filter((g) => g.mapId === mapId);
+      const avgTurns = (mapGames.reduce((s, g) => s + g.turns, 0) / mapGames.length).toFixed(1);
+      const avgActions = (mapGames.reduce((s, g) => s + g.actions, 0) / mapGames.length).toFixed(1);
+      lines.push(
+        `  ${mapId}: ${mapGames.length} games, avg turns=${avgTurns}, avg actions/game=${avgActions}`
+      );
+    }
+
+    const overallAvgTurns = (allStats.reduce((s, g) => s + g.turns, 0) / allStats.length).toFixed(1);
+    const overallAvgActions = (allStats.reduce((s, g) => s + g.actions, 0) / allStats.length).toFixed(1);
+    lines.push(`  Overall avg turns=${overallAvgTurns}, avg actions/game=${overallAvgActions}`);
+
+    console.log(lines.join("\n"));
     expect(true).toBe(true);
   });
 });

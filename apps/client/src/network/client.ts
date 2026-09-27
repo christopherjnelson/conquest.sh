@@ -24,6 +24,7 @@ import {
   type ServerMessage,
 } from "@conquest/protocol";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
@@ -170,7 +171,7 @@ export class GameClient {
       dir = envDir;
     } else {
       const xdgState = process.env["XDG_STATE_HOME"];
-      const stateBase = xdgState || path.join(process.env["HOME"] || "~", ".local", "state");
+      const stateBase = xdgState || path.join(os.homedir(), ".local", "state");
       dir = path.join(stateBase, "conquest.sh", "sessions");
     }
 

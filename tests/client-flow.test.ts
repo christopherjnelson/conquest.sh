@@ -11,8 +11,9 @@ describe("GameClient: Client Flow & State Synchronization", () => {
   let server: ConquestServer;
   let port: number;
 
-  // Use a dedicated temp dir so session files never land in the working tree.
-  const testSessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "conquest-client-flow-"));
+  // CONQUEST_SESSION_DIR is set globally by tests/setup.ts (bunfig.toml preload).
+  // Use a sub-dir inside that global dir for explicit session files in this suite.
+  const testSessionDir = process.env["CONQUEST_SESSION_DIR"]!;
 
   const sessionFileAlice = path.join(testSessionDir, ".conquest-test-session-alice.json");
   const sessionFileBob = path.join(testSessionDir, ".conquest-test-session-bob.json");
@@ -29,8 +30,6 @@ describe("GameClient: Client Flow & State Synchronization", () => {
   };
 
   beforeAll(() => {
-    // Route all default session files into our temp dir so cwd stays clean.
-    process.env["CONQUEST_SESSION_DIR"] = testSessionDir;
     cleanupSessionFiles();
     server = new ConquestServer({
       port: 0,
@@ -45,7 +44,6 @@ describe("GameClient: Client Flow & State Synchronization", () => {
   afterAll(() => {
     server.stop();
     cleanupSessionFiles();
-    delete process.env["CONQUEST_SESSION_DIR"];
   });
 
   it("executes the full game flow: join, deploy, attack, chat, end turn, disconnect, and reconnect with session token", async () => {

@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
@@ -15,8 +14,8 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
   let server: ConquestServer;
   let port: number;
 
-  // Use a dedicated temp dir so session files never land in the working tree.
-  const testSessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "conquest-lobby-"));
+  // CONQUEST_SESSION_DIR is set globally by tests/setup.ts (bunfig.toml preload).
+  const testSessionDir = process.env["CONQUEST_SESSION_DIR"]!;
 
   const sessionFile1 = path.join(testSessionDir, ".conquest-test-lobby-1.json");
   const sessionFile2 = path.join(testSessionDir, ".conquest-test-lobby-2.json");
@@ -33,7 +32,6 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
   };
 
   beforeAll(() => {
-    process.env["CONQUEST_SESSION_DIR"] = testSessionDir;
     cleanupSessionFiles();
     server = new ConquestServer({
       port: 0,
@@ -48,7 +46,6 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
   afterAll(() => {
     server.stop();
     cleanupSessionFiles();
-    delete process.env["CONQUEST_SESSION_DIR"];
   });
 
   describe("HTTP API endpoints", () => {

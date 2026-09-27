@@ -1,12 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
 
-// Route default session files to a temp dir so they never land in the working tree.
-process.env["CONQUEST_SESSION_DIR"] = fs.mkdtempSync(path.join(os.tmpdir(), "conquest-e2e-"));
+// CONQUEST_SESSION_DIR is set globally by tests/setup.ts (bunfig.toml preload).
 import { getMap, getGeographyBoundingBox, selectRenderVariant } from "../packages/map-engine/src/index.js";
 import { createInitialGameState } from "../packages/game-core/src/index.js";
 import { Sidebar } from "../apps/client/src/ui/Sidebar.js";
