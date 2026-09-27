@@ -177,28 +177,22 @@ describe("battle panel border constraints (Earth-42 wide + compact)", () => {
 
     // Panel bottom content row = top + panelH − 1.
     // Canvas bottom border is at content row innerH (= canvas row availableContentH − 1).
-    // "Strictly above" means panel bottom content row < innerH.
+    // "Strictly above" means panel bottom content row < innerH (content rows are 0..innerH-1;
+    // innerH is the canvas bottom border's content-row index).
     const panelBottomContentRow = top + panelH - 1;
-    expect(panelBottomContentRow).toBeLessThan(
-      innerH,
-      `[${label}] panel bottom content row (${panelBottomContentRow}) must be strictly above canvas border (content row ${innerH})`,
-    );
-
-    // Panel left canvas col = 1 + left (content-relative absolute: canvas col = 1 + content col).
-    // Canvas left border is at canvas col 0. "Strictly right" means panel left canvas col > 0,
-    // i.e., 1 + left > 0 (always true since left >= 1), but we also assert left > 0 to confirm
-    // the panel is not flush with the content area's left edge.
-    expect(left).toBeGreaterThan(
-      0,
-      `[${label}] panel left content column (${left}) must be strictly right of the left border`,
-    );
-
+    // Diagnostic info logged before the assertion so it's visible on failure.
     console.log(
-      `[${label}] profile=${activeVariant.profile} pane=${availableContentW}×${availableContentH} ` +
-      `land=${renderLayout.width}×${renderLayout.height} ` +
-      `panelH=${panelH} corner=${chosenCorner.corner} ` +
-      `top=${top} left=${left} panelBottom=${panelBottomContentRow} innerH=${innerH}`,
+      `[${label}] panelBottomContentRow=${panelBottomContentRow} innerH=${innerH} ` +
+      `left=${left} top=${top} panelH=${panelH}`,
     );
+    expect(panelBottomContentRow < innerH).toBe(
+      true, // panel bottom content row must be strictly above canvas border
+    );
+
+    // Panel left canvas col = 1 + left. Canvas left border is at canvas col 0.
+    // "Strictly right" means left > 0 (content col > 0 = canvas col > 1 > border).
+    expect(left > 0).toBe(true); // panel left content column must be > 0
+
   }
 
   it("Earth-42 wide profile: panel bottom strictly inside frame", async () => {
