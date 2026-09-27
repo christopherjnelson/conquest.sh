@@ -152,6 +152,10 @@ The server supports CLI arguments and environment variables (CLI arguments take 
 | `-m, --map` | `CONQUEST_MAP` | `earth-42` | Default map for new rooms. Built-ins: `earth-42`, `ironreach`, `sector-07`; compatibility aliases include `grid-ironreach` and `ironreach-legacy`. |
 | `-d, --db` | `CONQUEST_DB_PATH` | `:memory:` | SQLite session database path (e.g. `/data/conquest.sqlite`) |
 | `--max-players` | `CONQUEST_MAX_PLAYERS` | `4` | Default maximum players per room |
+| `--max-rooms` | `CONQUEST_MAX_ROOMS` | `500` | Maximum concurrent rooms; `create_room` beyond this returns `SERVER_FULL` |
+| `--disconnect-grace` | `CONQUEST_DISCONNECT_GRACE_MS` | `60000` | Grace period (ms) before an active disconnected player's turn is auto-forfeited (`0` = disabled) |
+| `--turn-timeout` | `CONQUEST_TURN_TIMEOUT_MS` | `0` | Per-turn time limit (ms); `0` = no limit. Expired turns are forfeited with reason `timeout`. Clients receive `turnDeadlineAt` on `GameState` for countdown display. |
+| `--abandon-timeout` | `CONQUEST_ABANDON_TIMEOUT_MS` | `600000` | ms before an active room where every player is disconnected is removed (default 10 min) |
 
 For client connections, the default server can also be configured via:
 

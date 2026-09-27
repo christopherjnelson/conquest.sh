@@ -480,6 +480,67 @@ export function skipPhase(state: GameState, playerId: string): ActionResult<void
 }
 
 /**
+ * Shared internal helper: advance state to the next living player, emitting
+ * turn_ended + phase_changed events.  Callers must ensure that all `priorEvents`
+ * are already reflected in `state.history` before calling.
+ */
+function advanceToNextPlayer(
+  state: GameState,
+  previousPlayerId: string,
+  priorEvents: GameEvent[]
+): ActionResult<void> {
+  const totalPlayers = state.players.length;
+  let nextIndex = (state.activePlayerIndex + 1) % totalPlayers;
+  let wrappedAround = nextIndex <= state.activePlayerIndex;
+
+  let loopCount = 0;
+  while (!state.players[nextIndex]?.isAlive && loopCount < totalPlayers) {
+    nextIndex = (nextIndex + 1) % totalPlayers;
+    if (nextIndex === 0) wrappedAround = true;
+    loopCount++;
+  }
+
+  const nextPlayer = state.players[nextIndex];
+  if (!nextPlayer || !nextPlayer.isAlive) {
+    return { ok: false, error: "No eligible next player found" };
+  }
+
+  const nextTurnNumber = wrappedAround ? state.turnNumber + 1 : state.turnNumber;
+  const reinforcements = calculateReinforcements(state, nextPlayer.id);
+  const now = Date.now();
+
+  const turnEndEvents: GameEvent[] = [
+    {
+      type: "turn_ended",
+      previousPlayerId,
+      nextPlayerId: nextPlayer.id,
+      turnNumber: nextTurnNumber,
+      reinforcements,
+      timestamp: now,
+    },
+    {
+      type: "phase_changed",
+      phase: "deployment",
+      activePlayerId: nextPlayer.id,
+      reinforcements,
+      timestamp: now,
+    },
+  ];
+
+  const finalState: GameState = {
+    ...state,
+    activePlayerIndex: nextIndex,
+    turnNumber: nextTurnNumber,
+    phase: "deployment",
+    pendingReinforcements: reinforcements,
+    hasConqueredThisTurn: false,
+    history: [...state.history, ...turnEndEvents],
+  };
+
+  return { ok: true, state: finalState, events: [...priorEvents, ...turnEndEvents] };
+}
+
+/**
  * End the current player's turn and advance to the next alive player.
  * Authoritatively requires fortify phase.
  */
@@ -505,55 +566,159 @@ export function endTurn(
     return { ok: false, error: "Eliminated players cannot end turn" };
   }
 
-  // Find next living player
-  const totalPlayers = state.players.length;
-  let nextIndex = (state.activePlayerIndex + 1) % totalPlayers;
-  let wrappedAround = nextIndex <= state.activePlayerIndex;
+  // Fold priorEvents into history so advanceToNextPlayer can work uniformly.
+  const stateWithPrior: GameState =
+    priorEvents.length > 0
+      ? { ...state, history: [...state.history, ...priorEvents] }
+      : state;
 
-  let loopCount = 0;
-  while (!state.players[nextIndex].isAlive && loopCount < totalPlayers) {
-    nextIndex = (nextIndex + 1) % totalPlayers;
-    if (nextIndex === 0) wrappedAround = true;
-    loopCount++;
+  return advanceToNextPlayer(stateWithPrior, playerId, priorEvents);
+}
+
+/**
+ * Forcibly complete the active player's turn without waiting for client input.
+ * Used when a player disconnects mid-turn or when the per-turn time limit expires.
+ *
+ * Algorithm:
+ *  1. Resolve any pendingConquestMove with its minimum (no optional extras).
+ *  2. Deploy all remaining pendingReinforcements onto the single border territory
+ *     with the most units (border = has at least one enemy neighbor), falling back
+ *     to the territory with most units overall. Ties broken alphabetically by id.
+ *  3. Advance directly to the next living player through the normal turn-end path.
+ *
+ * Emits a `turn_forfeited` event followed by the normal `turn_ended` / `phase_changed`
+ * pair that endTurn emits.
+ */
+export function forfeitTurn(
+  state: GameState,
+  playerId: string,
+  reason: "disconnected" | "timeout"
+): ActionResult<void> {
+  if (state.phase === "game_over") {
+    return { ok: false, error: "Cannot forfeit when game is over" };
   }
 
-  const nextPlayer = state.players[nextIndex];
-  if (!nextPlayer || !nextPlayer.isAlive) {
-    return { ok: false, error: "No eligible next player found" };
+  const activePlayer = state.players[state.activePlayerIndex];
+  if (!activePlayer || activePlayer.id !== playerId) {
+    return { ok: false, error: "Not the active player" };
   }
 
-  const nextTurnNumber = wrappedAround ? state.turnNumber + 1 : state.turnNumber;
-  const reinforcements = calculateReinforcements(state, nextPlayer.id);
+  if (!activePlayer.isAlive) {
+    return { ok: false, error: "Eliminated players cannot forfeit" };
+  }
+
   const now = Date.now();
+  let workingState: GameState = state;
+  const priorEvents: GameEvent[] = [];
 
-  const events: GameEvent[] = [
-    ...priorEvents,
-    {
-      type: "turn_ended",
-      previousPlayerId: playerId,
-      nextPlayerId: nextPlayer.id,
-      turnNumber: nextTurnNumber,
-      reinforcements,
-      timestamp: now,
-    },
-    {
-      type: "phase_changed",
-      phase: "deployment",
-      activePlayerId: nextPlayer.id,
-      reinforcements,
-      timestamp: now,
-    },
-  ];
+  // Step 1: Resolve pending conquest move with minimum units
+  if (workingState.pendingConquestMove) {
+    const pending = workingState.pendingConquestMove;
+    const source = workingState.territories[pending.sourceTerritoryId];
+    const target = workingState.territories[pending.targetTerritoryId];
+    if (source && target) {
+      const moveEvent: GameEvent = {
+        type: "conquest_move_completed",
+        playerId,
+        sourceTerritoryId: pending.sourceTerritoryId,
+        targetTerritoryId: pending.targetTerritoryId,
+        units: pending.minimumUnits,
+        timestamp: now,
+      };
+      priorEvents.push(moveEvent);
+      workingState = {
+        ...workingState,
+        pendingConquestMove: null,
+        history: [...workingState.history, moveEvent],
+      };
+      // Evaluate eliminations after conquest
+      const elimRes = evaluatePlayerEliminations(workingState, pending.defenderId, playerId, now);
+      workingState = { ...workingState, players: elimRes.nextPlayers };
+      if (elimRes.eliminationEvent) {
+        priorEvents.push(elimRes.eliminationEvent);
+        workingState = { ...workingState, history: [...workingState.history, elimRes.eliminationEvent] };
+      }
+      const victoryRes = evaluateVictory(workingState, playerId);
+      if (victoryRes.isVictory && victoryRes.winnerId) {
+        // Emit turn_forfeited BEFORE game_won so event order reads causally.
+        const forfeitEvent: GameEvent = { type: "turn_forfeited", playerId, reason, timestamp: now };
+        const stateWithForfeit: GameState = {
+          ...workingState,
+          history: [...workingState.history, forfeitEvent],
+        };
+        const finalRes = finalizeMatch(stateWithForfeit, victoryRes.winnerId, victoryRes.reason ?? "conquest", now);
+        return { ok: true, state: finalRes.state, events: [...priorEvents, forfeitEvent, ...finalRes.events] };
+      }
+    }
+  }
 
-  const nextState: GameState = {
-    ...state,
-    activePlayerIndex: nextIndex,
-    turnNumber: nextTurnNumber,
-    phase: "deployment",
-    pendingReinforcements: reinforcements,
-    hasConqueredThisTurn: false,
-    history: [...state.history, ...events],
+  // Step 2: Deploy all remaining reinforcements
+  if (workingState.pendingReinforcements > 0 && workingState.phase === "deployment") {
+    const ownedTerritories = (Object.values(workingState.territories) as TerritoryState[]).filter(
+      (t: TerritoryState) => t.ownerId === playerId
+    );
+
+    // Prefer border territories (territories with at least one enemy neighbor)
+    const borderTerritories = ownedTerritories.filter((t: TerritoryState) =>
+      t.neighbors.some((nid: string) => {
+        const n = workingState.territories[nid];
+        return n && n.ownerId !== playerId;
+      })
+    );
+
+    const candidates = borderTerritories.length > 0 ? borderTerritories : ownedTerritories;
+
+    // Pick the one with the most units; break ties alphabetically by id
+    const deployTarget = candidates.sort((a: TerritoryState, b: TerritoryState) => {
+      if (b.units !== a.units) return b.units - a.units;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    })[0];
+
+    if (deployTarget) {
+      const count = workingState.pendingReinforcements;
+      const deployEvent: GameEvent = {
+        type: "units_deployed",
+        playerId,
+        territoryId: deployTarget.id,
+        count,
+        remainingReinforcements: 0,
+        timestamp: now,
+      };
+      const phaseEvent: GameEvent = {
+        type: "phase_changed",
+        phase: "attack",
+        activePlayerId: playerId,
+        reinforcements: 0,
+        timestamp: now,
+      };
+      priorEvents.push(deployEvent, phaseEvent);
+      workingState = {
+        ...workingState,
+        territories: {
+          ...workingState.territories,
+          [deployTarget.id]: { ...deployTarget, units: deployTarget.units + count },
+        },
+        pendingReinforcements: 0,
+        phase: "attack",
+        history: [...workingState.history, deployEvent, phaseEvent],
+      };
+    }
+  }
+
+  // Step 3: Move to fortify phase if still in deployment or attack
+  if (workingState.phase === "deployment" || workingState.phase === "attack") {
+    workingState = { ...workingState, phase: "fortify" };
+  }
+
+  // Step 4: Emit forfeit event
+  const forfeitEvent: GameEvent = { type: "turn_forfeited", playerId, reason, timestamp: now };
+  priorEvents.push(forfeitEvent);
+  workingState = {
+    ...workingState,
+    history: [...workingState.history, forfeitEvent],
   };
 
-  return { ok: true, state: nextState, events };
+  // Step 5: Advance to next player using shared helper (workingState.history already
+  // includes all priorEvents, so advanceToNextPlayer can build on it directly).
+  return advanceToNextPlayer(workingState, playerId, priorEvents);
 }

@@ -437,7 +437,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
 
     it("RoomManager removes deserted game_over room once all connected players disconnect", () => {
       const manager = new RoomManager();
-      const room = manager.createCustomRoom({ displayName: "DesertedRoom" });
+      const room = manager.createCustomRoom({ displayName: "DesertedRoom" })!;
       const code = room.roomCode;
 
       const socketA = { send: () => {} };

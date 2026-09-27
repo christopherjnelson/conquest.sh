@@ -12,8 +12,8 @@ import {
 } from "@conquest/protocol";
 import type { MapDefinition } from "@conquest/game-core";
 import { getDefaultMap, getMap, listMaps } from "@conquest/map-engine";
-import { logger } from "@conquest/shared";
-import { RoomManager, type GameRoom } from "./room.js";
+import { logger, sanitizeDisplayText } from "@conquest/shared";
+import { RoomManager, type GameRoom, type TimerScheduler } from "./room.js";
 import { SessionStore, type SessionRecord } from "./session.js";
 
 export function isActiveMatchPhase(phase: GamePhase): boolean {
@@ -27,12 +27,34 @@ export interface ConquestServerOptions {
   maxPlayersPerRoom?: number;
   sessionStore?: SessionStore;
   dbPath?: string;
+  /** Maximum number of concurrent rooms (default 500) */
+  maxRooms?: number;
+  /** Grace period ms before forfeiting a disconnected active player's turn (default 60000, 0 = off) */
+  disconnectGraceMs?: number;
+  /** Per-turn time limit ms (default 0 = off) */
+  turnTimeoutMs?: number;
+  /** ms before abandoned active room is removed (default 600000) */
+  abandonTimeoutMs?: number;
+  /** Chat bucket capacity (max messages per window, default 5) */
+  chatBucketCapacity?: number;
+  /** Chat rate limit window ms (default 10000) */
+  chatRefillMs?: number;
+  /** WebSocket max payload bytes (default 16384) */
+  maxPayloadLength?: number;
+  /** Per-connection flood guard: max messages per second before closing (default 40) */
+  floodGuardMsgPerSec?: number;
+  /** Injectable timer scheduler for tests */
+  scheduler?: TimerScheduler;
 }
 
 export interface WSData {
   sessionToken?: string;
   playerId?: string;
   roomCode?: string;
+  /** Per-second message count for flood guard */
+  msgCount?: number;
+  /** Start of the current 1-second flood window */
+  msgWindowStart?: number;
 }
 
 export class ConquestServer {
@@ -42,14 +64,25 @@ export class ConquestServer {
 
   private portOption: number;
   private server: Server<WSData> | null = null;
+  private readonly maxPayloadLength: number;
+  private readonly floodGuardMsgPerSec: number;
 
   constructor(options?: ConquestServerOptions) {
     this.portOption = options?.port ?? 4000;
     this.serverName = options?.serverName ?? "conquest.sh-server";
     this.sessionStore = options?.sessionStore ?? new SessionStore(options?.dbPath ?? ":memory:");
+    this.maxPayloadLength = options?.maxPayloadLength ?? 16 * 1024;
+    this.floodGuardMsgPerSec = options?.floodGuardMsgPerSec ?? 40;
     this.roomManager = new RoomManager({
       defaultMap: options?.defaultMap ?? getDefaultMap().definition,
       defaultMaxPlayers: options?.maxPlayersPerRoom ?? 4,
+      maxRooms: options?.maxRooms ?? 500,
+      disconnectGraceMs: options?.disconnectGraceMs,
+      turnTimeoutMs: options?.turnTimeoutMs,
+      abandonTimeoutMs: options?.abandonTimeoutMs,
+      chatBucketCapacity: options?.chatBucketCapacity,
+      chatRefillMs: options?.chatRefillMs,
+      scheduler: options?.scheduler,
     });
   }
 
@@ -104,6 +137,7 @@ export class ConquestServer {
         return new Response("Not Found", { status: 404 });
       },
       websocket: {
+        maxPayloadLength: self.maxPayloadLength,
         open(ws) {
           logger.debug("WebSocket connection established");
         },
@@ -137,6 +171,21 @@ export class ConquestServer {
   }
 
   private handleMessage(ws: ServerWebSocket<WSData>, raw: string | Buffer | ArrayBuffer) {
+    // Per-connection flood guard
+    const now = Date.now();
+    const windowStart = ws.data.msgWindowStart ?? now;
+    const elapsed = now - windowStart;
+    if (elapsed < 1000) {
+      ws.data.msgCount = (ws.data.msgCount ?? 0) + 1;
+      if (ws.data.msgCount > this.floodGuardMsgPerSec) {
+        ws.close(4008, "policy violation: flood");
+        return;
+      }
+    } else {
+      ws.data.msgCount = 1;
+      ws.data.msgWindowStart = now;
+    }
+
     const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
     let parsed: unknown;
     try {
@@ -203,6 +252,15 @@ export class ConquestServer {
   }
 
   private handleJoin(ws: ServerWebSocket<WSData>, msg: ClientJoin) {
+    // Sanitize player name
+    let playerName: string;
+    try {
+      playerName = sanitizeDisplayText(msg.name);
+    } catch {
+      this.sendError(ws, "INVALID_NAME", "Player name is invalid or empty");
+      return;
+    }
+
     // If socket is already in an active match, reject immediately
     if (ws.data.roomCode && ws.data.playerId) {
       const currentRoom = this.roomManager.getRoom(ws.data.roomCode);
@@ -222,9 +280,9 @@ export class ConquestServer {
     // 1. If sessionToken provided, look up session
     if (msg.sessionToken) {
       session = this.sessionStore.get(msg.sessionToken);
-      if (session && session.playerName !== msg.name) {
+      if (session && session.playerName !== playerName) {
         logger.warn(
-          `Session token belongs to "${session.playerName}", but join requested for "${msg.name}". Ignoring session token and treating as fresh join.`
+          `Session token belongs to "${session.playerName}", but join requested for "${playerName}". Ignoring session token and treating as fresh join.`
         );
         session = null;
       }
@@ -241,6 +299,12 @@ export class ConquestServer {
           ws.data.playerId = session.playerId;
           ws.data.roomCode = room.roomCode;
 
+          // Register the new socket FIRST so the room immediately starts
+          // routing to it; then close the old socket.  This removes any
+          // dependence on the async delivery order of the close event.
+          const oldSocket = room.getPlayerSocket(session.playerId);
+          room.reconnectPlayer(session.playerId, ws);
+
           // Welcome handshake
           const welcome: ServerWelcome = {
             type: "server:welcome",
@@ -251,8 +315,12 @@ export class ConquestServer {
           };
           this.send(ws, welcome);
 
-          // Reconnect player in room
-          room.reconnectPlayer(session.playerId, ws);
+          // Close any stale old socket after the new one is registered.
+          if (oldSocket && oldSocket !== ws) {
+            try {
+              (oldSocket as ServerWebSocket<WSData>).close(4001, "superseded");
+            } catch { /* ignore if already closed */ }
+          }
           return;
         } else {
           logger.info(
@@ -320,7 +388,7 @@ export class ConquestServer {
       ws.data.playerId = undefined;
     }
 
-    const newSession = this.sessionStore.create(msg.name, room.roomCode);
+    const newSession = this.sessionStore.create(playerName, room.roomCode);
     ws.data.sessionToken = newSession.token;
     ws.data.playerId = newSession.playerId;
     ws.data.roomCode = room.roomCode;
@@ -336,7 +404,7 @@ export class ConquestServer {
     this.send(ws, welcome);
 
     // Add player to room
-    room.addPlayer(newSession.playerId, msg.name, ws, newSession.token);
+    room.addPlayer(newSession.playerId, playerName, ws, newSession.token);
   }
 
   private handleCreateRoom(ws: ServerWebSocket<WSData>, msg: ClientCreateRoom) {
@@ -363,19 +431,41 @@ export class ConquestServer {
       ws.data.playerId = undefined;
     }
 
+    // Sanitize player name and room display name
+    let creatorName: string;
+    try {
+      creatorName = sanitizeDisplayText(msg.playerName);
+    } catch {
+      this.sendError(ws, "INVALID_NAME", "Player name is invalid or empty");
+      return;
+    }
+    let roomDisplayName: string | undefined;
+    if (msg.displayName) {
+      try {
+        roomDisplayName = sanitizeDisplayText(msg.displayName);
+      } catch {
+        this.sendError(ws, "INVALID_ROOM_NAME", "Room display name is invalid or empty");
+        return;
+      }
+    }
+
     const requestedMap = msg.mapId ? getMap(msg.mapId) : undefined;
     if (msg.mapId && !requestedMap) {
       this.sendError(ws, "UNKNOWN_MAP", `Unknown map: ${msg.mapId}`);
       return;
     }
     const room = this.roomManager.createCustomRoom({
-      displayName: msg.displayName,
+      displayName: roomDisplayName,
       visibility: msg.visibility,
       maxPlayers: msg.maxPlayers,
       map: requestedMap?.definition,
     });
+    if (!room) {
+      this.sendError(ws, "SERVER_FULL", "Server has reached the maximum number of rooms");
+      return;
+    }
 
-    const newSession = this.sessionStore.create(msg.playerName, room.roomCode);
+    const newSession = this.sessionStore.create(creatorName, room.roomCode);
     ws.data.sessionToken = newSession.token;
     ws.data.playerId = newSession.playerId;
     ws.data.roomCode = room.roomCode;
@@ -391,7 +481,7 @@ export class ConquestServer {
     this.send(ws, welcome);
 
     // Add player to room
-    room.addPlayer(newSession.playerId, msg.playerName, ws, newSession.token);
+    room.addPlayer(newSession.playerId, creatorName, ws, newSession.token);
   }
 
   private handleGameAction(ws: ServerWebSocket<WSData>, msg: ClientMessage) {
@@ -481,9 +571,18 @@ export class ConquestServer {
       }
 
       case "client:chat": {
-        const res = room.chat(playerId, msg.text);
+        let chatText: string;
+        try {
+          chatText = sanitizeDisplayText(msg.text);
+        } catch {
+          this.sendError(ws, "INVALID_MESSAGE", "Chat text is empty or invalid");
+          break;
+        }
+        const res = room.chat(playerId, chatText);
         if (!res.ok) {
-          this.sendError(ws, "ACTION_FAILED", res.error);
+          // Surface rate limit distinctly
+          const code = res.error === "RATE_LIMITED" ? "RATE_LIMITED" : "ACTION_FAILED";
+          this.sendError(ws, code, res.error === "RATE_LIMITED" ? "Chat rate limit exceeded" : res.error);
         }
         break;
       }
@@ -499,6 +598,16 @@ export class ConquestServer {
     if (playerId && roomCode) {
       const room = this.roomManager.getRoom(roomCode);
       if (room) {
+        // Stale-socket race fix: only disconnect if this socket is still the
+        // registered one. If the player has already reconnected on a new socket,
+        // the old socket closing must not shadow the new registration.
+        const registeredSocket = room.getPlayerSocket(playerId);
+        if (registeredSocket !== ws) {
+          logger.debug(
+            `Ignoring stale socket close for player ${playerId} in room ${roomCode} (already reconnected)`
+          );
+          return;
+        }
         room.disconnectPlayer(playerId, reason || "closed");
         if ((room.state.phase === "lobby" || room.state.phase === "game_over") && sessionToken) {
           this.sessionStore.clearRoom(sessionToken);
