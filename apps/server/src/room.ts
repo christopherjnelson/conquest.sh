@@ -6,6 +6,7 @@ import type {
   ServerEvent,
   ServerMessage,
   ServerSnapshot,
+  StateDelta,
   RoomSummary,
   RoomVisibility,
   RoomKind,
@@ -19,6 +20,7 @@ import {
   forfeitTurn,
   fortifyUnits,
   skipPhase,
+  projectStateFor,
   type ActionResult,
   type MapDefinition,
 } from "@conquest/game-core";
@@ -77,6 +79,50 @@ export interface RoomPlayerSummary {
   colorHex: string;
 }
 
+/**
+ * Compute the minimal delta between two projected states.
+ * Only fields that actually changed are included.
+ * History is never in deltas — events carry the history increments.
+ */
+function diffProjectedStates(prev: GameState, next: GameState): StateDelta {
+  const delta: StateDelta = {};
+
+  // Territories: include only changed ones
+  const changedTerritories: Record<string, GameState["territories"][string]> = {};
+  const allIds = new Set([...Object.keys(prev.territories), ...Object.keys(next.territories)]);
+  for (const id of allIds) {
+    const pT = prev.territories[id];
+    const nT = next.territories[id];
+    if (JSON.stringify(pT) !== JSON.stringify(nT)) {
+      if (nT) changedTerritories[id] = nT;
+    }
+  }
+  if (Object.keys(changedTerritories).length > 0) delta.territories = changedTerritories;
+
+  // Players: include full array if anything changed
+  if (JSON.stringify(prev.players) !== JSON.stringify(next.players)) {
+    delta.players = next.players;
+  }
+
+  // Scalar fields
+  if (prev.phase !== next.phase) delta.phase = next.phase;
+  if (prev.activePlayerIndex !== next.activePlayerIndex) delta.activePlayerIndex = next.activePlayerIndex;
+  if (prev.turnNumber !== next.turnNumber) delta.turnNumber = next.turnNumber;
+  if (prev.pendingReinforcements !== next.pendingReinforcements) delta.pendingReinforcements = next.pendingReinforcements;
+  if (JSON.stringify(prev.pendingConquestMove) !== JSON.stringify(next.pendingConquestMove)) {
+    delta.pendingConquestMove = next.pendingConquestMove;
+  }
+  if (prev.hasConqueredThisTurn !== next.hasConqueredThisTurn) delta.hasConqueredThisTurn = next.hasConqueredThisTurn;
+  if (prev.winnerId !== next.winnerId) delta.winnerId = next.winnerId;
+  if (JSON.stringify(prev.result) !== JSON.stringify(next.result)) delta.result = next.result;
+  if ((prev.turnDeadlineAt ?? null) !== (next.turnDeadlineAt ?? null)) delta.turnDeadlineAt = next.turnDeadlineAt ?? null;
+  if (prev.matchNumber !== next.matchNumber) delta.matchNumber = next.matchNumber;
+  if ((prev.startedAt ?? null) !== (next.startedAt ?? null)) delta.startedAt = next.startedAt;
+  if ((prev.endedAt ?? null) !== (next.endedAt ?? null)) delta.endedAt = next.endedAt ?? null;
+
+  return delta;
+}
+
 export class GameRoom {
   public readonly roomCode: string;
   public readonly displayName: string;
@@ -97,6 +143,10 @@ export class GameRoom {
   private readonly injectedSeed?: Uint8Array;
 
   public state: GameState;
+  /** Monotonically increasing state version. Increments on every successful applyResult. */
+  public stateVersion: number = 0;
+  /** The projected state BEFORE the last applyResult, used for delta computation. */
+  private prevProjectedState: GameState | null = null;
   private playerSockets = new Map<string, RoomSocket>();
   private playerTokens = new Map<string, string>();
 
@@ -266,8 +316,8 @@ export class GameRoom {
     if (this.autoStart && this.state.players.length >= this.maxPlayers) {
       this.startGame();
     } else {
-      // Send lobby snapshot to joining player
-      this.sendSnapshot(playerId);
+      // Broadcast updated snapshot to all connected players (including the new one).
+      this.broadcastSnapshot();
     }
 
     return { ok: true };
@@ -389,6 +439,8 @@ export class GameRoom {
 
     initialState.history.unshift(rematchEvent);
     this.state = initialState;
+    this.stateVersion++;
+    this.prevProjectedState = null;
 
     // Clear timers from previous match, then stamp deadline before broadcasting.
     this.clearAllTimers();
@@ -440,6 +492,8 @@ export class GameRoom {
     );
 
     this.state = initialState;
+    this.stateVersion++;
+    this.prevProjectedState = null;
 
     // Stamp the turn deadline BEFORE broadcasting so clients see it immediately.
     this.applyTurnDeadline();
@@ -483,11 +537,11 @@ export class GameRoom {
     };
     this.state.history.push(event);
 
-    // Broadcast reconnection event to other players
+    // Broadcast reconnection event to other players, then full snapshot to all.
     this.broadcastEvent(event, this.state, playerId);
 
-    // Send full snapshot to the reconnecting player
-    this.sendSnapshot(playerId);
+    // Send updated snapshot to all connected players (including the reconnecting one).
+    this.broadcastSnapshot();
 
     // If this player was the active player and we have a turn timeout, restart it
     const activePlayer = this.state.players[this.state.activePlayerIndex];
@@ -569,8 +623,9 @@ export class GameRoom {
     };
     this.state.history.push(event);
 
-    // Broadcast player_left to remaining connected players
+    // Broadcast player_left to remaining connected players, then snapshot.
     this.broadcastEvent(event, this.state);
+    this.broadcastSnapshot();
 
     logger.info(`Player ${player.name} (${playerId}) disconnected from room ${this.roomCode}`);
 
@@ -736,6 +791,8 @@ export class GameRoom {
     result: ActionResult<T>
   ): ActionResult<T> {
     if (result.ok) {
+      // Capture the projected previous state for delta computation.
+      const prevProjected = projectStateFor(this.state, null);
       this.state = result.state;
       // Detect turn advancement early so we can stamp the deadline BEFORE
       // any broadcast, ensuring clients receive the new turnDeadlineAt.
@@ -746,8 +803,13 @@ export class GameRoom {
         this.cancelTurnTimeout();
         this.applyTurnDeadline();
       }
+      // Increment version and compute delta after deadline is applied.
+      this.stateVersion++;
+      const nextProjected = projectStateFor(this.state, null);
+      const delta = diffProjectedStates(prevProjected, nextProjected);
+      this.prevProjectedState = nextProjected;
       for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
+        this.broadcastEventWithDelta(event, this.stateVersion, delta);
       }
       // If game ended, clear all timers and log the RNG seed for reproducibility
       if (this.state.phase === "game_over") {
@@ -907,13 +969,31 @@ export class GameRoom {
   }
 
   /**
-   * Broadcast a server:event message to connected sockets.
+   * Broadcast a server:event with a precomputed delta to all sockets.
+   * This is the internal method used by applyResult.
    */
-  broadcastEvent(event: GameEvent, state?: GameState, excludePlayerId?: string) {
+  private broadcastEventWithDelta(event: GameEvent, version: number, delta: StateDelta, excludePlayerId?: string) {
     const message: ServerEvent = {
       type: "server:event",
       event,
-      state,
+      version,
+      delta,
+    };
+    this.broadcast(message, excludePlayerId);
+  }
+
+  /**
+   * Broadcast a server:event for lobby/game-management events that don't
+   * go through applyResult (e.g. player_joined, player_left, player_reconnected).
+   * These carry an empty delta since state changes for these events are delivered
+   * via broadcastSnapshot which immediately follows.
+   */
+  broadcastEvent(event: GameEvent, _state?: GameState, excludePlayerId?: string) {
+    const message: ServerEvent = {
+      type: "server:event",
+      event,
+      version: this.stateVersion,
+      delta: {},
     };
     this.broadcast(message, excludePlayerId);
   }
@@ -923,10 +1003,12 @@ export class GameRoom {
    */
   broadcastSnapshot() {
     for (const [pId, socket] of this.playerSockets.entries()) {
+      const projected = projectStateFor(this.state, pId);
       const message: ServerSnapshot = {
         type: "server:snapshot",
-        state: this.state,
+        state: projected,
         myPlayerId: pId,
+        version: this.stateVersion,
       };
       try {
         socket.send(JSON.stringify(message));
@@ -943,16 +1025,25 @@ export class GameRoom {
     const socket = this.playerSockets.get(playerId);
     if (!socket) return;
 
+    const projected = projectStateFor(this.state, playerId);
     const message: ServerSnapshot = {
       type: "server:snapshot",
-      state: this.state,
+      state: projected,
       myPlayerId: playerId,
+      version: this.stateVersion,
     };
     try {
       socket.send(JSON.stringify(message));
     } catch (err) {
       logger.error(`Error sending snapshot to player ${playerId} in room ${this.roomCode}:`, err);
     }
+  }
+
+  /**
+   * Handle a resync request from a client: send them the current snapshot.
+   */
+  handleResync(playerId: string) {
+    this.sendSnapshot(playerId);
   }
 
   getPlayerSocket(playerId: string): RoomSocket | undefined {

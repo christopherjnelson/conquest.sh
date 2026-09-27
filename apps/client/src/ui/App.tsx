@@ -135,7 +135,7 @@ export function App({
   const [state, setState] = useState<GameState | null>(client.state);
   const [myPlayerId, setMyPlayerId] = useState<string | null>(client.myPlayerId);
   const [status, setStatus] = useState<ConnectionStatus>(client.status);
-  const [events, setEvents] = useState<GameEvent[]>(client.state?.history ?? []);
+  const [events, setEvents] = useState<GameEvent[]>(client.eventHistory ? [...client.eventHistory] : (client.state?.history ?? []));
   const mapBundle = getMap(state?.mapId ?? getDefaultMap().definition.id) ?? getDefaultMap();
 
   // Battle report – derived from event history
@@ -243,7 +243,8 @@ export function App({
     const unsubSnapshot = client.onSnapshot((newState, newPlayerId) => {
       setState(newState);
       setMyPlayerId(newPlayerId);
-      setEvents(newState.history ?? []);
+      // Use the client's merged event history (not state.history which is a bounded tail).
+      setEvents(client.eventHistory ? [...client.eventHistory] : (newState.history ?? []));
       setDeploymentCount(newState.pendingReinforcements);
     });
 

@@ -16,8 +16,10 @@ import {
   type ClientReady,
   type ClientRematch,
   type ClientSkipPhase,
+  type ClientResync,
   type GameEvent,
   type GameState,
+  type StateDelta,
   type RoomSummary,
   type RoomVisibility,
   type ServerInfo,
@@ -28,6 +30,31 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
+
+/**
+ * Apply a server-sent state delta onto the current client state.
+ * Delta fields are absolute values, not increments, so this is idempotent.
+ */
+function applyStateDelta(state: GameState, delta: StateDelta): GameState {
+  const next: GameState = { ...state };
+  if (delta.territories) {
+    next.territories = { ...state.territories, ...delta.territories };
+  }
+  if (delta.players !== undefined) next.players = delta.players;
+  if (delta.phase !== undefined) next.phase = delta.phase;
+  if (delta.activePlayerIndex !== undefined) next.activePlayerIndex = delta.activePlayerIndex;
+  if (delta.turnNumber !== undefined) next.turnNumber = delta.turnNumber;
+  if (delta.pendingReinforcements !== undefined) next.pendingReinforcements = delta.pendingReinforcements;
+  if ("pendingConquestMove" in delta) next.pendingConquestMove = delta.pendingConquestMove ?? null;
+  if (delta.hasConqueredThisTurn !== undefined) next.hasConqueredThisTurn = delta.hasConqueredThisTurn;
+  if ("winnerId" in delta) next.winnerId = delta.winnerId ?? null;
+  if ("result" in delta) next.result = delta.result ?? null;
+  if ("turnDeadlineAt" in delta) next.turnDeadlineAt = delta.turnDeadlineAt ?? null;
+  if (delta.matchNumber !== undefined) next.matchNumber = delta.matchNumber;
+  if (delta.startedAt !== undefined) next.startedAt = delta.startedAt;
+  if ("endedAt" in delta) next.endedAt = delta.endedAt ?? null;
+  return next;
+}
 
 export interface SessionData {
   token: string;
@@ -58,6 +85,10 @@ export class GameClient {
   public serverName: string | null = null;
   public playerName: string = "";
   public eventHistory: GameEvent[] = [];
+  /** Last state version seen from the server. Used for gap detection. */
+  private lastSeenVersion: number = -1;
+  /** Last version for which we fully applied a delta (prevents re-applying same version). */
+  private lastAppliedVersion: number = -1;
 
   public readonly wsUrl: string;
   public sessionFilePath: string;
@@ -354,35 +385,49 @@ export class GameClient {
         }
 
         case "server:snapshot": {
+          // On snapshot: reset state and event history to the snapshot's tail.
           this.state = msg.state;
           this.myPlayerId = msg.myPlayerId;
-          if (msg.state.history) {
-            for (const h of msg.state.history) {
-              if (!this.eventHistory.includes(h)) {
-                this.eventHistory.push(h);
-              }
-            }
-          }
+          this.lastSeenVersion = msg.version;
+          this.lastAppliedVersion = msg.version;
+          // Reset event history to the snapshot's history tail (dedup by replacement).
+          this.eventHistory = msg.state.history ? [...msg.state.history] : [];
           this.notifySnapshot(msg.state, msg.myPlayerId);
           break;
         }
 
         case "server:event": {
+          const { version, delta } = msg;
+
+          // Gap detection: if we skipped a version, request a resync.
+          // Management events (player_joined, etc.) share the same version as
+          // the preceding state and have empty deltas — these are safe to accept
+          // without a gap check since they don't change version.
+          const versionGap = version > this.lastSeenVersion + 1 &&
+            version > this.lastAppliedVersion + 1;
+          if (versionGap) {
+            this.sendResync();
+          }
+
+          // Apply the delta to reconstruct the new state (idempotent per version).
+          if (this.state) {
+            if (version > this.lastAppliedVersion) {
+              this.state = applyStateDelta(this.state, delta);
+              this.lastAppliedVersion = version;
+            }
+            this.lastSeenVersion = Math.max(this.lastSeenVersion, version);
+          }
+
           this.eventHistory.push(msg.event);
           this.notifyEvent(msg.event);
-          if (msg.state) {
-            this.state = msg.state;
-            if (this.myPlayerId) {
-              this.notifySnapshot(msg.state, this.myPlayerId);
-            }
-          } else if (this.state) {
+
+          if (this.state && this.myPlayerId) {
+            // Keep history in sync with our event log.
             this.state = {
               ...this.state,
-              history: [...this.state.history, msg.event],
+              history: this.eventHistory,
             };
-            if (this.myPlayerId) {
-              this.notifySnapshot(this.state, this.myPlayerId);
-            }
+            this.notifySnapshot(this.state, this.myPlayerId);
           }
           break;
         }
@@ -565,6 +610,16 @@ export class GameClient {
       type: "client:ping",
       timestamp,
     };
+    this.send(msg);
+  }
+
+  /**
+   * Request a full state resync from the server.
+   * Called automatically when a version gap is detected. May also be called
+   * manually to recover from a corrupted state.
+   */
+  public sendResync(): void {
+    const msg: ClientResync = { type: "client:resync" };
     this.send(msg);
   }
 

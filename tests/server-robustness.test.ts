@@ -385,18 +385,28 @@ describe("Turn timeout timer", () => {
     socketB.messages.length = 0;
     room.startGame();
 
-    // Every message broadcast during startGame should carry a non-null deadline.
+    // Every message broadcast during startGame that carries a deadline should be non-null.
+    // server:snapshot messages carry deadline in `state.turnDeadlineAt`.
+    // server:event messages carry deadline in `delta.turnDeadlineAt` when it changed.
     for (const raw of socketA.messages) {
-      const msg = JSON.parse(raw) as { type: string; state?: { turnDeadlineAt?: number | null } };
-      if (msg.state) {
+      const msg = JSON.parse(raw) as {
+        type: string;
+        state?: { turnDeadlineAt?: number | null };
+        delta?: { turnDeadlineAt?: number | null };
+      };
+      if (msg.state && "turnDeadlineAt" in msg.state) {
         expect(msg.state.turnDeadlineAt).not.toBeNull();
         expect(typeof msg.state.turnDeadlineAt).toBe("number");
       }
+      if (msg.delta && "turnDeadlineAt" in msg.delta) {
+        expect(msg.delta.turnDeadlineAt).not.toBeNull();
+        expect(typeof msg.delta.turnDeadlineAt).toBe("number");
+      }
     }
-    // Sanity: there should have been at least one message with state.
+    // Sanity: there should have been at least one snapshot with state.
     const withState = socketA.messages
-      .map((r) => JSON.parse(r) as { state?: unknown })
-      .filter((m) => m.state != null);
+      .map((r) => JSON.parse(r) as { type: string; state?: unknown })
+      .filter((m) => m.type === "server:snapshot" && m.state != null);
     expect(withState.length).toBeGreaterThan(0);
   });
 });

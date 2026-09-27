@@ -218,6 +218,17 @@ export class ConquestServer {
         this.handleCreateRoom(ws, msg);
         break;
 
+      case "client:resync": {
+        const { playerId, roomCode } = ws.data;
+        if (playerId && roomCode) {
+          const room = this.roomManager.getRoom(roomCode);
+          if (room) {
+            room.handleResync(playerId);
+          }
+        }
+        break;
+      }
+
       default:
         this.handleGameAction(ws, msg);
         break;
