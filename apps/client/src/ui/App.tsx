@@ -17,6 +17,7 @@ import {
   type LayoutMode,
 } from "@conquest/map-engine";
 import { GameClient, type ConnectionStatus } from "../network/client.js";
+import { deriveBattleReport } from "./battle-report.js";
 import { Header } from "./Header.js";
 import { MapCanvas } from "./MapCanvas.js";
 import { Sidebar } from "./Sidebar.js";
@@ -136,6 +137,12 @@ export function App({
   const [status, setStatus] = useState<ConnectionStatus>(client.status);
   const [events, setEvents] = useState<GameEvent[]>(client.state?.history ?? []);
   const mapBundle = getMap(state?.mapId ?? getDefaultMap().definition.id) ?? getDefaultMap();
+
+  // Battle report – derived from event history
+  const battleReport = useMemo(
+    () => state ? deriveBattleReport(events, state.players, mapBundle) : null,
+    [events, state?.players, mapBundle],
+  );
 
   // Terminal dimensions & warning override state
   const [dimensions, setDimensions] = useState(() => ({
@@ -899,6 +906,7 @@ export function App({
               onOverlayIncrease={increaseMapOverlay}
               onOverlayMinimum={minimumMapOverlay}
               onOverlayMaximum={maximumMapOverlay}
+              battle={battleReport}
             />
           </box>
 
@@ -974,6 +982,7 @@ export function App({
               onOverlayIncrease={increaseMapOverlay}
               onOverlayMinimum={minimumMapOverlay}
               onOverlayMaximum={maximumMapOverlay}
+              battle={battleReport}
             />
           </box>
 

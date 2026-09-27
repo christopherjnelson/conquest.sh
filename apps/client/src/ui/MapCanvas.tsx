@@ -14,6 +14,9 @@ import {
   getMapContentDimensionsForLayout,
   getLayoutModeForMap,
 } from "@conquest/map-engine";
+import type { BattleReport } from "./battle-report.js";
+import { findPanelCorner } from "./battle-report.js";
+import { BattlePanel, FULL_W, FULL_H, COND_W, COND_H } from "./BattlePanel.js";
 
 export interface MapCanvasProps {
   mapBundle?: MapBundle;
@@ -42,6 +45,10 @@ export interface MapCanvasProps {
   onOverlayIncrease?: () => void;
   onOverlayMinimum?: () => void;
   onOverlayMaximum?: () => void;
+  /** Battle report to display in the map corner; null/undefined hides the panel. */
+  battle?: BattleReport | null;
+  /** When false, disables the dice roll animation (useful in tests). */
+  battleAnimate?: boolean;
 }
 
 interface CellStyle {
@@ -506,6 +513,8 @@ export function MapCanvas({
   onOverlayIncrease,
   onOverlayMinimum,
   onOverlayMaximum,
+  battle,
+  battleAnimate = true,
 }: MapCanvasProps) {
   const terminalPane = terminalDimensions
     ? getMapContentDimensionsForLayout(
@@ -1149,6 +1158,42 @@ export function MapCanvas({
         </box>
       ) : null;
 
+  // --- Battle panel positioning ---
+  // Try full panel first, fall back to condensed, skip if neither fits.
+  // FULL_W/FULL_H/COND_W/COND_H are imported from BattlePanel to stay in sync.
+  let battlePanelEl: React.ReactNode = null;
+  if (battle) {
+    // innerH = pane height minus the MapCanvas border (top + bottom = 2 rows).
+    // vOffset shifts the raster down when the pane is taller than the land.
+    // maxRows caps findPanelCorner's bottom-corner search so the panel fits
+    // within the inner canvas and doesn't bleed past the map's visible area.
+    const innerH = availableContentH - 2;
+    const hOffset = canCenterH ? Math.floor((availableContentW - renderLayout.width) / 2) : 0;
+    const vOffset = canCenterV ? Math.floor((availableContentH - renderLayout.height) / 2) : 0;
+    const maxRows = innerH - vOffset;
+    const fullCorner = findPanelCorner(activeMap, FULL_W, FULL_H, undefined, maxRows);
+    const condensedCorner = !fullCorner ? findPanelCorner(activeMap, COND_W, COND_H, undefined, maxRows) : null;
+    const chosenCorner = fullCorner ?? condensedCorner;
+    const isCondensed = !fullCorner && !!condensedCorner;
+    if (chosenCorner) {
+      // chosenCorner.col/row are in land-crop coordinates (0..land.width-1, 0..land.height-1)
+      // +1 for the border of the canvas box
+      const left = 1 + hOffset + chosenCorner.col;
+      const top = 1 + vOffset + chosenCorner.row;
+      battlePanelEl = (
+        <BattlePanel
+          report={battle}
+          animate={battleAnimate}
+          condensed={isCondensed}
+          position="absolute"
+          left={left}
+          top={top}
+          zIndex={5}
+        />
+      );
+    }
+  }
+
   const canvasProps = {
     title,
     titleColor: "#00d2ff",
@@ -1168,10 +1213,11 @@ export function MapCanvas({
   // Preserve the ordinary map tree when no panel is active. Several render
   // consumers inspect its rows directly, and a modal should not perturb that
   // lightweight path.
-  if (!overlayPanel) return <box {...canvasProps}>{mapBody}</box>;
+  if (!overlayPanel && !battlePanelEl) return <box {...canvasProps}>{mapBody}</box>;
   return (
     <box {...canvasProps} position="relative">
       {mapBody}
+      {battlePanelEl}
       {overlayPanel}
     </box>
   );

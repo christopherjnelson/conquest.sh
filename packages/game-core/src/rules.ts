@@ -180,6 +180,8 @@ export function attackTerritory(
   const attackerDice = requestedUnits ? Math.max(1, Math.min(maxAttackerDice, requestedUnits)) : maxAttackerDice;
   const defenderDice = Math.min(2, target.units);
 
+  const attackerUnitsBefore = source.units;
+  const defenderUnitsBefore = target.units;
   const combat = resolveCombat(attackerDice, defenderDice, randomFn);
 
   let nextSourceUnits = source.units - combat.attackerLosses;
@@ -214,6 +216,8 @@ export function attackTerritory(
     defenderLosses: combat.defenderLosses,
     conquered,
     unitsMoved: conquered ? unitsMoved : undefined,
+    attackerUnitsBefore,
+    defenderUnitsBefore,
     timestamp: now,
   });
 

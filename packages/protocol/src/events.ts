@@ -131,6 +131,10 @@ export const GameEventSchema = z.discriminatedUnion("type", [
     defenderLosses: z.number(),
     conquered: z.boolean(),
     unitsMoved: z.number().optional(),
+    /** Troop count in the source territory before this roll (for the battle panel). */
+    attackerUnitsBefore: z.number().int().optional(),
+    /** Troop count in the target territory before this roll (for the battle panel). */
+    defenderUnitsBefore: z.number().int().optional(),
     timestamp: z.number(),
   }),
   z.object({
