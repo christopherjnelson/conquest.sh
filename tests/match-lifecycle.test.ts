@@ -278,21 +278,12 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       const players = createTestPlayers(3); // p1, p2, p3
       const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
 
-      // Simulate p3 eliminated first at t=1000
-      const elimP3 = {
-        type: "player_eliminated" as const,
-        playerId: "p3",
-        eliminatedBy: "p1",
-        timestamp: 1000,
-      };
-      // Simulate p2 eliminated second at t=2000
-      const elimP2 = {
-        type: "player_eliminated" as const,
-        playerId: "p2",
-        eliminatedBy: "p1",
-        timestamp: 2000,
-      };
-      state.history.push(elimP3, elimP2);
+      // Simulate p3 eliminated first at t=1000, p2 eliminated second at t=2000.
+      // buildMatchResult now reads from eliminationOrder (not history).
+      state.eliminationOrder = [
+        { playerId: "p3", eliminatedBy: "p1", timestamp: 1000 },
+        { playerId: "p2", eliminatedBy: "p1", timestamp: 2000 },
+      ];
       state.players.find((p) => p.id === "p3")!.isAlive = false;
       state.players.find((p) => p.id === "p2")!.isAlive = false;
 

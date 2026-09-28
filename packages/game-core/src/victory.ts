@@ -18,6 +18,7 @@ export function evaluatePlayerEliminations(
 ): {
   nextPlayers: GameState["players"];
   eliminationEvent?: GameEvent;
+  eliminationEntry?: { playerId: string; eliminatedBy: string; timestamp: number };
   isNewlyEliminated: boolean;
 } {
   const player = state.players.find((p) => p.id === defeatedPlayerId);
@@ -43,9 +44,11 @@ export function evaluatePlayerEliminations(
       eliminatedBy: eliminatorId,
       timestamp,
     };
+    const eliminationEntry = { playerId: defeatedPlayerId, eliminatedBy: eliminatorId, timestamp };
     return {
       nextPlayers,
       eliminationEvent,
+      eliminationEntry,
       isNewlyEliminated: true,
     };
   }
@@ -106,24 +109,24 @@ export function buildMatchResult(
   endedAt: number = Date.now()
 ): MatchResult {
   const winner = state.players.find((p) => p.id === winnerId);
-  const startedAt =
-    state.startedAt ??
-    (state.history.find((e) => e.type === "game_started")?.timestamp ?? endedAt);
+  const startedAt = state.startedAt ?? endedAt;
   const durationMs = Math.max(0, endedAt - startedAt);
 
-  // Extract all elimination events to determine elimination sequence
-  const elimEvents = state.history.filter(
-    (e) => e.type === "player_eliminated"
-  ) as Array<{
-    type: "player_eliminated";
-    playerId: string;
-    eliminatedBy: string;
-    timestamp: number;
-  }>;
+  // Use the authoritative eliminationOrder field (O(1) read, no history scan).
+  // Fall back to scanning history for states serialised before this field was added.
+  const elimEntries: Array<{ playerId: string; eliminatedBy: string; timestamp: number }> =
+    state.eliminationOrder && state.eliminationOrder.length > 0
+      ? state.eliminationOrder
+      : (state.history.filter((e) => e.type === "player_eliminated") as Array<{
+          type: "player_eliminated";
+          playerId: string;
+          eliminatedBy: string;
+          timestamp: number;
+        }>);
 
-  const elimOrder = elimEvents.map((e) => e.playerId);
+  const elimOrder = elimEntries.map((e) => e.playerId);
   const eliminatedByMap = new Map<string, string>();
-  for (const e of elimEvents) {
+  for (const e of elimEntries) {
     eliminatedByMap.set(e.playerId, e.eliminatedBy);
   }
 
@@ -221,15 +224,12 @@ export function finalizeMatch(
     timestamp,
   };
 
-  const stateWithEvent: GameState = {
-    ...state,
-    history: [...state.history, winEvent],
-  };
-
-  const result = buildMatchResult(stateWithEvent, winnerId, reason, timestamp);
+  // buildMatchResult reads eliminationOrder (not history), so no need to
+  // add winEvent to history before calling it.
+  const result = buildMatchResult(state, winnerId, reason, timestamp);
 
   const finalState: GameState = {
-    ...stateWithEvent,
+    ...state,
     phase: "game_over",
     winnerId,
     endedAt: timestamp,

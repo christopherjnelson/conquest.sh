@@ -91,6 +91,7 @@ export function createInitialGameState(
     startedAt: now,
     endedAt: null,
     history: [],
+    eliminationOrder: [],
     cards: cardState,
     publicCards,
     cardMode,

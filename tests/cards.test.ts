@@ -323,8 +323,8 @@ describe("cards: card awarded on conquest", () => {
     if (!skipFort.ok) return;
     const afterTurn = skipFort.state as GameState;
 
-    // Check that a card_awarded event was emitted
-    const cardAwardedEvent = afterTurn.history.find((e) => e.type === "card_awarded");
+    // Check that a card_awarded event was emitted (in result.events, since game-core no longer appends to history)
+    const cardAwardedEvent = skipFort.events.find((e) => e.type === "card_awarded");
     expect(cardAwardedEvent).toBeDefined();
 
     // p1's hand count should be 1
