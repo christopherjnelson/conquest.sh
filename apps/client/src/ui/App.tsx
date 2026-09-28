@@ -988,6 +988,7 @@ export function App({
             }}
             battleReport={battleReport}
             battlePanelPlaced={battlePanelPlaced}
+            terminalColumns={dimensions.columns}
           />
         </box>
       ) : (
