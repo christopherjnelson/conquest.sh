@@ -465,18 +465,22 @@ export function Sidebar({
                 <b>{mapBundle.definition.sectors.length} {mapBundle.metadata.regionPlural}</b>
               </text>
             </box>
-            <box flexDirection="row" justifyContent="space-between">
-              <text fg="#64748b">Phase</text>
-              <text fg="#00ff66">
-                <b>{phase.charAt(0).toUpperCase() + phase.slice(1)}</b>
-              </text>
-            </box>
-            <box flexDirection="row" justifyContent="space-between">
-              <text fg="#64748b">Turn</text>
-              <text fg="#e2e8f0">
-                <b>{state?.turnNumber ?? 0}/∞</b>
-              </text>
-            </box>
+            {!isLobby && (
+              <box flexDirection="row" justifyContent="space-between">
+                <text fg="#64748b">Phase</text>
+                <text fg="#00ff66">
+                  <b>{phase.charAt(0).toUpperCase() + phase.slice(1)}</b>
+                </text>
+              </box>
+            )}
+            {!isLobby && (
+              <box flexDirection="row" justifyContent="space-between">
+                <text fg="#64748b">Turn</text>
+                <text fg="#e2e8f0">
+                  <b>{state?.turnNumber ?? 0}/∞</b>
+                </text>
+              </box>
+            )}
             <box flexDirection="row" justifyContent="space-between">
               <text fg="#64748b">Connection</text>
               <text>

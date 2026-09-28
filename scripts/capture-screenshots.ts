@@ -317,6 +317,7 @@ async function main() {
     serverName: "screenshot-server",
     defaultMap: EARTH_42,
     maxPlayersPerRoom: 4,
+    rngSeed: seedFromNumber(42), // deterministic territory assignment
   });
   server.start();
   const port = server.port;
@@ -707,7 +708,7 @@ async function main() {
         myPlayerId: heroClient.myPlayerId,
         status: "connected",
         roomCode,
-        onSnapshot: (cb: any) => { cb(heroClient.state); return () => {}; },
+        onSnapshot: (cb: any) => { cb(heroClient.state, heroClient.myPlayerId); return () => {}; },
         onEvent: () => () => {},
         onStatusChange: () => () => {},
         onError: () => () => {},
