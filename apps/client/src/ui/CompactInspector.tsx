@@ -1,6 +1,7 @@
 import React from "react";
 import type { GamePhase, GameState } from "@conquest/protocol";
 import { getDefaultMap, type MapBundle } from "@conquest/map-engine";
+import type { BattleReport } from "./battle-report.js";
 
 export interface CompactInspectorProps {
   mapBundle?: MapBundle;
@@ -21,6 +22,24 @@ export interface CompactInspectorProps {
   onReady?: () => void;
   onSelectTarget?: (territoryId: string) => void;
   onSelectTerritory?: (territoryId: string) => void;
+  /**
+   * The most recent battle report derived from game events.
+   * Passed in from App, which derives it via deriveBattleReport.
+   */
+  battleReport?: BattleReport | null;
+  /**
+   * Whether MapCanvas successfully placed a battle panel (full or condensed).
+   * When false and battleReport is set, the inspector shows a one-line battle
+   * summary in place of the territory info — the lowest-priority left-side
+   * content. This keeps the inspector's height:3 unchanged (no new rows) while
+   * giving compact players visual battle feedback that the map couldn't provide.
+   */
+  battlePanelPlaced?: boolean;
+  /**
+   * Terminal column count passed from App so the left-info lane can be bounded
+   * to leave enough room for action buttons.  Defaults to 120 when omitted.
+   */
+  terminalColumns?: number;
 }
 
 function fitCompactText(value: string, maxLength: number): string {
@@ -43,6 +62,9 @@ export function CompactInspector({
   onEndTurn,
   pendingPhaseAction,
   onReady,
+  battleReport,
+  battlePanelPlaced = false,
+  terminalColumns = 120,
 }: CompactInspectorProps) {
   const territories = state?.territories ?? {};
   const activePlayer = state ? state.players[state.activePlayerIndex] : undefined;
@@ -94,8 +116,29 @@ export function CompactInspector({
   const canSkipOrEnd = isMyTurn && !pendingConquestMove && (phase === "attack" || phase === "fortify");
   // A mandatory conquest-move control needs the extra right-side cells. In
   // every other phase, give the inspector a wider lane for readable names.
-  const compactInfoWidth = pendingConquestMove && isMyTurn ? 55 : 65;
-  const compactNameLimit = pendingConquestMove && isMyTurn ? 10 : 14;
+  //
+  // We now compute the left-info lane width dynamically from the terminal
+  // width so the right-side action buttons always have room to render.
+  //
+  // The inspector box has 1-char borders + 1-char padding on each side:
+  //   innerWidth = terminalColumns − 2 (border) − 2 (padding) = terminalColumns − 4
+  //
+  // Reserve ~45 chars for the action buttons (worst case: one attack button
+  // plus one skip/end-turn button, each with padding, plus a gap).  Cap the
+  // left lane at 65 so it doesn't sprawl at very wide terminals, and floor it
+  // at 28 so the lane is always minimally useful.
+  const innerWidth = Math.max(0, terminalColumns - 4);
+  // When a conquest move is pending the button area is wider ("MOVE TROOPS…"
+  // plus the mandatory troop-count selector takes the full right side).
+  const buttonsReserve = pendingConquestMove && isMyTurn ? 55 : 45;
+  const compactInfoWidth = Math.min(65, Math.max(28, innerWidth - buttonsReserve));
+  const compactNameLimit = Math.min(14, Math.max(6, Math.floor(compactInfoWidth / 4.5)));
+
+  // Battle summary line — shown only when the map could NOT place a panel.
+  // Replaces the territory / players left-info section (same row, same width),
+  // because it's the lowest-priority content there: territory info is still
+  // available by hovering and actions buttons on the right are unaffected.
+  const showBattleSummary = !battlePanelPlaced && !!battleReport;
 
   const myPlayer = players.find((p) => p.id === myPlayerId);
   const isReady = myPlayer?.ready ?? false;
@@ -121,9 +164,48 @@ export function CompactInspector({
       justifyContent="space-between"
       alignItems="center"
     >
-      {/* Left Info: Territory or Players summary */}
+      {/* Left Info: Territory/Players summary, or battle summary when no map panel fit */}
       <box flexDirection="row" alignItems="center" gap={0} style={{ width: compactInfoWidth }} flexShrink={1}>
-        {inspectionMode !== "none" && displayTid ? (
+        {showBattleSummary && battleReport ? (
+          /* One-line battle summary — replaces territory info when the map panel
+             couldn't be placed (compact profile). Height stays at 3 (unchanged). */
+          battleReport.conquered ? (
+            <text fg={battleReport.attackerColor}>
+              ⚔ CONQUERED {fitCompactText(battleReport.targetTerritoryName, compactInfoWidth - 12)}
+            </text>
+          ) : (
+            <text>
+              {(() => {
+                // Width-aware: truncate territory names to fit the left-info lane.
+                // Fixed overhead: "⚔ R{n} " + "▸" + " [" + atkDice + "]v[" + defDice + "] −a/−d"
+                const atkDice = battleReport.attackerRolls.length > 0 ? battleReport.attackerRolls.join(" ") : "?";
+                const defDice = battleReport.defenderRolls.length > 0 ? battleReport.defenderRolls.join(" ") : "?";
+                const lossStr = `−${battleReport.attackerLosses}/−${battleReport.defenderLosses}`;
+                const dicePart = `[${atkDice}]v[${defDice}]`;
+                // Fixed chars: "⚔ R" + round + " " + "▸" + " " + dicePart + " " + lossStr
+                const fixedOverhead = 4 + String(battleReport.engagementRound).length + 1 + dicePart.length + 1 + lossStr.length + 1;
+                const namesBudget = Math.max(4, compactInfoWidth - fixedOverhead);
+                const half = Math.floor(namesBudget / 2);
+                const src = fitCompactText(battleReport.sourceTerritoryName, half);
+                const tgtBudget = Math.max(1, namesBudget - src.length);
+                const tgt = fitCompactText(battleReport.targetTerritoryName, tgtBudget);
+                return (
+                  <>
+                    <span fg="#ffffff">⚔ R{battleReport.engagementRound} {src}</span>
+                    <span fg="#475569">▸</span>
+                    <span fg="#ffffff">{tgt} </span>
+                    <span fg="#475569">[</span>
+                    <span fg={battleReport.attackerColor}>{atkDice}</span>
+                    <span fg="#475569">]v[</span>
+                    <span fg={battleReport.defenderColor}>{defDice}</span>
+                    <span fg="#475569">]</span>
+                    <span fg="#94a3b8"> {lossStr}</span>
+                  </>
+                );
+              })()}
+            </text>
+          )
+        ) : inspectionMode !== "none" && displayTid ? (
           <>
             {/* Keep the compact lane to the facts that fit beside its actions. */}
             <text>
@@ -149,58 +231,75 @@ export function CompactInspector({
             <text fg="#64748b"><span fg="#cbd5e1">{fitCompactText(neighborsStr || "-", pendingConquestMove && isMyTurn ? 5 : 7)}</span></text>
           </>
         ) : (
-          /* Honest Players Summary when no territory is hovered or selected */
-          <box flexDirection="row" alignItems="center" gap={1}>
-            <text fg="#00d2ff">
-              <b>! PLAYERS:</b>
-            </text>
-            {players.length === 0 ? (
-              <text fg="#64748b"><i>Waiting for players...</i></text>
-            ) : (
-              players.map((p, idx) => {
-                const isPActive = !isLobby && state?.activePlayerIndex === idx;
-                const statusBadge = isLobby
-                  ? p.ready
-                    ? "Ready"
-                    : p.connected
-                    ? "Connected"
-                    : "Offline"
-                  : isPActive
-                  ? "Active"
-                  : p.isAlive
-                  ? "Wait"
-                  : "Dead";
-                const badgeColor = isLobby
-                  ? p.ready
-                    ? "#00ff66"
-                    : "#00d2ff"
-                  : isPActive
-                  ? "#00ff66"
-                  : "#64748b";
+          /* Players summary — rendered as a SINGLE text/span tree so it
+             cannot produce multiple rows and overflow the height:3 container.
+             The summary is width-aware: player badges are built into a string
+             first and the whole thing is truncated to compactInfoWidth. */
+          (() => {
+            if (players.length === 0) {
+              return (
+                <text>
+                  <span fg="#00d2ff"><b>! PLAYERS: </b></span>
+                  <span fg="#64748b">Waiting for players… Hover or click a territory to inspect</span>
+                </text>
+              );
+            }
+            // Build the player tokens as an array of {text, color} pairs so we
+            // can truncate before rendering — prevents multi-row overflow.
+            type Token = { text: string; fg: string };
+            const tokens: Token[] = [{ text: "! PLAYERS: ", fg: "#00d2ff" }];
+            for (let idx = 0; idx < players.length; idx++) {
+              const p = players[idx]!;
+              const isPActive = !isLobby && state?.activePlayerIndex === idx;
+              const statusBadge = isLobby
+                ? p.ready ? "Ready" : p.connected ? "Conn" : "Off"
+                : isPActive ? "Active" : p.isAlive ? "Wait" : "Dead";
+              const badgeColor = isLobby
+                ? (p.ready ? "#00ff66" : "#00d2ff")
+                : isPActive ? "#00ff66" : "#64748b";
+              if (idx > 0) tokens.push({ text: " │ ", fg: "#64748b" });
+              tokens.push({ text: "● ", fg: p.colorHex });
+              const nameText = fitCompactText(p.name, compactNameLimit) + (p.id === myPlayerId ? " (You)" : "");
+              tokens.push({ text: nameText, fg: "#e2e8f0" });
+              tokens.push({ text: ` [${statusBadge}]`, fg: badgeColor });
+            }
 
-                return (
-                  <text key={p.id}>
-                    <span fg="#64748b">{idx > 0 ? " │ " : ""}</span>
-                    <span fg={p.colorHex}>● </span>
-                    <span fg="#e2e8f0"><b>{p.name}</b></span>
-                    {p.id === myPlayerId && <span fg="#00ff66"> (You)</span>}
-                    <span fg={badgeColor}> [{statusBadge}]</span>
-                  </text>
-                );
-              })
-            )}
-            <text fg="#475569"> │ Hover or click territory to inspect</text>
-          </box>
+            // Compute cumulative lengths to know when to truncate
+            let used = 0;
+            const visibleTokens: Token[] = [];
+            for (const tok of tokens) {
+              if (used >= compactInfoWidth) break;
+              const remaining = compactInfoWidth - used;
+              if (tok.text.length <= remaining) {
+                visibleTokens.push(tok);
+                used += tok.text.length;
+              } else {
+                // Truncate this token with "…"
+                visibleTokens.push({ text: tok.text.slice(0, remaining - 1) + "…", fg: tok.fg });
+                used = compactInfoWidth;
+                break;
+              }
+            }
+
+            return (
+              <text>
+                {visibleTokens.map((tok, i) => (
+                  <span key={i} fg={tok.fg}>{tok.text}</span>
+                ))}
+              </text>
+            );
+          })()
         )}
       </box>
 
-      {/* Right Actions: Contextual Buttons */}
-      <box flexDirection="row" alignItems="center" gap={1}>
+      {/* Right Actions: Compact borderless buttons.
+           Bordered boxes (border + content + border = 3 rows) cannot fit inside
+           a height:3 inspector — their top/bottom borders would collide with the
+           inspector's own border rows, producing garbled output.  We use
+           background-only styling with bracket labels instead. */}
+      <box flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
         {isLobby ? (
           <box
-            border
-            borderStyle="single"
-            borderColor={isReady ? "#00ff66" : "#00d2ff"}
             backgroundColor={isReady ? "#064e3b" : "#0c2b3d"}
             paddingLeft={1}
             paddingRight={1}
@@ -215,9 +314,6 @@ export function CompactInspector({
             {/* Deployment opens the map-centered amount dialog. */}
             {phase === "deployment" && (
               <box
-                  border
-                  borderStyle="single"
-                  borderColor={canDeploy ? "#00d2ff" : "#334155"}
                   backgroundColor={canDeploy ? "#0c2b3d" : undefined}
                   paddingLeft={1}
                   paddingRight={1}
@@ -234,9 +330,6 @@ export function CompactInspector({
               <text fg="#a78bfa"><b>MOVE TROOPS…</b> choose the advance on the map</text>
             ) : phase === "attack" && (
               <box
-                border
-                borderStyle="single"
-                borderColor={canAttack ? "#00ffff" : "#334155"}
                 backgroundColor={canAttack ? "#0c2b3d" : undefined}
                 paddingLeft={1}
                 paddingRight={1}
@@ -251,9 +344,6 @@ export function CompactInspector({
             {/* Fortify */}
             {phase === "fortify" && (
               <box
-                border
-                borderStyle="single"
-                borderColor={canFortify ? "#00ff66" : "#334155"}
                 backgroundColor={canFortify ? "#092e18" : undefined}
                 paddingLeft={1}
                 paddingRight={1}
@@ -267,9 +357,6 @@ export function CompactInspector({
 
             {/* Skip / End Turn */}
             {(phase === "attack" || phase === "fortify") && <box
-              border
-              borderStyle="single"
-              borderColor={canSkipOrEnd ? "#ffaa00" : "#334155"}
               backgroundColor={canSkipOrEnd ? "#291c06" : undefined}
               paddingLeft={1}
               paddingRight={1}

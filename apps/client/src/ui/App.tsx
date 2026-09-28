@@ -17,10 +17,13 @@ import {
   type LayoutMode,
 } from "@conquest/map-engine";
 import { GameClient, type ConnectionStatus } from "../network/client.js";
+import { deriveBattleReport, resolveBattlePanelPlacement } from "./battle-report.js";
+import { FULL_W, FULL_H, COND_W, COND_H } from "./BattlePanel.js";
 import { Header } from "./Header.js";
 import { MapCanvas } from "./MapCanvas.js";
 import { Sidebar } from "./Sidebar.js";
 import { CompactInspector } from "./CompactInspector.js";
+import { CardsPanel } from "./CardsPanel.js";
 import { EventLog } from "./EventLog.js";
 import { Footer } from "./Footer.js";
 import { MatchResultsScreen } from "./MatchResultsScreen.js";
@@ -34,6 +37,8 @@ export interface AppProps {
   initialSelectedTerritoryId?: string | null;
   initialTargetTerritoryId?: string | null;
   initialHoveredTerritoryId?: string | null;
+  /** Pass false to disable the dice-roll animation (for screenshots / tests). Default true. */
+  battleAnimate?: boolean;
 }
 
 export interface TerminalSizeWarningProps {
@@ -130,12 +135,19 @@ export function App({
   initialSelectedTerritoryId,
   initialTargetTerritoryId,
   initialHoveredTerritoryId,
+  battleAnimate = true,
 }: AppProps) {
   const [state, setState] = useState<GameState | null>(client.state);
   const [myPlayerId, setMyPlayerId] = useState<string | null>(client.myPlayerId);
   const [status, setStatus] = useState<ConnectionStatus>(client.status);
-  const [events, setEvents] = useState<GameEvent[]>(client.state?.history ?? []);
+  const [events, setEvents] = useState<GameEvent[]>(client.eventHistory ? [...client.eventHistory] : (client.state?.history ?? []));
   const mapBundle = getMap(state?.mapId ?? getDefaultMap().definition.id) ?? getDefaultMap();
+
+  // Battle report – derived from event history
+  const battleReport = useMemo(
+    () => state ? deriveBattleReport(events, state.players, mapBundle) : null,
+    [events, state?.players, mapBundle],
+  );
 
   // Terminal dimensions & warning override state
   const [dimensions, setDimensions] = useState(() => ({
@@ -212,6 +224,15 @@ export function App({
   const [chatOpen, setChatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(1);
 
+  // Auto-open Cards panel (tab 2) when forced trade is pending for this player
+  const forcedTradePending =
+    state?.publicCards?.pendingForcedTrade?.playerId === myPlayerId;
+  useEffect(() => {
+    if (forcedTradePending && activeTab !== 2) {
+      setActiveTab(2);
+    }
+  }, [forcedTradePending, activeTab]);
+
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"info" | "success" | "error">("info");
   const [mapNotice, setMapNotice] = useState<string | null>(null);
@@ -236,7 +257,8 @@ export function App({
     const unsubSnapshot = client.onSnapshot((newState, newPlayerId) => {
       setState(newState);
       setMyPlayerId(newPlayerId);
-      setEvents(newState.history ?? []);
+      // Use the client's merged event history (not state.history which is a bounded tail).
+      setEvents(client.eventHistory ? [...client.eventHistory] : (newState.history ?? []));
       setDeploymentCount(newState.pendingReinforcements);
     });
 
@@ -278,6 +300,14 @@ export function App({
   const paneDimensions = getMapContentDimensionsForLayout(dimensions.columns, dimensions.rows, layoutMode);
   const sidebarWidth = getSidebarWidthForTerminal(dimensions.columns, dimensions.rows, layoutMode);
   const activeMapDef = selectRenderVariant(mapBundle, paneDimensions).grid;
+
+  // Whether MapCanvas will place a full or condensed battle panel.
+  // Used to decide whether the compact inspector should show a fallback
+  // battle-summary line (it should only when no panel fits).
+  const battlePanelPlacement = resolveBattlePanelPlacement(
+    activeMapDef, paneDimensions, FULL_W, FULL_H, COND_W, COND_H,
+  );
+  const battlePanelPlaced = battlePanelPlacement !== "none";
 
   // A conquest move is complete only when the server's snapshot removes the
   // pending action. Do not leave the former source or conquered target armed.
@@ -355,8 +385,14 @@ export function App({
       return;
     }
     if (state.phase !== "deployment") {
-      showToast(`Cannot deploy during ${state.phase} phase`, "error");
-      return;
+      // Allow deploy in attack phase when forced trade armies are pending
+      const myForcedTrade = state.publicCards?.pendingForcedTrade?.playerId === myPlayerId;
+      if (state.phase === "attack" && myForcedTrade && state.pendingReinforcements > 0) {
+        // Fall through — deployment is allowed here
+      } else {
+        showToast(`Cannot deploy during ${state.phase} phase`, "error");
+        return;
+      }
     }
     const territory = state.territories[selectedTerritoryId];
     if (!territory || territory.ownerId !== myPlayerId) {
@@ -411,6 +447,17 @@ export function App({
     }
     if (!isMyTurn) {
       showToast("You can only attack on your turn", "error");
+      return;
+    }
+    // Forced trade blocks attacks: guide the player to the Cards panel
+    const myForcedTrade = state.publicCards?.pendingForcedTrade?.playerId === myPlayerId;
+    const hand = (state as any).myHand as Array<unknown> | null;
+    if (myForcedTrade && (state.pendingReinforcements > 0 || (Array.isArray(hand) && hand.length > 4))) {
+      if (state.pendingReinforcements > 0) {
+        showToast("Deploy your trade armies before attacking. Press [2] to open Cards panel.", "error");
+      } else {
+        showToast("Trade your cards before attacking. Press [2] to open Cards panel.", "error");
+      }
       return;
     }
     if (source.units < 2) {
@@ -570,6 +617,13 @@ export function App({
     showToast("Marked ready! Waiting for game start...", "success");
   }, [client, showToast]);
 
+  const handleTradeCards = useCallback(
+    (cardIds: [string, string, string]) => {
+      client.send({ type: "client:trade_cards", cardIds });
+    },
+    [client]
+  );
+
   // Keyboard navigation
   useKeyboard((key) => {
     if (state?.phase === "game_over") return;
@@ -655,9 +709,10 @@ export function App({
       setPhaseActionConfirmation(null);
     }
 
-    // Number keys 1-5 for bottom pill tabs
+    // Number keys 1-5 for bottom pill tabs; key 2 toggles Cards panel
     if (["1", "2", "3", "4", "5"].includes(key.name)) {
-      setActiveTab(parseInt(key.name, 10));
+      const tab = parseInt(key.name, 10);
+      setActiveTab((prev) => (tab === 2 && prev === 2) ? 1 : tab);
       return;
     }
 
@@ -666,8 +721,12 @@ export function App({
       return;
     }
 
-    // Deselect / clear
+    // Deselect / clear; also close Cards panel if open
     if (key.name === "escape") {
+      if (activeTab === 2) {
+        setActiveTab(1);
+        return;
+      }
       if (targetTerritoryId) {
         setTargetTerritoryId(null);
       } else {
@@ -899,6 +958,8 @@ export function App({
               onOverlayIncrease={increaseMapOverlay}
               onOverlayMinimum={minimumMapOverlay}
               onOverlayMaximum={maximumMapOverlay}
+              battle={battleReport}
+              battleAnimate={battleAnimate}
             />
           </box>
 
@@ -929,6 +990,9 @@ export function App({
               setSelectedTerritoryId(id);
               setTargetTerritoryId(null);
             }}
+            battleReport={battleReport}
+            battlePanelPlaced={battlePanelPlaced}
+            terminalColumns={dimensions.columns}
           />
         </box>
       ) : (
@@ -940,41 +1004,52 @@ export function App({
         >
           {/* The inspector has a fixed reading width; extra columns belong to the world map. */}
           <box flexGrow={1} flexBasis={0} flexDirection="column" style={{ width: 0, height: "100%" }}>
-            <MapCanvas
-              mapBundle={mapBundle}
-              contentDimensions={paneDimensions}
-              terminalDimensions={dimensions}
-              territories={state?.territories ?? {}}
-              players={state?.players ?? []}
-              myPlayerId={myPlayerId}
-              phase={phase}
-              selectedTerritoryId={selectedTerritoryId}
-              targetTerritoryId={targetTerritoryId}
-              hoveredTerritoryId={hoveredTerritoryId}
-              onHoverTerritory={setHoveredTerritoryId}
-              onSelectTerritory={(id) => {
-                setPhaseActionConfirmation(null);
-                setSelectedTerritoryId(id);
-                setTargetTerritoryId(null);
-              }}
-              onSelectTarget={(id) => {
-                setPhaseActionConfirmation(null);
-                setTargetTerritoryId(id);
-              }}
-              onInvalidAttackTarget={handleInvalidAttackTarget}
-              onDeselect={() => {
-                setPhaseActionConfirmation(null);
-                setSelectedTerritoryId(null);
-                setTargetTerritoryId(null);
-              }}
-              overlay={mapOverlay}
-              onOverlayConfirm={confirmMapOverlay}
-              onOverlayCancel={cancelMapOverlay}
-              onOverlayDecrease={decreaseMapOverlay}
-              onOverlayIncrease={increaseMapOverlay}
-              onOverlayMinimum={minimumMapOverlay}
-              onOverlayMaximum={maximumMapOverlay}
-            />
+            {activeTab === 2 ? (
+              <CardsPanel
+                state={state}
+                myPlayerId={myPlayerId}
+                onTradeCards={handleTradeCards}
+                layoutMode={layoutMode}
+              />
+            ) : (
+              <MapCanvas
+                mapBundle={mapBundle}
+                contentDimensions={paneDimensions}
+                terminalDimensions={dimensions}
+                territories={state?.territories ?? {}}
+                players={state?.players ?? []}
+                myPlayerId={myPlayerId}
+                phase={phase}
+                selectedTerritoryId={selectedTerritoryId}
+                targetTerritoryId={targetTerritoryId}
+                hoveredTerritoryId={hoveredTerritoryId}
+                onHoverTerritory={setHoveredTerritoryId}
+                onSelectTerritory={(id) => {
+                  setPhaseActionConfirmation(null);
+                  setSelectedTerritoryId(id);
+                  setTargetTerritoryId(null);
+                }}
+                onSelectTarget={(id) => {
+                  setPhaseActionConfirmation(null);
+                  setTargetTerritoryId(id);
+                }}
+                onInvalidAttackTarget={handleInvalidAttackTarget}
+                onDeselect={() => {
+                  setPhaseActionConfirmation(null);
+                  setSelectedTerritoryId(null);
+                  setTargetTerritoryId(null);
+                }}
+                overlay={mapOverlay}
+                onOverlayConfirm={confirmMapOverlay}
+                onOverlayCancel={cancelMapOverlay}
+                onOverlayDecrease={decreaseMapOverlay}
+                onOverlayIncrease={increaseMapOverlay}
+                onOverlayMinimum={minimumMapOverlay}
+                onOverlayMaximum={maximumMapOverlay}
+                battle={battleReport}
+                battleAnimate={battleAnimate}
+              />
+            )}
           </box>
 
           {/* Right: readable tactical inspector without unbounded width growth. */}

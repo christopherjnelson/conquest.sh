@@ -1,6 +1,26 @@
 import { z } from "zod";
-import { GameEventSchema, GameStateSchema } from "./events.js";
+import { GameEventSchema, GameStateSchema, PlayerSchema, TerritoryStateSchema, GamePhaseSchema, MatchResultSchema } from "./events.js";
 import { RoomVisibilitySchema, RoomCodeSchema } from "./api.js";
+
+/**
+ * A generic state delta. Keys match the top-level keys of `GameState`.
+ *
+ * - `set`: fields that changed, serialised as JSON-safe values. The special
+ *   key `"territories"` is a partial record (only changed territory ids).
+ *   `"history"` is never included — events carry the increment discretely.
+ * - `unset`: top-level keys present in the previous state that are now absent
+ *   or explicitly `undefined`. Needed because JSON drops `undefined` values,
+ *   so a deletion can't be represented as a key with value `undefined`.
+ *
+ * New fields added to `GameState` propagate automatically; no manual list.
+ */
+export const StateDeltaSchema = z.object({
+  /** Changed fields (partial GameState, `territories` is a keyed-record diff). */
+  set: z.record(z.unknown()).optional(),
+  /** Keys to delete from the client state (present in prev, absent in next). */
+  unset: z.array(z.string()).optional(),
+});
+export type StateDelta = z.infer<typeof StateDeltaSchema>;
 
 // Client -> Server Messages
 export const ClientJoinSchema = z.object({
@@ -19,6 +39,7 @@ export const ClientCreateRoomSchema = z.object({
   visibility: RoomVisibilitySchema.default("public"),
   maxPlayers: z.number().int().min(2).max(6).default(4),
   mapId: z.string().optional(),
+  cardMode: z.enum(["escalating", "off"]).optional(),
 });
 export type ClientCreateRoom = z.infer<typeof ClientCreateRoomSchema>;
 
@@ -79,6 +100,11 @@ export const ClientPingSchema = z.object({
 });
 export type ClientPing = z.infer<typeof ClientPingSchema>;
 
+export const ClientResyncSchema = z.object({
+  type: z.literal("client:resync"),
+});
+export type ClientResync = z.infer<typeof ClientResyncSchema>;
+
 export const ClientLeaveRoomSchema = z.object({
   type: z.literal("client:leave_room"),
 });
@@ -89,6 +115,12 @@ export const ClientRematchSchema = z.object({
   ready: z.boolean(),
 });
 export type ClientRematch = z.infer<typeof ClientRematchSchema>;
+
+export const ClientTradeCardsSchema = z.object({
+  type: z.literal("client:trade_cards"),
+  cardIds: z.array(z.string()).length(3),
+});
+export type ClientTradeCards = z.infer<typeof ClientTradeCardsSchema>;
 
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   ClientJoinSchema,
@@ -104,6 +136,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   ClientEndTurnSchema,
   ClientChatSchema,
   ClientPingSchema,
+  ClientResyncSchema,
+  ClientTradeCardsSchema,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
@@ -119,15 +153,25 @@ export type ServerWelcome = z.infer<typeof ServerWelcomeSchema>;
 
 export const ServerSnapshotSchema = z.object({
   type: z.literal("server:snapshot"),
+  /** Projected game state for this player. `history` is bounded to the last 200 events. */
   state: GameStateSchema,
   myPlayerId: z.string(),
+  /** Monotonic state version at the time of this snapshot. */
+  version: z.number().int(),
 });
 export type ServerSnapshot = z.infer<typeof ServerSnapshotSchema>;
 
 export const ServerEventSchema = z.object({
   type: z.literal("server:event"),
   event: GameEventSchema,
-  state: GameStateSchema.optional(),
+  /** Monotonic state version this event corresponds to. */
+  version: z.number().int(),
+  /**
+   * Minimal diff between the previous and current projected state.
+   * Apply to the client's state to reconstruct the new state.
+   * If a version gap is detected, discard this and send `client:resync`.
+   */
+  delta: StateDeltaSchema,
 });
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
 

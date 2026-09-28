@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
+
+// CONQUEST_SESSION_DIR is set globally by tests/setup.ts (bunfig.toml preload).
 import { getMap, getGeographyBoundingBox, selectRenderVariant } from "../packages/map-engine/src/index.js";
 import { createInitialGameState } from "../packages/game-core/src/index.js";
 import { Sidebar } from "../apps/client/src/ui/Sidebar.js";
@@ -468,7 +470,11 @@ describe("Earth deployment through the client UI", () => {
       let roll = 0;
       // Three 6s for Alpha, then a 1 for Bravo.  This avoids tie-breaking in
       // the defender's favor while retaining the production server combat path.
-      Math.random = () => ([0.999999, 0.999999, 0.999999, 0][roll++ % 4]!);
+      // Override both Math.random (for any legacy paths) and room.rng (which
+      // is what GameRoom.attack() passes to attackTerritory after the sfc32 seeding).
+      const diceFn = () => ([0.999999, 0.999999, 0.999999, 0][roll++ % 4]!);
+      Math.random = diceFn;
+      room.rng = diceFn;
       let pending: any;
       await act(async () => {
         setup.mockInput.pressKey("a");

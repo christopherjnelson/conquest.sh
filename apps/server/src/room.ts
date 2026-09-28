@@ -6,6 +6,7 @@ import type {
   ServerEvent,
   ServerMessage,
   ServerSnapshot,
+  StateDelta,
   RoomSummary,
   RoomVisibility,
   RoomKind,
@@ -16,13 +17,27 @@ import {
   createInitialGameState,
   deployUnits,
   endTurn,
+  forfeitTurn,
   fortifyUnits,
   skipPhase,
+  tradeCards,
+  projectStateFor,
   type ActionResult,
   type MapDefinition,
 } from "@conquest/game-core";
 import { getDefaultMap } from "@conquest/map-engine";
-import { generateId, generateRoomCode, getPlayerColor, logger } from "@conquest/shared";
+import { generateId, generateRoomCode, getPlayerColor, logger, generateRngSeed, makeSfc32, makeShuffleFn } from "@conquest/shared";
+
+/** Minimal timer abstraction for testability. */
+export interface TimerScheduler {
+  setTimeout(fn: () => void, ms: number): ReturnType<typeof setTimeout>;
+  clearTimeout(id: ReturnType<typeof setTimeout>): void;
+}
+
+const defaultScheduler: TimerScheduler = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (id) => clearTimeout(id),
+};
 
 export interface RoomSocket {
   send(data: string): void;
@@ -40,6 +55,22 @@ export interface GameRoomOptions {
   kind?: RoomKind;
   createdAt?: number;
   onDeserted?: (roomCode: string) => void;
+  /** ms to wait before forfeiting a disconnected active player's turn (0 = disabled) */
+  disconnectGraceMs?: number;
+  /** per-turn time limit in ms (0 = disabled) */
+  turnTimeoutMs?: number;
+  /** ms before removing a room where everyone is disconnected (0 = disabled) */
+  abandonTimeoutMs?: number;
+  /** injectable timer for tests */
+  scheduler?: TimerScheduler;
+  /** chat rate limit: max messages per window */
+  chatBucketCapacity?: number;
+  /** chat rate limit: refill window in ms */
+  chatRefillMs?: number;
+  /** Deterministic seed for tests. Production code omits this and generates one via crypto. */
+  rngSeed?: Uint8Array;
+  /** Card mode for all matches in this room. Default: "escalating". */
+  cardMode?: "escalating" | "off";
 }
 
 export interface RoomPlayerSummary {
@@ -49,6 +80,76 @@ export interface RoomPlayerSummary {
   ready: boolean;
   colorIndex: number;
   colorHex: string;
+}
+
+/**
+ * Compute the minimal delta between two projected states generically.
+ *
+ * Iterates the union of all top-level keys in prev and next (excluding
+ * `history`, which is never diffed — events carry the increment).
+ * `territories` is treated as a keyed-record diff so only changed territory
+ * entries are transmitted.  All other fields are deep-compared via
+ * JSON.stringify; if changed they land in `set`, if removed they land in
+ * `unset`.
+ *
+ * Because the diff iterates keys generically, any new GameState field (card
+ * hands, trade counters, …) propagates to clients automatically without
+ * manual list maintenance.
+ */
+function diffProjectedStates(prev: GameState, next: GameState): StateDelta {
+  const set: Record<string, unknown> = {};
+  const unset: string[] = [];
+
+  const prevRec = prev as Record<string, unknown>;
+  const nextRec = next as Record<string, unknown>;
+  const allKeys = new Set([
+    ...Object.keys(prevRec),
+    ...Object.keys(nextRec),
+  ]);
+
+  for (const key of allKeys) {
+    if (key === "history") continue; // history flows via discrete events
+
+    const prevVal = prevRec[key];
+    const nextVal = nextRec[key];
+
+    // Key removed in next
+    if (!(key in nextRec) || nextVal === undefined) {
+      unset.push(key);
+      continue;
+    }
+
+    // Key added in next (wasn't in prev)
+    if (!(key in prevRec) || prevVal === undefined) {
+      set[key] = nextVal;
+      continue;
+    }
+
+    // Special case: territories → keyed record diff (only changed territory ids)
+    if (key === "territories") {
+      const prevT = prev.territories;
+      const nextT = next.territories;
+      const changedT: Record<string, unknown> = {};
+      const allIds = new Set([...Object.keys(prevT), ...Object.keys(nextT)]);
+      for (const id of allIds) {
+        if (JSON.stringify(prevT[id]) !== JSON.stringify(nextT[id])) {
+          changedT[id] = nextT[id]; // undefined means the territory was removed
+        }
+      }
+      if (Object.keys(changedT).length > 0) set["territories"] = changedT;
+      continue;
+    }
+
+    // Generic: deep JSON compare
+    if (JSON.stringify(prevVal) !== JSON.stringify(nextVal)) {
+      set[key] = nextVal;
+    }
+  }
+
+  const delta: StateDelta = {};
+  if (Object.keys(set).length > 0) delta.set = set;
+  if (unset.length > 0) delta.unset = unset;
+  return delta;
 }
 
 export class GameRoom {
@@ -63,10 +164,43 @@ export class GameRoom {
   public readonly kind: RoomKind;
   public readonly createdAt: number;
   public onDeserted?: (roomCode: string) => void;
+  /** Seeded PRNG for the current match: drives shuffles and dice rolls. NOT broadcast to clients. */
+  public rng: () => number;
+  /** The raw seed used to create rng (kept for debug logging at match end). */
+  private rngSeed: Uint8Array;
+  /** Optional test-injected seed; when set, every match reuses it deterministically. */
+  private readonly injectedSeed?: Uint8Array;
 
   public state: GameState;
+  /** Monotonically increasing state version. Increments on every successful applyResult. */
+  public stateVersion: number = 0;
+  /**
+   * Per-viewer baseline projected states, keyed by playerId.
+   * When computing the delta for a `server:event`, each player's delta is
+   * computed from their own baseline so the delta is personalised to their
+   * projection (future: card hands visible only to the holder, etc.).
+   * Baselines are reset on start/rematch/join/reconnect/resync.
+   */
+  private prevProjectedStates = new Map<string, GameState>();
   private playerSockets = new Map<string, RoomSocket>();
   private playerTokens = new Map<string, string>();
+
+  // Timer configuration
+  private readonly disconnectGraceMs: number;
+  private readonly turnTimeoutMs: number;
+  private readonly abandonTimeoutMs: number;
+  private readonly scheduler: TimerScheduler;
+
+  // Active timers
+  private disconnectForfeitTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private turnTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private abandonTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Chat rate limiting: per-player token buckets
+  private chatBuckets = new Map<string, { tokens: number; lastRefill: number }>();
+  public readonly chatBucketCapacity: number;
+  public readonly chatRefillMs: number;
+  public readonly cardMode: "escalating" | "off";
 
   constructor(options: GameRoomOptions) {
     this.roomCode = options.roomCode.toUpperCase();
@@ -81,6 +215,17 @@ export class GameRoom {
     this.visibility = options.visibility ?? "public";
     this.createdAt = options.createdAt ?? Date.now();
     this.onDeserted = options.onDeserted;
+    this.disconnectGraceMs = options.disconnectGraceMs ?? 60_000;
+    this.turnTimeoutMs = options.turnTimeoutMs ?? 0;
+    this.abandonTimeoutMs = options.abandonTimeoutMs ?? 600_000;
+    this.scheduler = options.scheduler ?? defaultScheduler;
+    this.chatBucketCapacity = options.chatBucketCapacity ?? 5;
+    this.chatRefillMs = options.chatRefillMs ?? 10_000;
+    this.cardMode = options.cardMode ?? "escalating";
+    this.injectedSeed = options.rngSeed;
+    // Provide a no-op rng until the first match starts.
+    this.rngSeed = new Uint8Array(16);
+    this.rng = Math.random;
 
     const initialSectors: Record<string, Sector> = {};
     for (const s of this.map.sectors) {
@@ -208,8 +353,8 @@ export class GameRoom {
     if (this.autoStart && this.state.players.length >= this.maxPlayers) {
       this.startGame();
     } else {
-      // Send lobby snapshot to joining player
-      this.sendSnapshot(playerId);
+      // Broadcast updated snapshot to all connected players (including the new one).
+      this.broadcastSnapshot();
     }
 
     return { ok: true };
@@ -294,6 +439,7 @@ export class GameRoom {
       }
     }
 
+    this.reseedForMatch();
     this.matchNumber += 1;
     this.gameId = generateId("game");
 
@@ -315,8 +461,9 @@ export class GameRoom {
       participatingPlayers,
       this.map,
       3,
-      undefined,
-      this.matchNumber
+      makeShuffleFn(this.rng),
+      this.matchNumber,
+      this.cardMode
     );
 
     const activePlayer = initialState.players[initialState.activePlayerIndex];
@@ -330,16 +477,35 @@ export class GameRoom {
 
     initialState.history.unshift(rematchEvent);
     this.state = initialState;
+    this.stateVersion++;
+    this.prevProjectedStates.clear();
+
+    // Clear timers from previous match, then stamp deadline before broadcasting.
+    this.clearAllTimers();
+    this.applyTurnDeadline();
 
     for (const event of this.state.history) {
       this.broadcastEvent(event, this.state);
     }
     this.broadcastSnapshot();
 
+    // Arm the timer now that broadcasts have gone out.
+    this.armTurnTimer();
+
     logger.info(
       `Rematch #${this.matchNumber} started in room ${this.roomCode} with ${participatingPlayers.length} players. Active player: ${activePlayer.name}`
     );
     return true;
+  }
+
+  /**
+   * Generate a fresh match seed and rng. Uses the injected test seed if one was
+   * supplied, otherwise draws fresh bytes from crypto. Called at the start of
+   * every match so the logged seed replays exactly that match.
+   */
+  private reseedForMatch(): void {
+    this.rngSeed = this.injectedSeed ? new Uint8Array(this.injectedSeed) : generateRngSeed();
+    this.rng = makeSfc32(this.rngSeed);
   }
 
   /**
@@ -351,6 +517,7 @@ export class GameRoom {
     const activePlayers = this.state.players.filter((p) => p.connected);
     if (activePlayers.length < 2) return false;
 
+    this.reseedForMatch();
     this.matchNumber = 1;
     const initialState = createInitialGameState(
       this.gameId,
@@ -358,11 +525,17 @@ export class GameRoom {
       activePlayers,
       this.map,
       3,
-      undefined,
-      1
+      makeShuffleFn(this.rng),
+      1,
+      this.cardMode
     );
 
     this.state = initialState;
+    this.stateVersion++;
+    this.prevProjectedStates.clear();
+
+    // Stamp the turn deadline BEFORE broadcasting so clients see it immediately.
+    this.applyTurnDeadline();
 
     // Broadcast state transition events
     for (const event of initialState.history) {
@@ -371,6 +544,9 @@ export class GameRoom {
 
     // Broadcast full snapshot with assigned player identities to all sockets
     this.broadcastSnapshot();
+
+    // Arm the timer now that broadcasts have gone out.
+    this.armTurnTimer();
 
     logger.info(
       `Game started in room ${this.roomCode} with ${activePlayers.length} players. Active player: ${activePlayers[0].name}`
@@ -388,6 +564,11 @@ export class GameRoom {
     player.connected = true;
     this.playerSockets.set(playerId, socket);
 
+    // Cancel any pending disconnect forfeit timer for this player
+    this.cancelDisconnectForfeit(playerId);
+    // Cancel abandon timer since someone is back
+    this.cancelAbandonTimer();
+
     const event: GameEvent = {
       type: "player_reconnected",
       playerId,
@@ -395,11 +576,17 @@ export class GameRoom {
     };
     this.state.history.push(event);
 
-    // Broadcast reconnection event to other players
+    // Broadcast reconnection event to other players, then full snapshot to all.
     this.broadcastEvent(event, this.state, playerId);
 
-    // Send full snapshot to the reconnecting player
-    this.sendSnapshot(playerId);
+    // Send updated snapshot to all connected players (including the reconnecting one).
+    this.broadcastSnapshot();
+
+    // If this player was the active player and we have a turn timeout, restart it
+    const activePlayer = this.state.players[this.state.activePlayerIndex];
+    if (activePlayer?.id === playerId) {
+      this.scheduleTurnTimeout();
+    }
 
     logger.info(`Player ${player.name} (${playerId}) reconnected to room ${this.roomCode}`);
     return true;
@@ -475,14 +662,234 @@ export class GameRoom {
     };
     this.state.history.push(event);
 
-    // Broadcast player_left to remaining connected players
+    // Broadcast player_left to remaining connected players, then snapshot.
     this.broadcastEvent(event, this.state);
+    this.broadcastSnapshot();
 
     logger.info(`Player ${player.name} (${playerId}) disconnected from room ${this.roomCode}`);
+
+    // Schedule disconnect forfeit if this player is the active player
+    const activePlayer = this.state.players[this.state.activePlayerIndex];
+    if (activePlayer?.id === playerId && this.disconnectGraceMs > 0) {
+      this.scheduleDisconnectForfeit(playerId);
+    }
+
+    // Schedule room abandonment if all players are now disconnected
+    const connectedCount = this.state.players.filter((p) => p.connected).length;
+    if (connectedCount === 0 && this.abandonTimeoutMs > 0) {
+      this.scheduleAbandonTimer();
+    }
   }
 
   removePlayer(playerId: string, reason?: string) {
     this.disconnectPlayer(playerId, reason ?? "removed");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Timer management
+  // ---------------------------------------------------------------------------
+
+  /** Schedule a forfeit for a disconnected active player after the grace period. */
+  private scheduleDisconnectForfeit(playerId: string) {
+    this.cancelDisconnectForfeit(playerId);
+    const timer = this.scheduler.setTimeout(() => {
+      this.disconnectForfeitTimers.delete(playerId);
+      this.executeForfeit(playerId, "disconnected");
+    }, this.disconnectGraceMs);
+    this.disconnectForfeitTimers.set(playerId, timer);
+  }
+
+  /** Cancel a pending disconnect forfeit for a player. */
+  private cancelDisconnectForfeit(playerId: string) {
+    const existing = this.disconnectForfeitTimers.get(playerId);
+    if (existing !== undefined) {
+      this.scheduler.clearTimeout(existing);
+      this.disconnectForfeitTimers.delete(playerId);
+    }
+  }
+
+  /**
+   * Step 1 of turn-timeout setup: compute the deadline and stamp it onto
+   * `this.state` so that every broadcast that follows will carry the deadline.
+   * Must be called BEFORE any broadcastEvent / broadcastSnapshot for the new turn.
+   */
+  private applyTurnDeadline() {
+    if (this.turnTimeoutMs <= 0) return;
+    const activePlayer = this.state.players[this.state.activePlayerIndex];
+    if (!activePlayer?.isAlive) return;
+    const deadline = Date.now() + this.turnTimeoutMs;
+    this.state = { ...this.state, turnDeadlineAt: deadline };
+  }
+
+  /**
+   * Step 2 of turn-timeout setup: arm the actual timer.
+   * Must be called AFTER broadcasts so the deadline is already in the state
+   * clients received.
+   */
+  private armTurnTimer() {
+    if (this.turnTimeoutMs <= 0) return;
+    const activePlayer = this.state.players[this.state.activePlayerIndex];
+    if (!activePlayer?.isAlive) return;
+    this.turnTimeoutTimer = this.scheduler.setTimeout(() => {
+      this.turnTimeoutTimer = null;
+      const ap = this.state.players[this.state.activePlayerIndex];
+      if (ap) this.executeForfeit(ap.id, "timeout");
+    }, this.turnTimeoutMs);
+  }
+
+  /**
+   * Convenience: cancel any running timer + deadline, set deadline, arm timer.
+   * Use this only when no broadcast needs to carry the new deadline (e.g. tests
+   * that call scheduleTurnTimeout directly).  In normal game flow prefer calling
+   * applyTurnDeadline() before broadcasts and armTurnTimer() after.
+   */
+  scheduleTurnTimeout() {
+    this.cancelTurnTimeout();
+    this.applyTurnDeadline();
+    this.armTurnTimer();
+  }
+
+  /** Cancel the per-turn timeout timer. */
+  private cancelTurnTimeout() {
+    if (this.turnTimeoutTimer !== null) {
+      this.scheduler.clearTimeout(this.turnTimeoutTimer);
+      this.turnTimeoutTimer = null;
+    }
+    this.state = { ...this.state, turnDeadlineAt: null };
+  }
+
+  /** Schedule room removal if abandoned (all players disconnected during active game). */
+  private scheduleAbandonTimer() {
+    this.cancelAbandonTimer();
+    if (this.abandonTimeoutMs <= 0) return;
+    this.abandonTimer = this.scheduler.setTimeout(() => {
+      this.abandonTimer = null;
+      logger.info(`Room ${this.roomCode} abandoned — removing after ${this.abandonTimeoutMs}ms`);
+      this.onDeserted?.(this.roomCode);
+    }, this.abandonTimeoutMs);
+  }
+
+  /** Cancel the abandon timer (called when a player reconnects). */
+  cancelAbandonTimer() {
+    if (this.abandonTimer !== null) {
+      this.scheduler.clearTimeout(this.abandonTimer);
+      this.abandonTimer = null;
+    }
+  }
+
+  /** Clear all pending timers. Should be called when removing a room. */
+  clearAllTimers() {
+    for (const [pid, timer] of this.disconnectForfeitTimers) {
+      this.scheduler.clearTimeout(timer);
+    }
+    this.disconnectForfeitTimers.clear();
+    this.cancelTurnTimeout();
+    this.cancelAbandonTimer();
+  }
+
+  /** Execute a forfeit for the given player. No-op if they are no longer the active player. */
+  private executeForfeit(playerId: string, reason: "disconnected" | "timeout") {
+    if (this.state.phase === "game_over") return;
+    const activePlayer = this.state.players[this.state.activePlayerIndex];
+    if (!activePlayer || activePlayer.id !== playerId) return;
+    if (!activePlayer.isAlive) return;
+
+    logger.info(`Forfeiting turn for player ${activePlayer.name} (${playerId}) in room ${this.roomCode} — reason: ${reason}`);
+
+    // Cancel timers that will be restarted after turn advance
+    this.cancelTurnTimeout();
+    // Also cancel any pending disconnect forfeit for this player
+    this.cancelDisconnectForfeit(playerId);
+
+    const result = forfeitTurn(this.state, playerId, reason, makeShuffleFn(this.rng));
+    if (result.ok) {
+      this.state = result.state;
+      // Stamp the turn deadline BEFORE broadcasting so clients receive it.
+      this.applyTurnDeadline();
+      for (const event of result.events) {
+        this.broadcastEvent(event, this.state);
+      }
+      this.broadcastSnapshot();
+      // Arm the timer after broadcasts.
+      this.armTurnTimer();
+      // If the new active player is also disconnected, schedule their forfeit too
+      const nextPlayer = this.state.players[this.state.activePlayerIndex];
+      if (nextPlayer && !nextPlayer.connected && this.disconnectGraceMs > 0) {
+        this.scheduleDisconnectForfeit(nextPlayer.id);
+      }
+    } else {
+      logger.warn(`forfeitTurn failed for ${playerId} in ${this.roomCode}: ${result.error}`);
+    }
+  }
+
+  /**
+   * Apply an action result: update state, broadcast events, reset timers if turn advanced.
+   *
+   * Per-viewer deltas: each connected player receives a delta computed from
+   * their own baseline projection so that per-player hidden information
+   * (card hands, etc.) is naturally personalised.
+   */
+  private applyResult<T>(
+    prevActiveIndex: number,
+    result: ActionResult<T>
+  ): ActionResult<T> {
+    if (result.ok) {
+      this.state = result.state;
+      // Detect turn advancement early so we can stamp the deadline BEFORE
+      // any broadcast, ensuring clients receive the new turnDeadlineAt.
+      const turnAdvanced =
+        this.state.phase !== "game_over" &&
+        this.state.activePlayerIndex !== prevActiveIndex;
+      if (turnAdvanced) {
+        this.cancelTurnTimeout();
+        this.applyTurnDeadline();
+      }
+      // Increment version after deadline is applied.
+      this.stateVersion++;
+
+      // Compute per-viewer projected state and delta, then serialize per socket.
+      for (const event of result.events) {
+        const eventJson = JSON.stringify(event);
+        for (const [pId, socket] of this.playerSockets.entries()) {
+          const nextProjected = projectStateFor(this.state, pId);
+          const prevProjected = this.prevProjectedStates.get(pId);
+          const delta = prevProjected
+            ? diffProjectedStates(prevProjected, nextProjected)
+            : {};
+          // Update the per-viewer baseline for next event in this applyResult.
+          this.prevProjectedStates.set(pId, nextProjected);
+          const message = JSON.stringify({
+            type: "server:event",
+            event: JSON.parse(eventJson),
+            version: this.stateVersion,
+            delta,
+          });
+          try {
+            socket.send(message);
+          } catch (err) {
+            logger.error(`Error sending event to player ${pId} in room ${this.roomCode}:`, err);
+          }
+        }
+      }
+
+      // If game ended, clear all timers and log the RNG seed for reproducibility
+      if (this.state.phase === "game_over") {
+        this.clearAllTimers();
+        logger.debug(
+          `Match ${this.matchNumber} ended in room ${this.roomCode}. ` +
+          `RNG seed (hex): ${Buffer.from(this.rngSeed).toString("hex")}`
+        );
+      } else if (turnAdvanced) {
+        // Turn advanced — arm the timer now that broadcasts have gone out.
+        this.armTurnTimer();
+        // If the new active player is disconnected, schedule their forfeit
+        const newActive = this.state.players[this.state.activePlayerIndex];
+        if (newActive && !newActive.connected && this.disconnectGraceMs > 0) {
+          this.scheduleDisconnectForfeit(newActive.id);
+        }
+      }
+    }
+    return result;
   }
 
   /**
@@ -496,14 +903,8 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = deployUnits(this.state, playerId, territoryId, count);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
-      }
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, deployUnits(this.state, playerId, territoryId, count));
   }
 
   /**
@@ -524,23 +925,13 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = attackTerritory(this.state, playerId, sourceId, targetId, units);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
-      }
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, attackTerritory(this.state, playerId, sourceId, targetId, units, this.rng));
   }
 
   completeConquestMove(playerId: string, units: number): ActionResult<void> {
-    const result = completeConquestMove(this.state, playerId, units);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) this.broadcastEvent(event, this.state);
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, completeConquestMove(this.state, playerId, units));
   }
 
   /**
@@ -555,14 +946,8 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = fortifyUnits(this.state, playerId, sourceId, targetId, units);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
-      }
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, fortifyUnits(this.state, playerId, sourceId, targetId, units));
   }
 
   /**
@@ -572,14 +957,8 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = skipPhase(this.state, playerId);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
-      }
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, skipPhase(this.state, playerId, makeShuffleFn(this.rng)));
   }
 
   /**
@@ -589,18 +968,23 @@ export class GameRoom {
     if (this.state.phase === "game_over") {
       return { ok: false, error: "Game is over" };
     }
-    const result = endTurn(this.state, playerId);
-    if (result.ok) {
-      this.state = result.state;
-      for (const event of result.events) {
-        this.broadcastEvent(event, this.state);
-      }
-    }
-    return result;
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, endTurn(this.state, playerId, [], makeShuffleFn(this.rng)));
   }
 
   /**
-   * Authoritative chat action.
+   * Authoritative trade cards action.
+   */
+  tradeCards(playerId: string, cardIds: [string, string, string]): ActionResult<void> {
+    if (this.state.phase === "game_over") {
+      return { ok: false, error: "Game is over" };
+    }
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, tradeCards(this.state, playerId, cardIds, makeShuffleFn(this.rng)));
+  }
+
+  /**
+   * Authoritative chat action. Enforces per-player token-bucket rate limit.
    */
   chat(playerId: string, text: string): ActionResult<{ event: GameEvent }> {
     const player = this.getPlayer(playerId);
@@ -608,13 +992,32 @@ export class GameRoom {
       return { ok: false, error: "Player not found in room" };
     }
 
+    // Token-bucket rate limiting
+    const now = Date.now();
+    let bucket = this.chatBuckets.get(playerId);
+    if (!bucket) {
+      bucket = { tokens: this.chatBucketCapacity, lastRefill: now };
+      this.chatBuckets.set(playerId, bucket);
+    }
+    // Refill tokens based on elapsed time
+    const elapsed = now - bucket.lastRefill;
+    if (elapsed >= this.chatRefillMs) {
+      const refills = Math.floor(elapsed / this.chatRefillMs);
+      bucket.tokens = Math.min(this.chatBucketCapacity, bucket.tokens + refills);
+      bucket.lastRefill = now - (elapsed % this.chatRefillMs);
+    }
+    if (bucket.tokens <= 0) {
+      return { ok: false, error: "RATE_LIMITED" };
+    }
+    bucket.tokens -= 1;
+
     const event: GameEvent = {
       type: "chat_message",
       senderId: playerId,
       senderName: player.name,
       channel: "game",
       text,
-      timestamp: Date.now(),
+      timestamp: now,
     };
     this.state.history.push(event);
     this.broadcastEvent(event, this.state);
@@ -638,26 +1041,37 @@ export class GameRoom {
   }
 
   /**
-   * Broadcast a server:event message to connected sockets.
+   * Broadcast a server:event for lobby/game-management events that don't
+   * go through applyResult (e.g. player_joined, player_left, player_reconnected).
+   * These carry an empty delta since state changes for these events are delivered
+   * via broadcastSnapshot which immediately follows.
    */
-  broadcastEvent(event: GameEvent, state?: GameState, excludePlayerId?: string) {
+  broadcastEvent(event: GameEvent, _state?: GameState, excludePlayerId?: string) {
     const message: ServerEvent = {
       type: "server:event",
       event,
-      state,
+      version: this.stateVersion,
+      delta: {},
     };
     this.broadcast(message, excludePlayerId);
   }
 
   /**
    * Broadcast full server:snapshot to all connected sockets in this room.
+   * Resets each player's per-viewer delta baseline to the snapshot projection,
+   * so future deltas are computed from the state the client is known to have.
    */
   broadcastSnapshot() {
     for (const [pId, socket] of this.playerSockets.entries()) {
+      const projected = projectStateFor(this.state, pId);
+      // Reset the per-viewer baseline: after this snapshot the client's state
+      // is exactly `projected`, so the next delta should diff from here.
+      this.prevProjectedStates.set(pId, projected);
       const message: ServerSnapshot = {
         type: "server:snapshot",
-        state: this.state,
+        state: projected,
         myPlayerId: pId,
+        version: this.stateVersion,
       };
       try {
         socket.send(JSON.stringify(message));
@@ -669,21 +1083,36 @@ export class GameRoom {
 
   /**
    * Send full server:snapshot to a specific player.
+   * Resets that player's per-viewer delta baseline.
    */
   sendSnapshot(playerId: string) {
     const socket = this.playerSockets.get(playerId);
     if (!socket) return;
 
+    const projected = projectStateFor(this.state, playerId);
+    // Reset the per-viewer baseline for this player.
+    this.prevProjectedStates.set(playerId, projected);
     const message: ServerSnapshot = {
       type: "server:snapshot",
-      state: this.state,
+      state: projected,
       myPlayerId: playerId,
+      version: this.stateVersion,
     };
     try {
       socket.send(JSON.stringify(message));
     } catch (err) {
       logger.error(`Error sending snapshot to player ${playerId} in room ${this.roomCode}:`, err);
     }
+  }
+
+  /**
+   * Handle a resync request from a client: send them the current snapshot
+   * and reset their delta baseline.
+   */
+  handleResync(playerId: string) {
+    // Delete the baseline so the next snapshot resets it cleanly.
+    this.prevProjectedStates.delete(playerId);
+    this.sendSnapshot(playerId);
   }
 
   getPlayerSocket(playerId: string): RoomSocket | undefined {
@@ -713,18 +1142,45 @@ export class GameRoom {
       mapName: this.map.name,
       turnNumber: this.state.turnNumber,
       createdAt: this.createdAt,
+      cardMode: this.cardMode,
     };
   }
+}
+
+export interface RoomManagerOptions {
+  defaultMap?: MapDefinition;
+  defaultMaxPlayers?: number;
+  maxRooms?: number;
+  disconnectGraceMs?: number;
+  turnTimeoutMs?: number;
+  abandonTimeoutMs?: number;
+  scheduler?: TimerScheduler;
+  chatBucketCapacity?: number;
+  chatRefillMs?: number;
+  /** Fixed RNG seed injected into every room created by this manager (test-only). */
+  rngSeed?: Uint8Array;
 }
 
 export class RoomManager {
   private rooms = new Map<string, GameRoom>();
   public readonly defaultMap: MapDefinition;
   public readonly defaultMaxPlayers: number;
+  public readonly maxRooms: number;
+  private readonly roomDefaults: Partial<GameRoomOptions>;
 
-  constructor(options?: { defaultMap?: MapDefinition; defaultMaxPlayers?: number }) {
+  constructor(options?: RoomManagerOptions) {
     this.defaultMap = options?.defaultMap ?? getDefaultMap().definition;
     this.defaultMaxPlayers = options?.defaultMaxPlayers ?? 4;
+    this.maxRooms = options?.maxRooms ?? 500;
+    this.roomDefaults = {
+      disconnectGraceMs: options?.disconnectGraceMs,
+      turnTimeoutMs: options?.turnTimeoutMs,
+      abandonTimeoutMs: options?.abandonTimeoutMs,
+      scheduler: options?.scheduler,
+      chatBucketCapacity: options?.chatBucketCapacity,
+      chatRefillMs: options?.chatRefillMs,
+      rngSeed: options?.rngSeed,
+    };
   }
 
   getRoom(roomCode: string): GameRoom | undefined {
@@ -738,6 +1194,7 @@ export class RoomManager {
     }
     const room = new GameRoom({
       map: this.defaultMap,
+      ...this.roomDefaults,
       onDeserted: (c) => this.removeRoom(c),
       ...options,
       roomCode: code,
@@ -751,7 +1208,11 @@ export class RoomManager {
     visibility?: RoomVisibility;
     maxPlayers?: number;
     map?: MapDefinition;
-  }): GameRoom {
+    cardMode?: "escalating" | "off";
+  }): GameRoom | null {
+    if (this.rooms.size >= this.maxRooms) {
+      return null;
+    }
     let code: string;
     do {
       code = generateRoomCode();
@@ -765,6 +1226,8 @@ export class RoomManager {
       autoStart: false,
       maxPlayers: options?.maxPlayers ?? 4,
       map: options?.map ?? this.defaultMap,
+      cardMode: options?.cardMode ?? "escalating",
+      ...this.roomDefaults,
       onDeserted: (c) => this.removeRoom(c),
     });
     this.rooms.set(code, room);
@@ -780,6 +1243,7 @@ export class RoomManager {
         map: options?.map ?? this.defaultMap,
         maxPlayers: options?.maxPlayers ?? this.defaultMaxPlayers,
         autoStart: options?.autoStart ?? false,
+        ...this.roomDefaults,
         onDeserted: (c) => this.removeRoom(c),
         ...options,
       });
@@ -789,7 +1253,12 @@ export class RoomManager {
   }
 
   removeRoom(roomCode: string): boolean {
-    return this.rooms.delete(roomCode.toUpperCase());
+    const code = roomCode.toUpperCase();
+    const room = this.rooms.get(code);
+    if (room) {
+      room.clearAllTimers();
+    }
+    return this.rooms.delete(code);
   }
 
   getRoomsCount(): number {

@@ -14,6 +14,9 @@ import {
   getMapContentDimensionsForLayout,
   getLayoutModeForMap,
 } from "@conquest/map-engine";
+import type { BattleReport } from "./battle-report.js";
+import { findPanelCorner, resolveBattlePanelPlacement } from "./battle-report.js";
+import { BattlePanel, FULL_W, FULL_H, COND_W, COND_H } from "./BattlePanel.js";
 
 export interface MapCanvasProps {
   mapBundle?: MapBundle;
@@ -42,6 +45,10 @@ export interface MapCanvasProps {
   onOverlayIncrease?: () => void;
   onOverlayMinimum?: () => void;
   onOverlayMaximum?: () => void;
+  /** Battle report to display in the map corner; null/undefined hides the panel. */
+  battle?: BattleReport | null;
+  /** When false, disables the dice roll animation (useful in tests). */
+  battleAnimate?: boolean;
 }
 
 interface CellStyle {
@@ -506,6 +513,8 @@ export function MapCanvas({
   onOverlayIncrease,
   onOverlayMinimum,
   onOverlayMaximum,
+  battle,
+  battleAnimate = true,
 }: MapCanvasProps) {
   const terminalPane = terminalDimensions
     ? getMapContentDimensionsForLayout(
@@ -1149,6 +1158,63 @@ export function MapCanvas({
         </box>
       ) : null;
 
+  // --- Battle panel positioning ---
+  // Try full panel first, fall back to condensed, skip if neither fits.
+  // FULL_W/FULL_H/COND_W/COND_H are imported from BattlePanel to stay in sync.
+  let battlePanelEl: React.ReactNode = null;
+  if (battle) {
+    // innerH/innerW = pane content-area size (excluding the MapCanvas frame border).
+    // position="absolute" in OpenTUI is content-area relative (top=0 = first content row).
+    //
+    // vOffset/hOffset mirror OpenTUI's justifyContent/alignItems centering:
+    //   floor((innerH - land.height) / 2)   — may be negative when the land is taller than
+    //   the content area but still fits in the total pane (the frame border rows absorb the
+    //   remainder). A negative value means OpenTUI clips the top/left of the map.
+    //
+    // top = vOffset + corner.row  places the panel at content row (vOffset + row), which is
+    // the same content row where land row `row` appears. No +1 offset: that would shift the
+    // panel one row below findPanelCorner's verified-ocean area, causing an off-by-one that
+    // exposes coastline (▀/▄) on profiles where the map nearly fills the content area.
+    //
+    // maxRows caps findPanelCorner: the panel's bottom content row is vOffset + row + panelH − 1,
+    // which must be < innerH. With row = landH − panelH this gives maxRows = innerH − vOffset − 1.
+    const innerH = availableContentH - 2;
+    const innerW = availableContentW - 2;
+    const hOffset = canCenterH ? Math.floor((innerW - renderLayout.width) / 2) : 0;
+    const vOffset = canCenterV ? Math.floor((innerH - renderLayout.height) / 2) : 0;
+    const maxRows = innerH - vOffset - 1;
+    // resolveBattlePanelPlacement is the shared helper (also used by App to drive
+    // the compact-inspector fallback line) — call it first so both code paths
+    // share the same placement decision, then call findPanelCorner only for the
+    // concrete corner coordinates needed for absolute positioning.
+    const placement = resolveBattlePanelPlacement(activeMap, { width: availableContentW, height: availableContentH }, FULL_W, FULL_H, COND_W, COND_H);
+    const isCondensed = placement === "condensed";
+    const fullCorner   = placement === "full"      ? findPanelCorner(activeMap, FULL_W, FULL_H, undefined, maxRows) : null;
+    const condensedCorner = placement === "condensed" ? findPanelCorner(activeMap, COND_W, COND_H, undefined, maxRows) : null;
+    const chosenCorner = fullCorner ?? condensedCorner;
+    if (chosenCorner) {
+      // chosenCorner.col/row are in land-crop coordinates (0..land.width-1, 0..land.height-1).
+      // Math.max(0, …) prevents the panel from landing outside the content area when the map
+      // is slightly wider/taller than innerW/innerH (hOffset or vOffset negative): in that
+      // case, clamp to content col/row 0 (frame col/row 1 — inside the border).  Clamping is
+      // applied to the SUM so that when vOffset/hOffset are non-negative the result equals
+      // vOffset+row/hOffset+col without any additional bias.
+      const left = Math.max(0, hOffset + chosenCorner.col);
+      const top  = Math.max(0, vOffset + chosenCorner.row);
+      battlePanelEl = (
+        <BattlePanel
+          report={battle}
+          animate={battleAnimate}
+          condensed={isCondensed}
+          position="absolute"
+          left={left}
+          top={top}
+          zIndex={5}
+        />
+      );
+    }
+  }
+
   const canvasProps = {
     title,
     titleColor: "#00d2ff",
@@ -1168,10 +1234,11 @@ export function MapCanvas({
   // Preserve the ordinary map tree when no panel is active. Several render
   // consumers inspect its rows directly, and a modal should not perturb that
   // lightweight path.
-  if (!overlayPanel) return <box {...canvasProps}>{mapBody}</box>;
+  if (!overlayPanel && !battlePanelEl) return <box {...canvasProps}>{mapBody}</box>;
   return (
     <box {...canvasProps} position="relative">
       {mapBody}
+      {battlePanelEl}
       {overlayPanel}
     </box>
   );

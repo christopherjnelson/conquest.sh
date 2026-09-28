@@ -3,3 +3,5 @@ export * from "./combat.js";
 export * from "./state.js";
 export * from "./rules.js";
 export * from "./victory.js";
+export * from "./projection.js";
+export * from "./cards.js";

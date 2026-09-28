@@ -18,6 +18,8 @@ import { GameRoom, RoomManager } from "../apps/server/src/room.js";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
 
+// CONQUEST_SESSION_DIR is set globally by tests/setup.ts (bunfig.toml preload).
+
 describe("Match Lifecycle, Victory, Results & Rematch", () => {
   const createTestPlayers = (count: number = 2): Player[] => {
     const names = ["Alice", "Bob", "Charlie", "Diana"];
@@ -437,7 +439,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
 
     it("RoomManager removes deserted game_over room once all connected players disconnect", () => {
       const manager = new RoomManager();
-      const room = manager.createCustomRoom({ displayName: "DesertedRoom" });
+      const room = manager.createCustomRoom({ displayName: "DesertedRoom" })!;
       const code = room.roomCode;
 
       const socketA = { send: () => {} };

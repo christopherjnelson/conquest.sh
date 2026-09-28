@@ -77,13 +77,28 @@ The server processes these strictly through `game-core`:
 
 ```text
 Client A (Intent: Attack)  ─┐
-                           ├─► Server validates & executes combat (deterministic PRNG)
+                           ├─► Server validates & executes combat (seeded sfc32 PRNG)
 Client B (Observes)        ─┘         │
                                       ▼
-                        Broadcast Event + State Snapshot
+                  Broadcast Event + Per-Player State Delta (protocol v0.4.0)
                                       ▼
                        All connected terminals update
 ```
+
+### RNG & Determinism
+
+Each match draws 16 bytes of entropy from the OS CSPRNG at start (`generateRngSeed` → `crypto.getRandomValues`). Those bytes seed an `sfc32` PRNG (`makeSfc32` in `packages/shared/src/rng.ts`). The seed is **server-only**: it drives territory shuffles and all dice rolls and is never broadcast to clients. Logged at match end so a specific match can be replayed in tests by supplying the seed as `ConquestServer({ rngSeed })`.
+
+### Per-Player State Projection & Delta Protocol (v0.4.0)
+
+The server does not broadcast a single canonical `GameState` to all players. Instead it applies a *projection* to each player's view before sending:
+
+- `packages/game-core/src/projection.ts` computes the per-player `GameState` by stripping server-only data (RNG seed, socket map) from the authoritative state.
+- On each state change the server diffs the new projected state against the last projected state sent to that player and sends a compact `StateDelta`:
+  - `delta.set`: fields that changed; merged into the client state.
+  - `delta.unset`: top-level keys deleted from the previous state.
+  - `delta.version`: monotonic state counter; a gap triggers `client:resync` and a full snapshot reply.
+- Clients apply deltas in `applyStateDelta` (`apps/client/src/network/client.ts`). If a version gap is detected, the client requests a fresh snapshot.
 
 ### Turn Phases:
 1. **Deployment**: Sovereign receives reinforcements based on owned territories ($\max(3, \lfloor N/3 \rfloor)$) plus continental control bonuses. Deploys armies to owned realms.
@@ -101,6 +116,42 @@ Each connected client receives an isolated per-player `sessionToken`.
 - If a terminal closes or network drops, the server marks `connected = false` and broadcasts a departure event.
 - When the client restarts, it can resume its active match with cached credentials, receiving an authoritative `server:snapshot`.
 - **Memory vs Disk Persistence**: Client identities and reconnect tokens survive server restarts via SQLite. However, active match and room state are held in server memory. An ongoing match will not survive a server process restart.
+
+### Stale-Socket Race Protection
+
+When a client reconnects before the server has processed the old socket's close event, the server registers the new socket first. If the old socket closes later, `handleClose` compares the closing socket to the currently registered socket for that player. If they differ (stale close), the event is silently ignored. The old socket is also closed with code `4001 superseded` immediately on the new connection arriving.
+
+### Disconnect Forfeit & Turn Timeout
+
+To prevent a disconnected player from stalling an active match:
+
+- **Disconnect grace** (`--disconnect-grace`, env `CONQUEST_DISCONNECT_GRACE_MS`, default 60 s): When the *active player* disconnects, the server schedules a forfeit after the grace period. If the player reconnects in time, the timer is cancelled.
+- **Turn timeout** (`--turn-timeout`, env `CONQUEST_TURN_TIMEOUT_MS`, default 0 = off): A per-turn wall-clock limit. When it expires, the active player's turn is forfeited regardless of connection state.
+
+Both paths call the pure `forfeitTurn(state, playerId, reason)` function in `game-core/rules.ts`:
+1. Resolves any pending conquest troop move at the minimum.
+2. Deploys all remaining reinforcements onto the border territory with the most units (border = has at least one enemy neighbor), falling back to the territory with the most units overall. Ties are broken alphabetically by territory id for determinism.
+3. Advances to the next living player through the normal turn-end path.
+4. Emits a `turn_forfeited { playerId, reason: "disconnected" | "timeout", timestamp }` protocol event followed by `turn_ended` and `phase_changed`.
+
+The `GameState` carries an optional `turnDeadlineAt: number | null` field so clients can render a countdown. Timers are cleared on turn advance, game over, and room removal. They accept an injectable `TimerScheduler` interface for deterministic testing.
+
+### Abandoned Room Cleanup
+
+If every player disconnects during an active match, the room schedules its own removal after `abandonTimeoutMs` (`--abandon-timeout`, env `CONQUEST_ABANDON_TIMEOUT_MS`, default 10 min). If a player reconnects before that deadline, the timer is cancelled.
+
+### Input Sanitization
+
+All user-supplied display text (player names, room display names, chat messages) passes through `sanitizeDisplayText` in `packages/shared` before being stored or broadcast. It strips C0/C1 control characters, ANSI/OSC escape sequences, bidi override/isolate characters, and zero-width characters, then collapses whitespace and trims. A value that is empty after sanitization is rejected with a clear error (`INVALID_NAME` / `INVALID_ROOM_NAME` / `INVALID_MESSAGE`).
+
+### Rate Limits
+
+| Limit | Default | Config |
+| :--- | :--- | :--- |
+| Chat rate (per player) | 5 messages / 10 s (token bucket) | `chatBucketCapacity`, `chatRefillMs` on `ConquestServerOptions` |
+| Per-connection flood guard | 40 messages / s — closes socket with code `4008` | `floodGuardMsgPerSec` |
+| WebSocket max payload | 16 KiB | `maxPayloadLength` |
+| Maximum rooms | 500 | `--max-rooms` / `CONQUEST_MAX_ROOMS` |
 
 ---
 

@@ -96,7 +96,7 @@ describe("ui: EventLog historical military chronicles", () => {
     };
 
     const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
-    expect(formatted.text).toBe("🎲 Battle at Highwatch: Alice vs Bob (-1 att, -0 def)");
+    expect(formatted.text).toBe("🎲 Alice ⚔ Bob · Frostfell ▸ Highwatch: [4 2] vs [5] (−1/−0)");
     expect(formatted.color).toBe("#f97316");
   });
 

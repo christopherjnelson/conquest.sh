@@ -1,4 +1,7 @@
 import { z } from "zod";
+
+/** Canonical protocol version. Bump the minor on backward-compatible additions, major on breaks. */
+export const PROTOCOL_VERSION = "0.5.0";
 import { GamePhaseSchema } from "./events.js";
 
 export const RoomVisibilitySchema = z.enum(["public", "unlisted"]);
@@ -24,6 +27,7 @@ export const RoomSummarySchema = z.object({
   mapName: z.string(),
   turnNumber: z.number().int().min(0),
   createdAt: z.number(),
+  cardMode: z.enum(["escalating", "off"]).optional(),
 });
 export type RoomSummary = z.infer<typeof RoomSummarySchema>;
 

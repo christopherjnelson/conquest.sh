@@ -2,6 +2,7 @@ import {
   ServerInfoSchema,
   RoomSummarySchema,
   RoomSummariesSchema,
+  PROTOCOL_VERSION,
   type ClientAttack,
   type ClientChat,
   type ClientCreateRoom,
@@ -15,17 +16,64 @@ import {
   type ClientReady,
   type ClientRematch,
   type ClientSkipPhase,
+  type ClientResync,
   type GameEvent,
   type GameState,
+  type StateDelta,
   type RoomSummary,
   type RoomVisibility,
   type ServerInfo,
   type ServerMessage,
 } from "@conquest/protocol";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
+
+/**
+ * Apply a server-sent state delta onto the current client state.
+ *
+ * Generic inverse of `diffProjectedStates` on the server:
+ * - `delta.set`: fields that changed; merged into the state. The special key
+ *   `"territories"` is a partial record diff — merged entry-by-entry so only
+ *   changed territory ids are updated.
+ * - `delta.unset`: top-level keys to delete from the state (present in prev,
+ *   gone in next).
+ *
+ * Because `set` and `unset` are generic maps, any new GameState field
+ * propagates to clients automatically without manual list maintenance.
+ */
+function applyStateDelta(state: GameState, delta: StateDelta): GameState {
+  const next = { ...state } as Record<string, unknown>;
+
+  if (delta.set) {
+    for (const [key, value] of Object.entries(delta.set)) {
+      if (key === "territories" && typeof value === "object" && value !== null) {
+        // Merge keyed-record diff: only changed territory entries
+        const merged = { ...(state.territories ?? {}) } as Record<string, unknown>;
+        for (const [tid, tval] of Object.entries(value as Record<string, unknown>)) {
+          if (tval === undefined || tval === null) {
+            delete merged[tid];
+          } else {
+            merged[tid] = tval;
+          }
+        }
+        next["territories"] = merged;
+      } else {
+        next[key] = value;
+      }
+    }
+  }
+
+  if (delta.unset) {
+    for (const key of delta.unset) {
+      delete next[key];
+    }
+  }
+
+  return next as GameState;
+}
 
 export interface SessionData {
   token: string;
@@ -56,6 +104,17 @@ export class GameClient {
   public serverName: string | null = null;
   public playerName: string = "";
   public eventHistory: GameEvent[] = [];
+  /** Last state version seen from the server. Used for gap detection. */
+  private lastSeenVersion: number = -1;
+  /** Last version for which we fully applied a delta (prevents re-applying same version). */
+  private lastAppliedVersion: number = -1;
+  /**
+   * True when a version gap has been detected and we have sent `client:resync`.
+   * While awaiting the resync snapshot, incoming deltas are ignored (state is
+   * corrupt until the snapshot arrives) but events are still logged so the
+   * event history stays complete.  Cleared when the next snapshot arrives.
+   */
+  private awaitingResync: boolean = false;
 
   public readonly wsUrl: string;
   public sessionFilePath: string;
@@ -92,9 +151,7 @@ export class GameClient {
     if (options.sessionFilePath) {
       this.sessionFilePath = options.sessionFilePath;
     } else {
-      const safeName = (this.playerName || "default").replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
-      const portOrHost = this.extractPortOrHost(this.wsUrl);
-      this.sessionFilePath = path.resolve(process.cwd(), `.conquest-session-${safeName}-${portOrHost}.json`);
+      this.sessionFilePath = this.defaultSessionFilePath();
     }
 
     if (options.forceNewSession) {
@@ -152,6 +209,36 @@ export class GameClient {
       }
       return "4000";
     }
+  }
+
+  /**
+   * Compute the default session file path.
+   * Uses CONQUEST_SESSION_DIR env if set, otherwise falls back to
+   * ${XDG_STATE_HOME:-$HOME/.local/state}/conquest.sh/sessions/.
+   * Creates the directory if it does not exist.
+   */
+  private defaultSessionFilePath(): string {
+    const safeName = (this.playerName || "default").replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
+    const portOrHost = this.extractPortOrHost(this.wsUrl);
+    const filename = `.conquest-session-${safeName}-${portOrHost}.json`;
+
+    let dir: string;
+    const envDir = process.env["CONQUEST_SESSION_DIR"];
+    if (envDir) {
+      dir = envDir;
+    } else {
+      const xdgState = process.env["XDG_STATE_HOME"];
+      const stateBase = xdgState || path.join(os.homedir(), ".local", "state");
+      dir = path.join(stateBase, "conquest.sh", "sessions");
+    }
+
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      // Ignore mkdir errors; saveSession will also fail silently
+    }
+
+    return path.join(dir, filename);
   }
 
   public loadSession(): SessionData | null {
@@ -216,6 +303,8 @@ export class GameClient {
         this.reconnectAttempts = 0;
         this.notifyStatusChange("connected");
         resolve();
+        // Check protocol version compatibility asynchronously (best-effort).
+        this.checkProtocolVersion().catch(() => {/* ignore network errors */});
       };
 
       this.ws.onmessage = (event) => {
@@ -322,31 +411,51 @@ export class GameClient {
         }
 
         case "server:snapshot": {
+          // On snapshot: reset state and event history to the snapshot's tail.
           this.state = msg.state;
           this.myPlayerId = msg.myPlayerId;
-          if (msg.state.history) {
-            for (const h of msg.state.history) {
-              if (!this.eventHistory.includes(h)) {
-                this.eventHistory.push(h);
-              }
-            }
-          }
+          this.lastSeenVersion = msg.version;
+          this.lastAppliedVersion = msg.version;
+          // Resync complete: deltas can flow again.
+          this.awaitingResync = false;
+          // Reset event history to the snapshot's history tail (dedup by replacement).
+          this.eventHistory = msg.state.history ? [...msg.state.history] : [];
           this.notifySnapshot(msg.state, msg.myPlayerId);
           break;
         }
 
         case "server:event": {
+          const { version, delta } = msg;
+
+          // Gap detection: if we skipped a version, request a resync and enter
+          // the waiting state. Management events share the same version as the
+          // preceding state and have empty deltas — safe to accept without a gap
+          // check since they don't advance the version.
+          const versionGap = version > this.lastSeenVersion + 1 &&
+            version > this.lastAppliedVersion + 1;
+          if (versionGap && !this.awaitingResync) {
+            this.awaitingResync = true;
+            this.sendResync();
+          }
+
+          // Always advance the seen-version tracker and log the event.
+          this.lastSeenVersion = Math.max(this.lastSeenVersion, version);
           this.eventHistory.push(msg.event);
           this.notifyEvent(msg.event);
-          if (msg.state) {
-            this.state = msg.state;
-            if (this.myPlayerId) {
-              this.notifySnapshot(msg.state, this.myPlayerId);
+
+          // Skip delta application while waiting for a resync snapshot —
+          // our local state is potentially corrupt so applying deltas would
+          // compound the error.  The snapshot will restore a clean baseline.
+          if (!this.awaitingResync && this.state) {
+            if (version > this.lastAppliedVersion) {
+              this.state = applyStateDelta(this.state, delta);
+              this.lastAppliedVersion = version;
             }
-          } else if (this.state) {
+
+            // Keep history in sync with our event log.
             this.state = {
               ...this.state,
-              history: [...this.state.history, msg.event],
+              history: this.eventHistory,
             };
             if (this.myPlayerId) {
               this.notifySnapshot(this.state, this.myPlayerId);
@@ -392,9 +501,7 @@ export class GameClient {
     this.playerName = name;
 
     if (!this.options.sessionFilePath && (!previousName || previousName !== name)) {
-      const safeName = (this.playerName || "default").replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
-      const portOrHost = this.extractPortOrHost(this.wsUrl);
-      this.sessionFilePath = path.resolve(process.cwd(), `.conquest-session-${safeName}-${portOrHost}.json`);
+      this.sessionFilePath = this.defaultSessionFilePath();
     }
 
     if (this.sessionToken && previousName && previousName !== name) {
@@ -538,6 +645,16 @@ export class GameClient {
     this.send(msg);
   }
 
+  /**
+   * Request a full state resync from the server.
+   * Called automatically when a version gap is detected. May also be called
+   * manually to recover from a corrupted state.
+   */
+  public sendResync(): void {
+    const msg: ClientResync = { type: "client:resync" };
+    this.send(msg);
+  }
+
   public onSnapshot(cb: (state: GameState, myPlayerId: string) => void): () => void {
     this.snapshotListeners.add(cb);
     if (this.state && this.myPlayerId) {
@@ -578,6 +695,7 @@ export class GameClient {
       visibility?: RoomVisibility;
       maxPlayers?: number;
       mapId?: string;
+      cardMode?: "escalating" | "off";
     } = {}
   ): void {
     if (options.playerName) {
@@ -590,6 +708,7 @@ export class GameClient {
       visibility: options.visibility ?? "public",
       maxPlayers: options.maxPlayers ?? 4,
       mapId: options.mapId,
+      cardMode: options.cardMode,
       sessionToken: this.sessionToken ?? undefined,
     };
     this.send(msg);
@@ -606,6 +725,27 @@ export class GameClient {
     this.explicitRoomCode = undefined;
     this.state = null;
     this.clearSession();
+  }
+
+  /**
+   * Fetch server info and emit a warning error if the server's major.minor
+   * protocol version differs from the client's.
+   */
+  private async checkProtocolVersion(): Promise<void> {
+    try {
+      const info = await this.fetchServerInfo();
+      const [cMaj, cMin] = PROTOCOL_VERSION.split(".").map(Number);
+      const [sMaj, sMin] = info.protocolVersion.split(".").map(Number);
+      if (cMaj !== sMaj || cMin !== sMin) {
+        this.notifyError(
+          `Protocol version mismatch: client is ${PROTOCOL_VERSION}, server is ${info.protocolVersion}. ` +
+            "Some features may not work correctly.",
+          "PROTOCOL_VERSION_MISMATCH"
+        );
+      }
+    } catch {
+      // Network errors are silently ignored; the WebSocket will report them
+    }
   }
 
   public async fetchServerInfo(): Promise<ServerInfo> {

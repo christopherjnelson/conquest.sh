@@ -248,10 +248,27 @@ describe("ConquestServer: Full Integration Flow", () => {
     // Verify pending reinforcements for Player 1
     expect(snapshotA.state.pendingReinforcements).toBeGreaterThanOrEqual(3);
 
+    // Territory ownership is shuffled per game. Find a territory Alice owns and
+    // one that Bob owns that is adjacent to it for the deploy + attack steps.
+    const territories = Object.values(snapshotA.state.territories);
+    const aliceTerrs = territories.filter((t) => t.ownerId === aliceId);
+    const aliceDeployTarget = aliceTerrs[0]!;
+    // Find a territory Bob owns adjacent to an Alice territory with ≥ 2 units
+    const aliceAttackSource = aliceTerrs.find((src) =>
+      src.units >= 2 &&
+      src.neighbors.some((n) => snapshotA.state.territories[n]?.ownerId === bobId)
+    ) ?? aliceTerrs.find((src) =>
+      (src.units + snapshotA.state.pendingReinforcements) >= 2 &&
+      src.neighbors.some((n) => snapshotA.state.territories[n]?.ownerId === bobId)
+    ) ?? aliceTerrs[0]!;
+    const bobAdjacentId = aliceAttackSource.neighbors.find(
+      (n) => snapshotA.state.territories[n]?.ownerId === bobId
+    )!;
+
     // 3. Player 1 deploys units -> verify both clients receive units_deployed event
     const deployMsg: ClientDeploy = {
       type: "client:deploy",
-      territoryId: "A1",
+      territoryId: aliceDeployTarget.id,
       count: snapshotA.state.pendingReinforcements,
     };
     clientA.send(deployMsg);
@@ -266,14 +283,14 @@ describe("ConquestServer: Full Integration Flow", () => {
     expect(deployEventA.event.type).toBe("units_deployed");
     if (deployEventA.event.type === "units_deployed") {
       expect(deployEventA.event.playerId).toBe(aliceId);
-      expect(deployEventA.event.territoryId).toBe("A1");
+      expect(deployEventA.event.territoryId).toBe(aliceDeployTarget.id);
       expect(deployEventA.event.count).toBe(snapshotA.state.pendingReinforcements);
     }
 
     expect(deployEventB.event.type).toBe("units_deployed");
     if (deployEventB.event.type === "units_deployed") {
       expect(deployEventB.event.playerId).toBe(aliceId);
-      expect(deployEventB.event.territoryId).toBe("A1");
+      expect(deployEventB.event.territoryId).toBe(aliceDeployTarget.id);
     }
 
     // Both should also receive phase_changed to "attack"
@@ -282,12 +299,13 @@ describe("ConquestServer: Full Integration Flow", () => {
     );
     expect(attackPhaseEventA).toBeDefined();
 
-    // 4. Player 1 attacks Player 2 -> verify both receive attack_resolved event
-    // Alice owns A1, Bob owns adjacent territory A2
+    // 4. Player 1 attacks Player 2 -> verify both receive attack_resolved event.
+    // Use territories derived from the actual (shuffled) game state.
+    const attackSourceId = aliceAttackSource.id;
     const attackMsg: ClientAttack = {
       type: "client:attack",
-      sourceTerritoryId: "A1",
-      targetTerritoryId: "A2",
+      sourceTerritoryId: attackSourceId,
+      targetTerritoryId: bobAdjacentId,
       units: 3,
     };
     clientA.send(attackMsg);
@@ -303,8 +321,8 @@ describe("ConquestServer: Full Integration Flow", () => {
     if (attackEventA.event.type === "attack_resolved") {
       expect(attackEventA.event.attackerId).toBe(aliceId);
       expect(attackEventA.event.defenderId).toBe(bobId);
-      expect(attackEventA.event.sourceTerritoryId).toBe("A1");
-      expect(attackEventA.event.targetTerritoryId).toBe("A2");
+      expect(attackEventA.event.sourceTerritoryId).toBe(attackSourceId);
+      expect(attackEventA.event.targetTerritoryId).toBe(bobAdjacentId);
       expect(attackEventA.event.attackerRolls.length).toBeGreaterThan(0);
       expect(attackEventA.event.defenderRolls.length).toBeGreaterThan(0);
     }
@@ -450,6 +468,86 @@ describe("ConquestServer: Full Integration Flow", () => {
     expect(snapshotB.state.players.length).toBe(2);
     const names = snapshotB.state.players.map((p) => p.name).sort();
     expect(names).toEqual(["Alice", "Bob"]);
+
+    clientA.close();
+    clientB.close();
+  });
+});
+
+// ── cardMode end-to-end ────────────────────────────────────────────────────
+describe("ConquestServer: cardMode create_room end-to-end", () => {
+  let server: ConquestServer;
+  let port: number;
+
+  beforeAll(() => {
+    server = new ConquestServer({
+      port: 0,
+      serverName: "test-cardmode",
+      defaultMap: MAP_IRONREACH,
+    });
+    server.start();
+    port = server.port;
+  });
+
+  afterAll(() => {
+    server.stop();
+  });
+
+  it("cardMode=escalating is carried from client:create_room to room summary and game state", async () => {
+    const client = new TestClient(`ws://localhost:${port}`);
+    await client.waitForOpen();
+
+    client.send({
+      type: "client:create_room",
+      playerName: "TestPlayer",
+      visibility: "public",
+      maxPlayers: 2,
+      cardMode: "escalating",
+    } as ClientCreateRoom);
+
+    const welcome = await client.waitForMessage<ServerWelcome>((m) => m.type === "server:welcome");
+    expect(welcome.roomCode).toBeDefined();
+
+    // Room summary from HTTP should include cardMode
+    const resp = await fetch(`http://localhost:${port}/rooms`);
+    const rooms = await resp.json() as Array<{ cardMode?: string; roomCode: string }>;
+    const room = rooms.find((r) => r.roomCode === welcome.roomCode);
+    expect(room).toBeDefined();
+    expect(room?.cardMode).toBe("escalating");
+
+    client.close();
+  });
+
+  it("cardMode=off disables cards: publicCards.mode is 'off' in game state", async () => {
+    // Create a room with cardMode=off and 2 players, start the game
+    const clientA = new TestClient(`ws://localhost:${port}`);
+    await clientA.waitForOpen();
+    clientA.send({
+      type: "client:create_room",
+      playerName: "PlayerA",
+      visibility: "unlisted",
+      maxPlayers: 2,
+      cardMode: "off",
+    } as ClientCreateRoom);
+
+    const welcomeA = await clientA.waitForMessage<ServerWelcome>((m) => m.type === "server:welcome");
+    const roomCode = welcomeA.roomCode;
+
+    const clientB = new TestClient(`ws://localhost:${port}`);
+    await clientB.waitForOpen();
+    clientB.send({ type: "client:join", name: "PlayerB", roomCode });
+
+    // Both ready → game starts
+    await clientA.waitForMessage<ServerSnapshot>((m) => m.type === "server:snapshot");
+    await clientB.waitForMessage<ServerSnapshot>((m) => m.type === "server:snapshot");
+
+    clientA.send({ type: "client:ready", ready: true });
+    clientB.send({ type: "client:ready", ready: true });
+
+    const gameSnap = await clientA.waitForMessage<ServerSnapshot>(
+      (m) => m.type === "server:snapshot" && m.state.phase !== "lobby"
+    );
+    expect(gameSnap.state.publicCards?.mode).toBe("off");
 
     clientA.close();
     clientB.close();

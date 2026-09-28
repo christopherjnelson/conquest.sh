@@ -110,9 +110,12 @@ export function formatEvent(
         };
       }
 
-      const losses = `-${e.attackerLosses} att, -${e.defenderLosses} def`;
+      const atkDice = `[${[...e.attackerRolls].sort((a, b) => b - a).join(" ")}]`;
+      const defDice = `[${[...e.defenderRolls].sort((a, b) => b - a).join(" ")}]`;
+      const sourceName = getTerritoryName(e.sourceTerritoryId);
+      const losses = `−${e.attackerLosses}/−${e.defenderLosses}`;
       return {
-        text: `🎲 Battle at ${territory}: ${attacker} vs ${defender} (${losses})`,
+        text: `🎲 ${attacker} ⚔ ${defender} · ${sourceName} ▸ ${territory}: ${atkDice} vs ${defDice} (${losses})`,
         color: "#f97316",
       };
     }
@@ -147,6 +150,30 @@ export function formatEvent(
       return {
         text: `👑 ${winner} has conquered the entire realm!`,
         color: "#ffaa00",
+      };
+    }
+    case "card_awarded":
+      return {
+        text: `🃏 ${getPlayerName(e.playerId)} claimed a territory card`,
+        color: "#a78bfa",
+      };
+    case "cards_traded": {
+      const traderName = getPlayerName(e.playerId);
+      const bonus = (e as any).territoryBonus
+        ? ` (+2 on ${getTerritoryName((e as any).territoryBonus.territoryId)})`
+        : "";
+      return {
+        text: `🃏 ${traderName} traded a set for ${e.armies} armies${bonus} (#${e.setNumber})`,
+        color: "#818cf8",
+      };
+    }
+    case "cards_captured": {
+      const captor = getPlayerName((e as any).toPlayerId);
+      const victim = getPlayerName((e as any).fromPlayerId);
+      const count = (e as any).count;
+      return {
+        text: `🃏 ${captor} seized ${count} card${count !== 1 ? "s" : ""} from ${victim}`,
+        color: "#f87171",
       };
     }
     case "chat_message":
@@ -251,7 +278,7 @@ export function EventLog({
       : formattedItems.filter((item) => item.category === activeTab);
 
   // An empty chronicle is intentionally short so the tactical map keeps the spare rows.
-  const baseLogHeight = layoutMode === "compact" ? 4 : layoutMode === "standard" ? 5 : 6;
+  const baseLogHeight = layoutMode === "compact" ? 5 : layoutMode === "standard" ? 5 : 6;
   // The main tactical area owns all spare terminal rows. Chat borrows a row
   // from the existing chronicle content instead of growing the outer panel and
   // squeezing the map underneath it.

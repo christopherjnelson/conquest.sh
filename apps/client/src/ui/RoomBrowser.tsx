@@ -138,6 +138,9 @@ export function RoomBrowser({ client, onJoinRoom, onBack }: RoomBrowserProps) {
           <text fg="#64748b" style={{ width: 16 }}>
             <b>MAP</b>
           </text>
+          <text fg="#64748b" style={{ width: 12 }}>
+            <b>CARDS</b>
+          </text>
           <text fg="#64748b" style={{ width: 16 }}>
             <b>STATUS</b>
           </text>
@@ -221,6 +224,9 @@ export function RoomBrowser({ client, onJoinRoom, onBack }: RoomBrowserProps) {
                   </text>
                   <text fg="#94a3b8" style={{ width: 16 }}>
                     {room.mapName}
+                  </text>
+                  <text fg="#a78bfa" style={{ width: 12 }}>
+                    {room.cardMode === "off" ? "Off" : "Cards"}
                   </text>
                   <text fg={statusColor} style={{ width: 16 }}>
                     ● <b>{statusText}</b>

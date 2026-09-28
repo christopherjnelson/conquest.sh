@@ -1,6 +1,7 @@
 import type { GameState, Player, Sector, TerritoryState } from "@conquest/protocol";
 import type { MapDefinition } from "./types.js";
 import { calculateReinforcements } from "./rules.js";
+import { initCardState, getTradeValue } from "./cards.js";
 
 export function createInitialGameState(
   gameId: string,
@@ -9,7 +10,8 @@ export function createInitialGameState(
   map: MapDefinition,
   initialUnitsPerTerritory: number = 3,
   shuffleFn?: <T>(arr: T[]) => T[],
-  matchNumber: number = 1
+  matchNumber: number = 1,
+  cardMode: "escalating" | "off" = "escalating"
 ): GameState {
   if (players.length < 2) {
     throw new Error("At least 2 players are required to start a game");
@@ -42,6 +44,34 @@ export function createInitialGameState(
   const startingPlayerIndex = (matchNumber - 1) % players.length;
   const activePlayer = players[startingPlayerIndex];
 
+  // Initialize card state
+  const identity = <T>(arr: T[]) => arr;
+  const effectiveShuffleFn = shuffleFn ?? identity;
+  const playerIds = players.map((p) => p.id);
+  const cardState = cardMode === "escalating"
+    ? initCardState(map, playerIds, effectiveShuffleFn)
+    : undefined;
+
+  const publicCards = cardMode === "escalating"
+    ? {
+        mode: "escalating" as const,
+        deckCount: cardState!.deck.length,
+        discardCount: 0,
+        playerHandCounts: Object.fromEntries(playerIds.map((id) => [id, 0])),
+        setsTradedCount: 0,
+        nextTradeValue: getTradeValue(0),
+        pendingForcedTrade: null,
+      }
+    : {
+        mode: "off" as const,
+        deckCount: 0,
+        discardCount: 0,
+        playerHandCounts: Object.fromEntries(playerIds.map((id) => [id, 0])),
+        setsTradedCount: 0,
+        nextTradeValue: 4,
+        pendingForcedTrade: null,
+      };
+
   const initialStateWithoutReinforcements: GameState = {
     gameId,
     mapId: map.id,
@@ -61,6 +91,9 @@ export function createInitialGameState(
     startedAt: now,
     endedAt: null,
     history: [],
+    cards: cardState,
+    publicCards,
+    cardMode,
   };
 
   const reinforcements = calculateReinforcements(initialStateWithoutReinforcements, activePlayer.id);
