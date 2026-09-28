@@ -54,6 +54,54 @@ async function renderPanel(report: BattleReport, condensed = false): Promise<str
   return frame;
 }
 
+/**
+ * Helper that renders with animate=true, catching the synchronous "rolling"
+ * state. testRender fires useEffect (which sets settling=true, frame=0) but
+ * never runs setInterval callbacks, so rolling===true on the first frame.
+ * This is equivalent to capturing the panel at t=0 (mid-roll).
+ */
+async function renderRolling(report: BattleReport): Promise<string> {
+  // @ts-ignore runtime-only OpenTUI test helpers
+  const React = (await import("../apps/client/node_modules/react/index.js")).default;
+  // @ts-ignore
+  const { act } = await import("../apps/client/node_modules/react/index.js");
+  // @ts-ignore
+  const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
+  const { BattlePanel } = await import("../apps/client/src/ui/BattlePanel.js");
+
+  const setup = await testRender(
+    React.createElement(BattlePanel, { report, animate: true }),
+    { width: 40, height: 12 },
+  );
+  await act(async () => { await setup.renderOnce(); });
+  const frame: string = setup.captureCharFrame();
+  await act(async () => { setup.renderer.destroy(); });
+  return frame;
+}
+
+describe("BattlePanel rolling state (animate=true, initial render)", () => {
+  it("shows neutral · placeholder instead of ✓/✗ while rolling", async () => {
+    const frame = await renderRolling(makeReport());
+    // Rolling: neutral dot placeholder only
+    expect(frame).toContain("·");
+    expect(frame).not.toContain("✓");
+    expect(frame).not.toContain("✗");
+  });
+
+  it("hides tie hint while rolling", async () => {
+    // pair 1 is 4 vs 4 — tie hint should be hidden during roll
+    const frame = await renderRolling(makeReport());
+    expect(frame).not.toContain("tie→DEF");
+  });
+
+  it("hides troop-count lines while rolling", async () => {
+    const frame = await renderRolling(makeReport());
+    // ATK / DEF lines must be hidden mid-roll
+    expect(frame).not.toContain("ATK");
+    expect(frame).not.toContain("DEF");
+  });
+});
+
 describe("BattlePanel render (animate=false)", () => {
   it("renders attacker and defender dice values", async () => {
     const frame = await renderPanel(makeReport());

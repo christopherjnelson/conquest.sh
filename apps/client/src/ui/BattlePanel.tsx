@@ -77,6 +77,7 @@ function randomFace(): number {
 function useDiceAnimation(report: BattleReport, animate: boolean): {
   displayAttackerRolls: number[];
   displayDefenderRolls: number[];
+  rolling: boolean;
 } {
   const [settling, setSettling] = useState(false);
   const [frame, setFrame] = useState(0);
@@ -101,15 +102,18 @@ function useDiceAnimation(report: BattleReport, animate: boolean): {
     return () => clearInterval(id);
   }, [report.key, animate]);
 
-  if (settling && frame < Math.floor(ANIMATE_MS / TICK_MS)) {
+  const rolling = settling && frame < Math.floor(ANIMATE_MS / TICK_MS);
+  if (rolling) {
     return {
       displayAttackerRolls: report.attackerRolls.map(() => randomFace()),
       displayDefenderRolls: report.defenderRolls.map(() => randomFace()),
+      rolling: true,
     };
   }
   return {
     displayAttackerRolls: report.attackerRolls,
     displayDefenderRolls: report.defenderRolls,
+    rolling: false,
   };
 }
 
@@ -171,7 +175,7 @@ function buildTroopLines(report: BattleReport): [string, string] {
 // ---------------------------------------------------------------------------
 
 export function BattlePanel({ report, animate = true, condensed = false, position, top, left, zIndex }: BattlePanelProps) {
-  const { displayAttackerRolls, displayDefenderRolls } = useDiceAnimation(report, animate);
+  const { displayAttackerRolls, displayDefenderRolls, rolling } = useDiceAnimation(report, animate);
 
   if (condensed) {
     return (
@@ -179,6 +183,7 @@ export function BattlePanel({ report, animate = true, condensed = false, positio
         report={report}
         displayAttackerRolls={displayAttackerRolls}
         displayDefenderRolls={displayDefenderRolls}
+        rolling={rolling}
         position={position}
         top={top}
         left={left}
@@ -231,13 +236,13 @@ export function BattlePanel({ report, animate = true, condensed = false, positio
                 <box backgroundColor={report.attackerColor} paddingLeft={1} paddingRight={1}>
                   <text fg={BG}>{aRoll}</text>
                 </box>
-                <text fg={pair.attackerWins ? SUCCESS : DANGER}>
-                  {pair.attackerWins ? "✓" : "✗"}
+                <text fg={rolling ? DIM : (pair.attackerWins ? SUCCESS : DANGER)}>
+                  {rolling ? "·" : (pair.attackerWins ? "✓" : "✗")}
                 </text>
                 <box backgroundColor={report.defenderColor} paddingLeft={1} paddingRight={1}>
                   <text fg={BG}>{dRoll}</text>
                 </box>
-                {!pair.attackerWins && pair.attackerDie === pair.defenderDie && (
+                {!rolling && !pair.attackerWins && pair.attackerDie === pair.defenderDie && (
                   <text fg={DIM}> tie→DEF</text>
                 )}
               </box>
@@ -256,9 +261,9 @@ export function BattlePanel({ report, animate = true, condensed = false, positio
         </box>
       )}
 
-      <text fg={LABEL}>{atkLine}</text>
-      <text fg={LABEL}>{defLine}</text>
-      {engLine && <text fg={DIM}>{engLine}</text>}
+      {!rolling && <text fg={LABEL}>{atkLine}</text>}
+      {!rolling && <text fg={LABEL}>{defLine}</text>}
+      {!rolling && engLine && <text fg={DIM}>{engLine}</text>}
     </box>
   );
 }
@@ -271,6 +276,7 @@ function CondensedBattlePanel({
   report,
   displayAttackerRolls,
   displayDefenderRolls,
+  rolling,
   position,
   top,
   left,
@@ -279,6 +285,7 @@ function CondensedBattlePanel({
   report: BattleReport;
   displayAttackerRolls: number[];
   displayDefenderRolls: number[];
+  rolling: boolean;
   position?: "absolute" | "relative";
   top?: number;
   left?: number;
@@ -308,7 +315,7 @@ function CondensedBattlePanel({
       <text fg={BORDER}>{header}</text>
       <text fg={LABEL}>{route}</text>
       <text fg={WHITE}>{diceStr}</text>
-      <text fg={LABEL}>{lossStr}</text>
+      {!rolling && <text fg={LABEL}>{lossStr}</text>}
     </box>
   );
 }

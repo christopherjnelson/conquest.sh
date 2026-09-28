@@ -37,6 +37,8 @@ export interface AppProps {
   initialSelectedTerritoryId?: string | null;
   initialTargetTerritoryId?: string | null;
   initialHoveredTerritoryId?: string | null;
+  /** Pass false to disable the dice-roll animation (for screenshots / tests). Default true. */
+  battleAnimate?: boolean;
 }
 
 export interface TerminalSizeWarningProps {
@@ -133,6 +135,7 @@ export function App({
   initialSelectedTerritoryId,
   initialTargetTerritoryId,
   initialHoveredTerritoryId,
+  battleAnimate = true,
 }: AppProps) {
   const [state, setState] = useState<GameState | null>(client.state);
   const [myPlayerId, setMyPlayerId] = useState<string | null>(client.myPlayerId);
@@ -956,6 +959,7 @@ export function App({
               onOverlayMinimum={minimumMapOverlay}
               onOverlayMaximum={maximumMapOverlay}
               battle={battleReport}
+              battleAnimate={battleAnimate}
             />
           </box>
 
@@ -1043,6 +1047,7 @@ export function App({
                 onOverlayMinimum={minimumMapOverlay}
                 onOverlayMaximum={maximumMapOverlay}
                 battle={battleReport}
+                battleAnimate={battleAnimate}
               />
             )}
           </box>

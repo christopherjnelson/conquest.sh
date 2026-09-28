@@ -306,6 +306,7 @@ async function main() {
   const { App } = await import("../apps/client/src/ui/App.js");
   const { HomeScreen } = await import("../apps/client/src/ui/HomeScreen.js");
   const { MatchResultsScreen } = await import("../apps/client/src/ui/MatchResultsScreen.js");
+  const { deriveBattleReport } = await import("../apps/client/src/ui/battle-report.js");
 
   const botRng = makeSfc32(seedFromNumber(77)); // bot decision RNG
 
@@ -548,55 +549,48 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log("\n[d] Getting a real attack for battle panel...");
 
-  // Keep running bot turns until we see an attack_resolved event on any client
+  // Run bot turns until any client has an attack_resolved event.
+  // Then use deriveBattleReport on the client's full event history — the same
+  // function the App uses — so the panel and hero always show the same battle.
   let battleReport: any = null;
   let battleState: any = null;
   let battleClientId: string | null = null;
   const MAX_BATTLE_TURNS = 15;
   let battleTurns = 0;
 
+  function pickBattleFromClient(pid: string, c: any): boolean {
+    if (!c.eventHistory.some((e: any) => e.type === "attack_resolved")) return false;
+    const cs = c.state;
+    if (!cs) return false;
+    const report = deriveBattleReport(c.eventHistory, cs.players, EARTH_42_BUNDLE);
+    if (!report) return false;
+
+    // Sanity check: dice count must be physically possible.
+    const atkBefore = report.attackerUnitsBefore ?? 0;
+    const defBefore = report.defenderUnitsBefore ?? 0;
+    const atkDice = report.attackerRolls.length;
+    const defDice = report.defenderRolls.length;
+    const maxAtkDice = Math.min(3, Math.max(0, atkBefore - 1));
+    const maxDefDice = Math.min(2, defBefore);
+    if (atkBefore > 0 && atkDice > maxAtkDice) {
+      console.warn(`  [sanity] Skipping impossible battle: ${atkDice} atk dice but attackerUnitsBefore=${atkBefore}`);
+      return false;
+    }
+    if (defBefore > 0 && defDice > maxDefDice) {
+      console.warn(`  [sanity] Skipping impossible battle: ${defDice} def dice but defenderUnitsBefore=${defBefore}`);
+      return false;
+    }
+
+    battleReport = report;
+    battleState = cs;
+    battleClientId = pid;
+    console.log(`  Battle: ${report.sourceTerritoryName} ▸ ${report.targetTerritoryName}: [${report.attackerRolls.join(" ")}] vs [${report.defenderRolls.join(" ")}]`);
+    return true;
+  }
+
   // Look in existing event history first
   for (const [pid, c] of clientMap.entries()) {
-    const attackEvent = c.eventHistory.find((e: any) => e.type === "attack_resolved");
-    if (attackEvent) {
-      const s = c.state;
-      const attacker = s?.players.find((p: any) => p.id === attackEvent.attackerId);
-      const defender = s?.players.find((p: any) => p.id === attackEvent.defenderId);
-      const srcTerr = EARTH_42.territories.find(t => t.id === attackEvent.sourceTerritoryId);
-      const tgtTerr = EARTH_42.territories.find(t => t.id === attackEvent.targetTerritoryId);
-      if (attacker && defender && srcTerr && tgtTerr) {
-        battleReport = {
-          key: attackEvent.timestamp?.toString() ?? "battle",
-          attackerName: attacker.name,
-          attackerColor: attacker.colorHex,
-          defenderName: defender.name,
-          defenderColor: defender.colorHex,
-          sourceTerritoryName: srcTerr.name,
-          targetTerritoryName: tgtTerr.name,
-          attackerRolls: attackEvent.attackerRolls,
-          defenderRolls: attackEvent.defenderRolls,
-          pairs: attackEvent.attackerRolls.slice(0, attackEvent.defenderRolls.length).map((ar: number, i: number) => ({
-            attackerDie: ar,
-            defenderDie: attackEvent.defenderRolls[i],
-            attackerWins: ar > attackEvent.defenderRolls[i],
-          })),
-          unpairedAttackerDice: attackEvent.attackerRolls.slice(attackEvent.defenderRolls.length),
-          attackerLosses: attackEvent.attackerLosses,
-          defenderLosses: attackEvent.defenderLosses,
-          attackerUnitsBefore: (s?.territories[attackEvent.sourceTerritoryId]?.units ?? 0) + attackEvent.attackerLosses,
-          defenderUnitsBefore: (s?.territories[attackEvent.targetTerritoryId]?.units ?? 0) + attackEvent.defenderLosses,
-          attackerUnitsAfter: s?.territories[attackEvent.sourceTerritoryId]?.units ?? 0,
-          defenderUnitsAfter: s?.territories[attackEvent.targetTerritoryId]?.units ?? 0,
-          conquered: attackEvent.conquered ?? false,
-          engagementRound: 1,
-          engagementAttackerLosses: attackEvent.attackerLosses,
-          engagementDefenderLosses: attackEvent.defenderLosses,
-        };
-        battleState = s;
-        battleClientId = pid;
-        break;
-      }
-    }
+    if (pickBattleFromClient(pid, c)) break;
   }
 
   // If no attack yet, run more turns until we get one
@@ -605,52 +599,8 @@ async function main() {
     if (!s || s.phase === "game_over") break;
     await runBotTurnViaClient(clientMap, s, botRng);
     battleTurns++;
-
     for (const [pid, c] of clientMap.entries()) {
-      const attacks = c.eventHistory.filter((e: any) => e.type === "attack_resolved");
-      const attackEvent = attacks[attacks.length - 1]; // latest
-      if (attackEvent) {
-        const cs = c.state;
-        const attacker = cs?.players.find((p: any) => p.id === attackEvent.attackerId);
-        const defender = cs?.players.find((p: any) => p.id === attackEvent.defenderId);
-        const srcTerr = EARTH_42.territories.find(t => t.id === attackEvent.sourceTerritoryId);
-        const tgtTerr = EARTH_42.territories.find(t => t.id === attackEvent.targetTerritoryId);
-        if (attacker && defender && srcTerr && tgtTerr) {
-          battleReport = {
-            key: attackEvent.timestamp?.toString() ?? "battle",
-            attackerName: attacker.name,
-            attackerColor: attacker.colorHex,
-            defenderName: defender.name,
-            defenderColor: defender.colorHex,
-            sourceTerritoryName: srcTerr.name,
-            targetTerritoryName: tgtTerr.name,
-            attackerRolls: attackEvent.attackerRolls,
-            defenderRolls: attackEvent.defenderRolls,
-            pairs: attackEvent.attackerRolls.slice(0, attackEvent.defenderRolls.length).map((ar: number, i: number) => ({
-              attackerDie: ar,
-              defenderDie: attackEvent.defenderRolls[i],
-              attackerWins: ar > attackEvent.defenderRolls[i],
-            })),
-            unpairedAttackerDice: attackEvent.attackerRolls.slice(attackEvent.defenderRolls.length),
-            attackerLosses: attackEvent.attackerLosses,
-            defenderLosses: attackEvent.defenderLosses,
-            attackerUnitsBefore: (cs?.territories[attackEvent.sourceTerritoryId]?.units ?? 0) + attackEvent.attackerLosses,
-            defenderUnitsBefore: (cs?.territories[attackEvent.targetTerritoryId]?.units ?? 0) + attackEvent.defenderLosses,
-            attackerUnitsAfter: cs?.territories[attackEvent.sourceTerritoryId]?.units ?? 0,
-            defenderUnitsAfter: cs?.territories[attackEvent.targetTerritoryId]?.units ?? 0,
-            conquered: attackEvent.conquered ?? false,
-            engagementRound: attacks.filter((e: any) =>
-              e.sourceTerritoryId === attackEvent.sourceTerritoryId &&
-              e.targetTerritoryId === attackEvent.targetTerritoryId
-            ).length,
-            engagementAttackerLosses: attackEvent.attackerLosses,
-            engagementDefenderLosses: attackEvent.defenderLosses,
-          };
-          battleState = cs;
-          battleClientId = pid;
-          break;
-        }
-      }
+      if (pickBattleFromClient(pid, c)) break;
     }
     if (battleReport) break;
     await Bun.sleep(50);
@@ -695,8 +645,37 @@ async function main() {
         battle: battleReport,
         battleAnimate: false,
       });
-      const frame = await captureComponent(el, paneDims.width, paneDims.height);
-      const html = frameToHtml(frame, "conquest.sh – Battle Panel");
+      const panelFrame = await captureComponent(el, paneDims.width, paneDims.height);
+
+      // ASSERTION: panel dice must match the last attack_resolved event rolls.
+      // Extract all digit characters from the frame to verify none are random.
+      const panelText = panelFrame.lines
+        .map((line: any) => line.spans.map((s: any) => s.text ?? "").join(""))
+        .join("\n");
+      const expectedAtk = battleReport.attackerRolls as number[];
+      const expectedDef = battleReport.defenderRolls as number[];
+      const allExpected = [...expectedAtk, ...expectedDef];
+      for (const die of allExpected) {
+        if (!panelText.includes(String(die))) {
+          throw new Error(
+            `[ASSERTION] Panel frame is missing die face "${die}".\n` +
+            `Expected rolls: ATK=[${expectedAtk.join(" ")}] DEF=[${expectedDef.join(" ")}]\n` +
+            `Panel text (first 200 chars): ${panelText.slice(0, 200)}`
+          );
+        }
+      }
+      // Outcome markers: animation off, so ✓/✗ must appear if there are pairs.
+      // (Rolling state hides markers and shows "·" placeholder instead.)
+      if (battleReport.pairs.length > 0 && !panelText.includes("✓") && !panelText.includes("✗")) {
+        throw new Error(
+          `[ASSERTION] Panel shows no outcome markers (✓/✗). Dice animation may not be disabled.\n` +
+          `Expected rolls: ATK=[${expectedAtk.join(" ")}] DEF=[${expectedDef.join(" ")}]\n` +
+          `Panel text (first 200 chars): ${panelText.slice(0, 200)}`
+        );
+      }
+      console.log(`  [assert] Panel dice verified: ATK=[${expectedAtk.join(" ")}] DEF=[${expectedDef.join(" ")}]`);
+
+      const html = frameToHtml(panelFrame, "conquest.sh – Battle Panel");
       await htmlToPng(html, join(OUT_DIR, "ingame-battle-panel.png"), paneDims.width, paneDims.height);
     }
 
@@ -706,6 +685,8 @@ async function main() {
       const mockClient: any = {
         state: heroClient.state,
         myPlayerId: heroClient.myPlayerId,
+        // Provide full eventHistory so App's deriveBattleReport sees the attack event.
+        eventHistory: heroClient.eventHistory ?? [],
         status: "connected",
         roomCode,
         onSnapshot: (cb: any) => { cb(heroClient.state, heroClient.myPlayerId); return () => {}; },
@@ -720,6 +701,7 @@ async function main() {
         terminalDimensions: { columns: cols, rows },
         initialSelectedTerritoryId: selectedTerritoryId,
         initialTargetTerritoryId: targetTerritoryId,
+        battleAnimate: false,
       });
       const frame = await captureComponent(el, cols, rows);
       const html = frameToHtml(frame, "conquest.sh – Hero (full app with battle)");
