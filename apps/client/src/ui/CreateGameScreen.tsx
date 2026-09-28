@@ -4,19 +4,20 @@ import type { RoomVisibility } from "@conquest/protocol";
 
 export interface CreateGameScreenProps {
   defaultName?: string;
-  onCreate: (options: { displayName: string; maxPlayers: number; visibility: RoomVisibility }) => void;
+  onCreate: (options: { displayName: string; maxPlayers: number; visibility: RoomVisibility; cardMode: "escalating" | "off" }) => void;
   onBack: () => void;
   terminalDimensions?: { columns: number; rows: number };
 }
 
-type FieldIndex = 0 | 1 | 2;
+type FieldIndex = 0 | 1 | 2 | 3;
+const FIELD_COUNT = 4;
 
 export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameScreenProps) {
   const [activeField, setActiveField] = useState<FieldIndex>(0);
   const [displayName, setDisplayName] = useState(defaultName || "Conquest Campaign");
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [visibility, setVisibility] = useState<RoomVisibility>("public");
-  const [nameInputFocused, setNameInputFocused] = useState(false);
+  const [cardMode, setCardMode] = useState<"escalating" | "off">("escalating");
 
   useKeyboard((key) => {
     if (key.name === "escape") {
@@ -25,24 +26,24 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
     }
 
     if (key.name === "tab") {
-      setActiveField((prev) => ((prev + 1) % 3) as FieldIndex);
+      setActiveField((prev) => ((prev + 1) % FIELD_COUNT) as FieldIndex);
       return;
     }
 
     if (key.name === "up") {
-      setActiveField((prev) => ((prev - 1 + 3) % 3) as FieldIndex);
+      setActiveField((prev) => ((prev - 1 + FIELD_COUNT) % FIELD_COUNT) as FieldIndex);
       return;
     }
 
     if (key.name === "down") {
-      setActiveField((prev) => ((prev + 1) % 3) as FieldIndex);
+      setActiveField((prev) => ((prev + 1) % FIELD_COUNT) as FieldIndex);
       return;
     }
 
-    // Enter submits if on buttons or fields
+    // Enter submits
     if (key.name === "return" || key.name === "enter") {
       const trimmed = displayName.trim() || "Conquest Campaign";
-      onCreate({ displayName: trimmed, maxPlayers, visibility });
+      onCreate({ displayName: trimmed, maxPlayers, visibility, cardMode });
       return;
     }
 
@@ -81,6 +82,14 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
     if (activeField === 2) {
       if (key.name === "left" || key.name === "right" || key.name === "space") {
         setVisibility((prev) => (prev === "public" ? "unlisted" : "public"));
+        return;
+      }
+    }
+
+    // Field 3: Card Mode
+    if (activeField === 3) {
+      if (key.name === "left" || key.name === "right" || key.name === "space") {
+        setCardMode((prev) => (prev === "escalating" ? "off" : "escalating"));
         return;
       }
     }
@@ -127,7 +136,7 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
         padding={2}
         alignItems="center"
         justifyContent="center"
-        gap={2}
+        gap={1}
       >
         {/* Field 0: Game Name */}
         <box
@@ -146,7 +155,6 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
             backgroundColor={activeField === 0 ? "#0c2b3d" : "#080f1a"}
             paddingLeft={1}
             paddingRight={1}
-            marginTop={1}
           >
             <text fg="#ffffff">
               <b>{displayName || " "}</b>
@@ -177,7 +185,6 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
             backgroundColor={activeField === 1 ? "#0c2b3d" : "#080f1a"}
             paddingLeft={2}
             paddingRight={2}
-            marginTop={1}
           >
             <text
               fg="#38bdf8"
@@ -219,7 +226,6 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
             backgroundColor={activeField === 2 ? "#0c2b3d" : "#080f1a"}
             paddingLeft={2}
             paddingRight={2}
-            marginTop={1}
           >
             <box
               flexDirection="row"
@@ -251,6 +257,57 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
             <i>Unlisted rooms do not appear in public browser</i>
           </text>
         </box>
+
+        {/* Field 3: Card Mode */}
+        <box
+          flexDirection="column"
+          style={{ width: 60 }}
+          onMouseDown={() => setActiveField(3)}
+        >
+          <text fg={activeField === 3 ? "#00d2ff" : "#94a3b8"}>
+            <b>4. CARDS:</b>
+          </text>
+          <box
+            flexDirection="row"
+            gap={3}
+            alignItems="center"
+            border
+            borderStyle="single"
+            borderColor={activeField === 3 ? "#00d2ff" : "#334155"}
+            backgroundColor={activeField === 3 ? "#0c2b3d" : "#080f1a"}
+            paddingLeft={2}
+            paddingRight={2}
+          >
+            <box
+              flexDirection="row"
+              gap={1}
+              onMouseDown={() => setCardMode("escalating")}
+            >
+              <text fg={cardMode === "escalating" ? "#a78bfa" : "#64748b"}>
+                {cardMode === "escalating" ? "(●)" : "( )"}
+              </text>
+              <text fg={cardMode === "escalating" ? "#ffffff" : "#94a3b8"}>
+                <b>Escalating</b> (4→6→8→10→12→15→+5)
+              </text>
+            </box>
+
+            <box
+              flexDirection="row"
+              gap={1}
+              onMouseDown={() => setCardMode("off")}
+            >
+              <text fg={cardMode === "off" ? "#a78bfa" : "#64748b"}>
+                {cardMode === "off" ? "(●)" : "( )"}
+              </text>
+              <text fg={cardMode === "off" ? "#ffffff" : "#94a3b8"}>
+                <b>Off</b>
+              </text>
+            </box>
+          </box>
+          <text fg="#64748b" marginTop={0}>
+            <i>Escalating: territory cards with bonus armies per traded set</i>
+          </text>
+        </box>
       </box>
 
       {/* Action Footer */}
@@ -275,7 +332,7 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
             paddingRight={2}
             onMouseDown={() => {
               const trimmed = displayName.trim() || "Conquest Campaign";
-              onCreate({ displayName: trimmed, maxPlayers, visibility });
+              onCreate({ displayName: trimmed, maxPlayers, visibility, cardMode });
             }}
           >
             <text fg="#00ff66">

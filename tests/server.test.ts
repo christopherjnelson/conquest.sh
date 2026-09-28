@@ -473,3 +473,83 @@ describe("ConquestServer: Full Integration Flow", () => {
     clientB.close();
   });
 });
+
+// ── cardMode end-to-end ────────────────────────────────────────────────────
+describe("ConquestServer: cardMode create_room end-to-end", () => {
+  let server: ConquestServer;
+  let port: number;
+
+  beforeAll(() => {
+    server = new ConquestServer({
+      port: 0,
+      serverName: "test-cardmode",
+      defaultMap: MAP_IRONREACH,
+    });
+    server.start();
+    port = server.port;
+  });
+
+  afterAll(() => {
+    server.stop();
+  });
+
+  it("cardMode=escalating is carried from client:create_room to room summary and game state", async () => {
+    const client = new TestClient(`ws://localhost:${port}`);
+    await client.waitForOpen();
+
+    client.send({
+      type: "client:create_room",
+      playerName: "TestPlayer",
+      visibility: "public",
+      maxPlayers: 2,
+      cardMode: "escalating",
+    } as ClientCreateRoom);
+
+    const welcome = await client.waitForMessage<ServerWelcome>((m) => m.type === "server:welcome");
+    expect(welcome.roomCode).toBeDefined();
+
+    // Room summary from HTTP should include cardMode
+    const resp = await fetch(`http://localhost:${port}/rooms`);
+    const rooms = await resp.json() as Array<{ cardMode?: string; roomCode: string }>;
+    const room = rooms.find((r) => r.roomCode === welcome.roomCode);
+    expect(room).toBeDefined();
+    expect(room?.cardMode).toBe("escalating");
+
+    client.close();
+  });
+
+  it("cardMode=off disables cards: publicCards.mode is 'off' in game state", async () => {
+    // Create a room with cardMode=off and 2 players, start the game
+    const clientA = new TestClient(`ws://localhost:${port}`);
+    await clientA.waitForOpen();
+    clientA.send({
+      type: "client:create_room",
+      playerName: "PlayerA",
+      visibility: "unlisted",
+      maxPlayers: 2,
+      cardMode: "off",
+    } as ClientCreateRoom);
+
+    const welcomeA = await clientA.waitForMessage<ServerWelcome>((m) => m.type === "server:welcome");
+    const roomCode = welcomeA.roomCode;
+
+    const clientB = new TestClient(`ws://localhost:${port}`);
+    await clientB.waitForOpen();
+    clientB.send({ type: "client:join", name: "PlayerB", roomCode });
+
+    // Both ready → game starts
+    await clientA.waitForMessage<ServerSnapshot>((m) => m.type === "server:snapshot");
+    await clientB.waitForMessage<ServerSnapshot>((m) => m.type === "server:snapshot");
+
+    clientA.send({ type: "client:ready", ready: true });
+    clientB.send({ type: "client:ready", ready: true });
+
+    const gameSnap = await clientA.waitForMessage<ServerSnapshot>(
+      (m) => m.type === "server:snapshot" && m.state.phase !== "lobby"
+    );
+    expect(gameSnap.state.publicCards?.mode).toBe("off");
+
+    clientA.close();
+    clientB.close();
+  });
+});

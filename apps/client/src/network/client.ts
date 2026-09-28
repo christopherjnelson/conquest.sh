@@ -695,6 +695,7 @@ export class GameClient {
       visibility?: RoomVisibility;
       maxPlayers?: number;
       mapId?: string;
+      cardMode?: "escalating" | "off";
     } = {}
   ): void {
     if (options.playerName) {
@@ -707,6 +708,7 @@ export class GameClient {
       visibility: options.visibility ?? "public",
       maxPlayers: options.maxPlayers ?? 4,
       mapId: options.mapId,
+      cardMode: options.cardMode,
       sessionToken: this.sessionToken ?? undefined,
     };
     this.send(msg);

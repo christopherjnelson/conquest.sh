@@ -373,8 +373,14 @@ export function App({
       return;
     }
     if (state.phase !== "deployment") {
-      showToast(`Cannot deploy during ${state.phase} phase`, "error");
-      return;
+      // Allow deploy in attack phase when forced trade armies are pending
+      const myForcedTrade = state.publicCards?.pendingForcedTrade?.playerId === myPlayerId;
+      if (state.phase === "attack" && myForcedTrade && state.pendingReinforcements > 0) {
+        // Fall through — deployment is allowed here
+      } else {
+        showToast(`Cannot deploy during ${state.phase} phase`, "error");
+        return;
+      }
     }
     const territory = state.territories[selectedTerritoryId];
     if (!territory || territory.ownerId !== myPlayerId) {
@@ -429,6 +435,17 @@ export function App({
     }
     if (!isMyTurn) {
       showToast("You can only attack on your turn", "error");
+      return;
+    }
+    // Forced trade blocks attacks: guide the player to the Cards panel
+    const myForcedTrade = state.publicCards?.pendingForcedTrade?.playerId === myPlayerId;
+    const hand = (state as any).myHand as Array<unknown> | null;
+    if (myForcedTrade && (state.pendingReinforcements > 0 || (Array.isArray(hand) && hand.length > 4))) {
+      if (state.pendingReinforcements > 0) {
+        showToast("Deploy your trade armies before attacking. Press [2] to open Cards panel.", "error");
+      } else {
+        showToast("Trade your cards before attacking. Press [2] to open Cards panel.", "error");
+      }
       return;
     }
     if (source.units < 2) {
@@ -680,9 +697,10 @@ export function App({
       setPhaseActionConfirmation(null);
     }
 
-    // Number keys 1-5 for bottom pill tabs
+    // Number keys 1-5 for bottom pill tabs; key 2 toggles Cards panel
     if (["1", "2", "3", "4", "5"].includes(key.name)) {
-      setActiveTab(parseInt(key.name, 10));
+      const tab = parseInt(key.name, 10);
+      setActiveTab((prev) => (tab === 2 && prev === 2) ? 1 : tab);
       return;
     }
 
@@ -691,8 +709,12 @@ export function App({
       return;
     }
 
-    // Deselect / clear
+    // Deselect / clear; also close Cards panel if open
     if (key.name === "escape") {
+      if (activeTab === 2) {
+        setActiveTab(1);
+        return;
+      }
       if (targetTerritoryId) {
         setTargetTerritoryId(null);
       } else {
