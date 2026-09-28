@@ -9,7 +9,8 @@
  * and asserts the input state and history are unchanged afterwards."
  */
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, setDefaultTimeout } from "bun:test";
+setDefaultTimeout(120_000);
 import {
   attackTerritory,
   completeConquestMove,
@@ -22,7 +23,7 @@ import {
   tradeCards,
   suggestSets,
 } from "../packages/game-core/src/index.js";
-import { MAP_IRONREACH } from "../packages/map-engine/src/index.js";
+import { MAP_IRONREACH, listMaps } from "../packages/map-engine/src/index.js";
 import { makeSfc32, makeShuffleFn } from "../packages/shared/src/index.js";
 import type { GameState, Player } from "../packages/protocol/src/index.js";
 
@@ -198,5 +199,136 @@ describe("game-core: frozen history pure-function guarantee", () => {
     const result = tradeCards(frozenState, p1, cardIds, shuffleFn);
     if (!result.ok) return;
     expect(result.state.history).toBe(frozenState.history);
+  });
+});
+
+// ─── Deterministic reference-identity over a full seeded simulation ────────────
+//
+// Runs ~2k bot actions through game-core (room-style history maintenance)
+// and asserts that EVERY action returns result.state.history === the input
+// state's history array. This catches any future [...state.history, ...]
+// copy regression without relying on timing.
+
+describe("game-core: history reference identity over full seeded simulation", () => {
+  const SIM_SEED = new Uint8Array(16);
+  new DataView(SIM_SEED.buffer).setUint32(0, 0x1234abcd, true);
+  new DataView(SIM_SEED.buffer).setUint32(4, 0x5678ef01, true);
+  new DataView(SIM_SEED.buffer).setUint32(8, 0x9abcde23, true);
+  new DataView(SIM_SEED.buffer).setUint32(12, 0x456789ab, true);
+  const MAX_SIM_ACTIONS = 2_000;
+
+  /** Simple aggressive bot — one action per call, returns null when stuck/done. */
+  function botStep(
+    state: GameState,
+    rng: () => number,
+    shuffleFn: <T>(arr: T[]) => T[]
+  ): { nextState: GameState; events: ReturnType<typeof deployUnits> extends { ok: true; events: infer E } ? E : never[] } | null {
+    if (state.phase === "game_over") return null;
+    const ap = state.players[state.activePlayerIndex];
+    if (!ap || !ap.isAlive) return null;
+    const pid = ap.id;
+
+    // Card trade if forced or voluntary (deployment with 5+ cards)
+    if (state.publicCards?.mode === "escalating") {
+      const hand = state.cards?.hands[pid] ?? [];
+      const ft = state.publicCards.pendingForcedTrade;
+      const shouldTrade =
+        (ft?.playerId === pid && hand.length > 4) ||
+        (state.phase === "deployment" && hand.length >= 5);
+      if (shouldTrade) {
+        const ownedIds = new Set(
+          Object.values(state.territories).filter((t) => t.ownerId === pid).map((t) => t.id)
+        );
+        const sets = suggestSets(hand, ownedIds);
+        if (sets.length > 0) {
+          const s = sets[0]!;
+          const r = tradeCards(state, pid, [s[0]!.id, s[1]!.id, s[2]!.id], shuffleFn);
+          if (r.ok) return { nextState: r.state, events: r.events as any };
+        }
+      }
+    }
+
+    if (state.phase === "deployment" && state.pendingReinforcements > 0) {
+      const myT = Object.values(state.territories).filter((t) => t.ownerId === pid);
+      if (myT.length === 0) return null;
+      const tgt = myT[Math.floor(rng() * myT.length)]!;
+      const r = deployUnits(state, pid, tgt.id, state.pendingReinforcements);
+      if (r.ok) return { nextState: r.state, events: r.events as any };
+    } else if (state.phase === "attack") {
+      if (state.pendingConquestMove) {
+        const p = state.pendingConquestMove;
+        const r = completeConquestMove(state, pid, p.minimumUnits);
+        if (r.ok) return { nextState: r.state, events: r.events as any };
+        return null;
+      }
+      const myT = Object.values(state.territories).filter((t) => t.ownerId === pid && t.units >= 2);
+      const atk = myT.flatMap((src) =>
+        src.neighbors
+          .filter((n) => state.territories[n]?.ownerId !== pid)
+          .map((n) => ({ src, tgt: state.territories[n]! }))
+      ).filter(({ src, tgt }) => src.units > tgt.units);
+      if (atk.length > 0) {
+        const pick = atk[Math.floor(rng() * atk.length)]!;
+        const r = attackTerritory(state, pid, pick.src.id, pick.tgt.id, 3, rng);
+        if (r.ok) return { nextState: r.state, events: r.events as any };
+      } else {
+        const r = skipPhase(state, pid, shuffleFn);
+        if (r.ok) return { nextState: r.state, events: r.events as any };
+      }
+    } else if (state.phase === "fortify") {
+      const r = skipPhase(state, pid, shuffleFn);
+      if (r.ok) return { nextState: r.state, events: r.events as any };
+    }
+    return null;
+  }
+
+  it("every game-core action returns the same history reference as its input (2k-action run)", () => {
+    // Use Earth-42 (or the first map with ≥ 4 players) for a realistic run.
+    const maps = listMaps();
+    const mapDef = maps.find((m) => (m.definition.recommendedPlayers?.max ?? 0) >= 4) ?? maps[0]!;
+    const map = mapDef.definition;
+    const PLAYER_COUNT = Math.min(4, map.territories.length);
+
+    const rng = makeSfc32(new Uint8Array(SIM_SEED));
+    const shuffleFn = makeShuffleFn(rng);
+
+    const players: Player[] = Array.from({ length: PLAYER_COUNT }, (_, i) => ({
+      id: `p${i + 1}`,
+      name: `Bot${i + 1}`,
+      colorIndex: i,
+      colorHex: "#ffffff",
+      connected: true,
+      isAlive: true,
+      ready: true,
+      rematchReady: false,
+    }));
+
+    let state = createInitialGameState("ref-id-test", "REFI", players, map, 3, shuffleFn);
+
+    let actionCount = 0;
+    let stuckCount = 0;
+
+    while (state.phase !== "game_over" && actionCount < MAX_SIM_ACTIONS) {
+      const inputHistory = state.history; // capture reference BEFORE action
+      const step = botStep(state, rng, shuffleFn);
+
+      if (!step) {
+        if (++stuckCount > 10) break;
+        continue;
+      }
+      stuckCount = 0;
+
+      // CRITICAL assertion: result.state.history must be the SAME array object
+      // as the one passed in. Any [...state.history, ...events] copy will fail here.
+      expect(step.nextState.history).toBe(inputHistory);
+
+      // Room-style: append events in place to the shared array.
+      state = step.nextState;
+      state.history.push(...step.events);
+      actionCount++;
+    }
+
+    // Sanity: we must have run a meaningful number of actions.
+    expect(actionCount).toBeGreaterThan(100);
   });
 });
