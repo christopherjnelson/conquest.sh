@@ -1,6 +1,7 @@
 import { getMap } from "../packages/map-engine/src/registry.js";
 const ironreachBundle = getMap("ironreach")!;
 import { describe, expect, it } from "bun:test";
+import { waitForFrameToContain } from "./helpers/render-wait.js";
 import { formatEvent } from "../apps/client/src/ui/EventLog.js";
 import {
   MAP_IRONREACH,
@@ -704,15 +705,18 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         await homeSetup.waitFor(() => (homeSetup.renderer.keyInput as any).listenerCount("keypress") >= 1);
         await act(async () => { (homeSetup.renderer.keyInput as any).emit("keypress", { name: "2" }); });
         await act(async () => { await homeSetup.renderOnce(); });
+        await waitForFrameToContain(homeSetup, "HOST CUSTOM BATTLE");
         expect(homeSetup.captureCharFrame()).toContain("HOST CUSTOM BATTLE");
         await act(async () => { (homeSetup.renderer.keyInput as any).emit("keypress", { name: "return" }); });
         await act(async () => { await homeSetup.renderOnce(); });
       }
+      await waitForFrameToContain(homeSetup, "VICTORY ACHIEVED");
       expect(homeSetup.captureCharFrame()).toContain("VICTORY ACHIEVED");
       await act(async () => { homeSetup.mockInput.pressKey("h"); });
       await act(async () => { await homeSetup.renderOnce(); });
       expect(homeClient.leaveRoomCalls).toBe(1);
       expect(homeExitCalls).toBe(0);
+      await waitForFrameToContain(homeSetup, "CONQUEST.SH");
       expect(homeSetup.captureCharFrame()).toContain("CONQUEST.SH");
       await act(async () => { homeSetup.renderer.destroy(); });
 
@@ -723,10 +727,12 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         await quitSetup.waitFor(() => (quitSetup.renderer.keyInput as any).listenerCount("keypress") >= 1);
         await act(async () => { (quitSetup.renderer.keyInput as any).emit("keypress", { name: "2" }); });
         await act(async () => { await quitSetup.renderOnce(); });
+        await waitForFrameToContain(quitSetup, "HOST CUSTOM BATTLE");
         expect(quitSetup.captureCharFrame()).toContain("HOST CUSTOM BATTLE");
         await act(async () => { (quitSetup.renderer.keyInput as any).emit("keypress", { name: "return" }); });
         await act(async () => { await quitSetup.renderOnce(); });
       }
+      await waitForFrameToContain(quitSetup, "VICTORY ACHIEVED");
       expect(quitSetup.captureCharFrame()).toContain("VICTORY ACHIEVED");
       await act(async () => { quitSetup.mockInput.pressKey("q"); });
       await act(async () => { await quitSetup.renderOnce(); });
@@ -816,6 +822,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     await act(async () => {
       await setupCompact.renderOnce();
     });
+    await setupCompact.flush();
 
     const innerMapCompact = findInnerMapBox(setupCompact.renderer.root);
     expect(innerMapCompact).not.toBeNull();
@@ -891,6 +898,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     await act(async () => {
       await setupWide.renderOnce();
     });
+    await setupWide.flush();
 
     const innerMapWide = findInnerMapBox(setupWide.renderer.root);
     expect(innerMapWide).not.toBeNull();

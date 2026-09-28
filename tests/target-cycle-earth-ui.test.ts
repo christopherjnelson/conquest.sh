@@ -3,6 +3,7 @@ import { createInitialGameState } from "@conquest/game-core";
 import type { GameState, Player } from "@conquest/protocol";
 import { getGeographyBoundingBox, selectRenderVariant } from "@conquest/map-engine";
 import { EARTH_42, EARTH_42_BUNDLE } from "../packages/map-engine/src/maps/earth-42.js";
+import { waitForFrameToContain } from "./helpers/render-wait.js";
 
 const players: Player[] = [
   { id: "p1", name: "Alpha", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
@@ -97,6 +98,7 @@ describe("Earth target cycling through the rendered client", () => {
     try {
       const variant = selectRenderVariant(EARTH_42_BUNDLE, { width: 135, height: 36 }).grid;
       const bounds = getGeographyBoundingBox(variant);
+      await waitForFrameToContain(setup, "WORLD MAP");
       const raster = findRaster(setup.renderer.root, bounds.width, bounds.height);
       expect(raster).toBeDefined();
       const caribbean = variant.territories.find(territory => territory.id === "sa_caribbean_coast");
@@ -124,6 +126,7 @@ describe("Earth target cycling through the rendered client", () => {
     try {
       await press("n");
       await press("f");
+      await waitForFrameToContain(setup, "FORTIFY TROOP MOVEMENT");
       expect(setup.captureCharFrame()).toContain("FORTIFY TROOP MOVEMENT");
       await press("[");
       await press("enter");
@@ -146,6 +149,7 @@ describe("Earth target cycling through the rendered client", () => {
     try {
       const variant = selectRenderVariant(EARTH_42_BUNDLE, { width: 135, height: 36 }).grid;
       const bounds = getGeographyBoundingBox(variant);
+      await waitForFrameToContain(setup, "WORLD MAP");
       const raster = findRaster(setup.renderer.root, bounds.width, bounds.height);
       expect(raster).toBeDefined();
       const indonesia = variant.territories.find(territory => territory.id === "oc_indonesia");

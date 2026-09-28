@@ -7,6 +7,7 @@ import { getMap, getGeographyBoundingBox, selectRenderVariant } from "../package
 import { createInitialGameState } from "../packages/game-core/src/index.js";
 import { Sidebar } from "../apps/client/src/ui/Sidebar.js";
 import { CompactInspector } from "../apps/client/src/ui/CompactInspector.js";
+import { waitForFrameToContain } from "./helpers/render-wait.js";
 
 function findRaster(node: any, width: number, height: number): any {
   if (node?.width === width && node?.height === height) return node;
@@ -166,6 +167,7 @@ describe("Earth deployment through the client UI", () => {
       const pane = { width: 135, height: 36 };
       const variant = selectRenderVariant(earth, pane).grid;
       const bounds = getGeographyBoundingBox(variant);
+      await waitForFrameToContain(setup, "WORLD MAP");
       const raster = findRaster(setup.renderer.root, bounds.width, bounds.height);
       expect(raster).toBeDefined();
       const ownRender = variant.territories.find(candidate => candidate.id === territory.id)!;
@@ -267,6 +269,7 @@ describe("Earth deployment through the client UI", () => {
       const earth = getMap("earth-42")!;
       const variant = selectRenderVariant(earth, { width: 135, height: 36 }).grid;
       const bounds = getGeographyBoundingBox(variant);
+      await waitForFrameToContain(setup, "WORLD MAP");
       const raster = findRaster(setup.renderer.root, bounds.width, bounds.height);
       if (!raster) throw new Error("Could not find the rendered Earth raster");
       const ownRender = variant.territories.find(candidate => candidate.id === territory.id)!;
@@ -351,6 +354,7 @@ describe("Earth deployment through the client UI", () => {
       const earth = getMap("earth-42")!;
       const variant = selectRenderVariant(earth, { width: 135, height: 36 }).grid;
       const bounds = getGeographyBoundingBox(variant);
+      await waitForFrameToContain(setup, "WORLD MAP");
       const raster = findRaster(setup.renderer.root, bounds.width, bounds.height);
       if (!raster) throw new Error("Could not find the rendered Earth raster");
       const pointFor = (territoryId: string) => {
@@ -485,6 +489,7 @@ describe("Earth deployment through the client UI", () => {
       expect(pending.pendingConquestMove).toMatchObject({ targetTerritoryId: target.id, minimumUnits: 3, maximumUnits: 9 });
       expect(pending.territories[source.id]?.units).toBe(7);
       expect(pending.territories[target.id]?.units).toBe(3);
+      await waitForFrameToContain(setup, "MOVE TROOPS INTO CONQUERED TERRITORY");
       const pendingFrame = setup.captureCharFrame();
       expect(pendingFrame).toContain("MOVE TROOPS INTO CONQUERED TERRITORY");
       expect(pendingFrame).toContain("3  (3–9)");
@@ -497,6 +502,7 @@ describe("Earth deployment through the client UI", () => {
         await setup.mockMouse.click(lines[row]!.indexOf(label) + Math.floor(label.length / 2), row);
       };
       await act(async () => { await clickControl("[+]"); await setup.renderOnce(); });
+      await waitForFrameToContain(setup, "4  (3–9)");
       expect(setup.captureCharFrame()).toContain("4  (3–9)");
       let completed: any;
       await act(async () => {
