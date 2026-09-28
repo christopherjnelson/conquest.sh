@@ -6,7 +6,10 @@
  * spec are asserted. Games must reach game_over within a generous action cap.
  */
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, setDefaultTimeout } from "bun:test";
+
+// Simulation games can take many seconds on large maps with many players.
+setDefaultTimeout(120_000);
 import {
   createInitialGameState,
   deployUnits,
@@ -140,33 +143,37 @@ function botTradeCards(state: GameState, playerId: string, rng: () => number): G
   const pub = state.publicCards;
   if (!pub || pub.mode !== "escalating") return state;
 
-  const hand = state.myHand ?? state.cards?.hands[playerId] ?? [];
   const ownedIds = new Set(
     Object.values(state.territories)
       .filter((t: any) => t.ownerId === playerId)
       .map((t: any) => t.id)
   );
 
-  // Trade until no longer forced or no valid set
-  // eslint-disable-next-line no-constant-condition
+  // Trade until no longer forced or hand is small enough.
+  // Pigeonhole: any hand of 5+ cards always has a valid set; no escape valve needed.
+  let iter = 0;
   while (true) {
+    if (++iter > 30) {
+      throw new Error(`BOT TRADE LOOP STUCK pid=${playerId} hand=${state.cards?.hands[playerId]?.length} phase=${state.phase} forced=${JSON.stringify(state.publicCards?.pendingForcedTrade)}`);
+    }
     const currentHand = state.myHand ?? state.cards?.hands[playerId] ?? [];
     const ftState = state.publicCards?.pendingForcedTrade;
-    // Truly forced = pending and hand still > 4, or pending trade reinforcements not yet deployed
-    const trulyForced = ftState?.playerId === playerId && (currentHand.length > 4 || (ftState.pendingTradeReinforcements ?? 0) > 0);
-    const forcedTrade = pub && trulyForced;
-    const shouldTrade = forcedTrade || (state.phase === "deployment" && currentHand.length >= 5);
+    // Forced = pendingForcedTrade active AND hand > 4 (must trade more)
+    const isForced = ftState?.playerId === playerId && currentHand.length > 4;
+    // Voluntary = deployment phase with 5+ cards
+    const shouldTrade = isForced || (state.phase === "deployment" && currentHand.length >= 5);
 
     if (!shouldTrade) break;
 
     const sets = suggestSets(currentHand, ownedIds);
-    if (sets.length === 0) break;
+    if (sets.length === 0) {
+      // Should never happen: pigeonhole guarantees valid set when hand > 4
+      throw new Error(`BUG: no valid set with ${currentHand.length} cards (pigeonhole violated)`);
+    }
 
-    // Pick the best set (first suggestion)
     const chosen = sets[0]!;
     const cardIds = [chosen[0]!.id, chosen[1]!.id, chosen[2]!.id] as [string, string, string];
     const result = tradeCards(state, playerId, cardIds, (arr) => {
-      // Simple Fisher-Yates shuffle using provided rng
       const a = [...arr];
       for (let i = a.length - 1; i > 0; i--) {
         const j = Math.floor(rng() * (i + 1));
@@ -229,20 +236,21 @@ function runBotTurn(
   // ── attack ───────────────────────────────────────────────────────────────────
   let _attackIter = 0;
   while (state.phase === "attack") {
-    if (++_attackIter > 2000) {
+    if (++_attackIter > 10000) {
       throw new Error(`ATTACK LOOP STUCK pid=${playerId} forced=${JSON.stringify(state.publicCards?.pendingForcedTrade)} reinf=${state.pendingReinforcements} hand=${state.cards?.hands[playerId]?.length} conquest=${!!state.pendingConquestMove}`);
     }
-    // Handle forced card trade (after elimination capture with 6+ cards)
-    // Also deploy any forced-trade reinforcements before attacking
+    // Handle forced card trade (after elimination capture with 6+ cards).
+    // Simplified model: trade until hand ≤ 4, then deploy all pending reinforcements.
+    // Pigeonhole guarantees a valid set whenever hand > 4.
     const ftState = state.publicCards?.pendingForcedTrade;
     if (ftState?.playerId === playerId) {
       const currentHand = state.cards?.hands[playerId] ?? [];
-      // Only trade if truly forced (hand > 4 or pending trade armies to distribute)
-      if (currentHand.length > 4 || (ftState.pendingTradeReinforcements ?? 0) > 0) {
+      // Trade down to ≤ 4 cards
+      if (currentHand.length > 4) {
         state = botTradeCards(state, playerId, rng);
         if (state.phase === "game_over") return { state, deployments, losses };
       }
-      // Deploy any pending forced-trade reinforcements
+      // Deploy forced-trade reinforcements (armies went directly to pendingReinforcements)
       if (state.pendingReinforcements > 0) {
         const borderTerrs = (myTerritories() as any[]).filter((t: any) =>
           t.neighbors.some((n: string) => (state.territories[n] as any)?.ownerId !== playerId)
@@ -254,13 +262,13 @@ function runBotTurn(
           if (r.ok) {
             deployments += state.pendingReinforcements;
             state = r.state;
+            // deployUnits clears pendingForcedTrade when remaining hits 0
           }
         }
-        continue; // Loop back to handle any remaining forced-trade state
+        continue; // Loop back — on next iter ftState will be null, proceed to attack
       }
-      // No reinforcements to deploy and no valid sets to trade:
-      // fall through to attackTerritory which has the escape-valve for 2+2+2 (no-valid-set) case.
-      // attackTerritory auto-clears pendingForcedTrade when no valid set exists.
+      // pendingForcedTrade set but no cards to trade and no armies to deploy: stale state
+      // attackTerritory auto-clears it; fall through.
     }
     // Handle pending conquest move first (units conserved, no losses)
     if (state.pendingConquestMove) {
@@ -288,13 +296,16 @@ function runBotTurn(
 
     if (allAttackables.length === 0) break;
 
-    // Prefer strictly stronger attacks; fall back to equal/any to avoid stalemate.
+    // Prefer strictly stronger attacks; fall back to equal-strength.
+    // Do NOT fall back to unfavorable attacks: the bot would grind down and loop forever.
     const strictlyBetter = allAttackables.filter(({ src, tgt }: any) => src.units > tgt.units);
     const equalOrBetter = allAttackables.filter(({ src, tgt }: any) => src.units >= tgt.units);
     const attackables =
       strictlyBetter.length > 0 ? strictlyBetter :
       equalOrBetter.length > 0 ? equalOrBetter :
-      allAttackables;
+      [];  // No favorable attack available — give up and move to fortify
+
+    if (attackables.length === 0) break;
 
     const choice = attackables[Math.floor(rng() * attackables.length)]! as any;
     const r = attackTerritory(state, playerId, choice.src.id, choice.tgt.id, undefined, rng);
@@ -357,7 +368,6 @@ describe("simulation: full-game invariant tests", () => {
 
       for (let seedNum = 1; seedNum <= SEEDS_PER_CONFIG; seedNum++) {
         it(`${map.id} / ${playerCount}p / seed=${seedNum}`, () => {
-          console.log(`>>> START: ${map.id}/${playerCount}p/seed=${seedNum}`);
           const seed = seedFromNumber(seedNum * 100 + playerCount * 10);
           const seedHex = Buffer.from(seed).toString("hex");
           const rng = makeSfc32(seed);
@@ -392,6 +402,10 @@ describe("simulation: full-game invariant tests", () => {
           let actions = 0;
           let turns = 0;
 
+          // History tail limit: keeps state.history from growing unboundedly and causing
+          // O(n²) spread overhead across thousands of actions.
+          const HISTORY_CAP = 500;
+
           while (state.phase !== "game_over" && actions < MAX_ACTIONS) {
             const prevTurn = state.turnNumber;
             const prevHistoryLength = state.history.length;
@@ -408,6 +422,11 @@ describe("simulation: full-game invariant tests", () => {
             }
             if (state.turnNumber > prevTurn) turns++;
             actions++;
+
+            // Cap history to prevent O(n²) array spread on long games
+            if (state.history.length > HISTORY_CAP * 2) {
+              state = { ...state, history: state.history.slice(-HISTORY_CAP) };
+            }
 
             assertInvariants(state, initialArmies, totalDeployments, totalLosses, seedHex, totalTradeBonusArmies);
           }

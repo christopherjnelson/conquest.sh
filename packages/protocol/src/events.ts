@@ -61,12 +61,12 @@ export const PublicCardStateSchema = z.object({
    * Set when the active player must trade before doing anything else.
    * During deployment: 5+ cards at start of turn.
    * During attack: after an elimination capture, if hand ≥ 6.
+   * Cleared when hand ≤ 4 (deployment) or after forced-trade armies are
+   * all deployed (attack, via deployUnits when pendingReinforcements hits 0).
    */
   pendingForcedTrade: z.object({
     playerId: z.string(),
     phase: GamePhaseSchema,
-    /** Armies from forced trades not yet deployed. */
-    pendingTradeReinforcements: z.number().int().min(0),
   }).nullable().default(null),
 });
 export type PublicCardState = z.infer<typeof PublicCardStateSchema>;

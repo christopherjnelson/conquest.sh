@@ -356,54 +356,27 @@ export function tradeCards(
 
   // Calculate new hand count after trade
   const newHandCount = newHand.length;
-  const forcedResolved = isForcedTrade && newHandCount <= 4;
 
-  // Update pending reinforcements and forced trade state
-  let nextPendingReinforcements = state.pendingReinforcements;
+  // Armies ALWAYS go directly to pendingReinforcements (simplified model).
+  // Any hand of 5+ cards has a valid set (pigeonhole over 3 symbols + wilds),
+  // so there is no "no valid set while forced" case — all escape valves removed.
+  const nextPendingReinforcements = state.pendingReinforcements + armies;
   let nextPublicCards: PublicCardState;
 
-  if (isForcedTrade && isAttack) {
-    // Armies from forced trades accumulate in pendingTradeReinforcements.
-    // When the hand is finally ≤ 4, ALL accumulated armies move to pendingReinforcements
-    // so the player must deploy before attacking. pendingForcedTrade stays set (with
-    // pendingTradeReinforcements=0) until pendingReinforcements reaches 0 in deployUnits,
-    // so deployUnits knows it is allowed to deploy during attack phase.
-    const currentTradeReinf = pub.pendingForcedTrade?.pendingTradeReinforcements ?? 0;
-
-    if (forcedResolved) {
-      // Hand ≤ 4: move ALL accumulated armies to pendingReinforcements.
-      const totalTradeArmies = currentTradeReinf + armies;
-      nextPendingReinforcements = state.pendingReinforcements + totalTradeArmies;
-      nextPublicCards = {
-        ...pub,
-        setsTradedCount: newSetsTradedCount,
-        nextTradeValue,
-        playerHandCounts: { ...pub.playerHandCounts, [playerId]: newHandCount },
-        // Keep pendingForcedTrade so deployUnits knows it's in forced-trade-deploy mode.
-        // deployUnits clears it when pendingReinforcements hits 0.
-        pendingForcedTrade: {
-          playerId,
-          phase: "attack" as const,
-          pendingTradeReinforcements: 0, // all moved to pendingReinforcements
-        },
-      };
-    } else {
-      // Still more trades required: accumulate armies in pendingTradeReinforcements.
-      nextPublicCards = {
-        ...pub,
-        setsTradedCount: newSetsTradedCount,
-        nextTradeValue,
-        playerHandCounts: { ...pub.playerHandCounts, [playerId]: newHandCount },
-        pendingForcedTrade: {
-          playerId,
-          phase: "attack" as const,
-          pendingTradeReinforcements: currentTradeReinf + armies,
-        },
-      };
-    }
+  if (isAttack) {
+    // Attack-phase forced trade: keep pendingForcedTrade set so that:
+    //   • attackTerritory stays blocked (hand > 4 OR pendingReinforcements > 0)
+    //   • deployUnits is allowed (pendingForcedTrade && pendingReinforcements > 0)
+    // deployUnits clears pendingForcedTrade when remaining hits 0.
+    nextPublicCards = {
+      ...pub,
+      setsTradedCount: newSetsTradedCount,
+      nextTradeValue,
+      playerHandCounts: { ...pub.playerHandCounts, [playerId]: newHandCount },
+      pendingForcedTrade: { playerId, phase: "attack" as const },
+    };
   } else {
-    // Deployment phase trade: armies go to pendingReinforcements directly
-    nextPendingReinforcements = state.pendingReinforcements + armies;
+    // Deployment-phase trade: clear pendingForcedTrade once hand ≤ 4.
     const stillForced = newHandCount >= 5;
     nextPublicCards = {
       ...pub,
@@ -411,7 +384,7 @@ export function tradeCards(
       nextTradeValue,
       playerHandCounts: { ...pub.playerHandCounts, [playerId]: newHandCount },
       pendingForcedTrade: stillForced
-        ? { playerId, phase: "deployment", pendingTradeReinforcements: 0 }
+        ? { playerId, phase: "deployment" as const }
         : null,
     };
   }

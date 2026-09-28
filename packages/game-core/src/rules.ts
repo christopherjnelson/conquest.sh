@@ -1,7 +1,7 @@
 import type { GameEvent, GamePhase, GameState, Player, TerritoryState } from "@conquest/protocol";
 import { resolveCombat, type RandomNumberGenerator } from "./combat.js";
 import { evaluatePlayerEliminations, evaluateVictory, finalizeMatch } from "./victory.js";
-import { drawCard, captureCards, getTradeValue, suggestSets } from "./cards.js";
+import { drawCard, captureCards, getTradeValue } from "./cards.js";
 
 export type ActionResult<T = unknown> =
   | { ok: true; state: GameState; events: GameEvent[]; data?: T }
@@ -56,29 +56,28 @@ export function deployUnits(
     return { ok: false, error: "Eliminated players cannot deploy units" };
   }
 
-  // During attack phase, allow deployment ONLY when forced-trade reinforcements are pending
+  // During attack phase, allow deployment ONLY when forced-trade reinforcements are pending.
+  // (Simplified model: armies always go directly to pendingReinforcements on each trade.)
   const pub = state.publicCards;
   const isAttackPhaseTradeReinf =
     state.phase === "attack" &&
     pub?.pendingForcedTrade?.playerId === playerId &&
-    pub.pendingForcedTrade.pendingTradeReinforcements === 0 &&
     state.pendingReinforcements > 0;
 
   if (state.phase !== "deployment" && !isAttackPhaseTradeReinf) {
     return { ok: false, error: `Cannot deploy during ${state.phase} phase` };
   }
 
-  // Block deployment if a forced trade is pending (deployment phase with 5+ cards)
-  // BUT: only block if the player actually has a valid set to trade. If no valid set exists,
-  // allow deployment to proceed and auto-clear the stuck forced trade.
+  // Block deployment if a forced trade is pending in the deployment phase.
+  // By pigeonhole, any hand of 5+ cards always has a valid set, so the player
+  // can always trade — no escape valve needed here.
   if (pub?.pendingForcedTrade?.playerId === playerId &&
       pub.pendingForcedTrade.phase === "deployment") {
     const hand = state.cards?.hands[playerId] ?? [];
-    const hasValidSet = suggestSets(hand, new Set()).length > 0;
-    if (hasValidSet) {
+    if (hand.length >= 5) {
       return { ok: false, error: "You must trade cards before deploying (5 or more cards in hand)" };
     }
-    // No valid set — proceed with deployment; pendingForcedTrade cleared in nextState below
+    // hand < 5 but pendingForcedTrade not yet cleared — stale state, proceed normally
   }
 
   if (count <= 0 || count > state.pendingReinforcements) {
@@ -130,22 +129,11 @@ export function deployUnits(
     });
   }
 
-  // Clear pendingForcedTrade in two cases:
-  // 1. Attack-phase forced trade reinforcements all deployed (remaining=0)
-  // 2. No valid set existed (impossible forced trade) — cleared by proceeding
+  // Clear pendingForcedTrade when attack-phase forced-trade armies are all deployed.
+  // (Deployment-phase forced trade is cleared in tradeCards when hand ≤ 4.)
   let nextPublicCards = state.publicCards;
-  if (nextPublicCards?.pendingForcedTrade?.playerId === playerId) {
-    const shouldClear =
-      // Attack phase: all trade reinforcements deployed
-      (inAttackPhase && remaining === 0) ||
-      // Impossible forced trade: no valid set existed, allowed through
-      (!inAttackPhase && (() => {
-        const hand = state.cards?.hands[playerId] ?? [];
-        return suggestSets(hand, new Set()).length === 0;
-      })());
-    if (shouldClear) {
-      nextPublicCards = { ...nextPublicCards, pendingForcedTrade: null };
-    }
+  if (inAttackPhase && remaining === 0 && nextPublicCards?.pendingForcedTrade?.playerId === playerId) {
+    nextPublicCards = { ...nextPublicCards, pendingForcedTrade: null };
   }
 
   const nextState: GameState = {
@@ -201,20 +189,19 @@ export function attackTerritory(
     return { ok: false, error: "Complete the troop move after your conquest first" };
   }
 
-  // Block attack if a forced card trade (from elimination capture) is pending.
-  // Only block if the player has a valid set to trade OR has pending reinforcements to deploy.
-  // Edge case: if 6+ cards but no valid set exists, allow attack (don't trap the player).
+  // Block attack while a forced card trade is pending.
+  // Simplified model: block if hand > 4 (must trade) OR pendingReinforcements > 0 (must deploy).
+  // By pigeonhole, any hand of 5+ cards always has a valid set, so no escape valve needed.
   const pubCards = state.publicCards;
   if (pubCards?.pendingForcedTrade?.playerId === playerId) {
+    const attackHand = state.cards?.hands[playerId] ?? [];
+    if (attackHand.length > 4) {
+      return { ok: false, error: "You must trade cards before attacking (forced trade pending)" };
+    }
     if (state.pendingReinforcements > 0) {
       return { ok: false, error: "Deploy your trade reinforcements before attacking" };
     }
-    const attackHand = state.cards?.hands[playerId] ?? [];
-    const attackHasValidSet = attackHand.length > 4 && suggestSets(attackHand, new Set()).length > 0;
-    if (attackHasValidSet) {
-      return { ok: false, error: "You must trade cards before attacking (6 or more cards in hand after capture)" };
-    }
-    // No valid set and no pending reinforcements — auto-clear stuck forced trade
+    // pendingForcedTrade set but hand ≤ 4 and no pending reinforcements: stale state, auto-clear
     state = {
       ...state,
       publicCards: state.publicCards ? { ...state.publicCards, pendingForcedTrade: null } : state.publicCards,
@@ -437,7 +424,6 @@ function applyCardCaptureOnElimination(
       pendingForcedTrade: {
         playerId: eliminatorId,
         phase: "attack",
-        pendingTradeReinforcements: 0,
       },
     };
   }
@@ -577,15 +563,15 @@ export function skipPhase(state: GameState, playerId: string, shuffleFn?: <T>(ar
     return { ok: false, error: "Complete the troop move after your conquest first" };
   }
 
-  // Block skip if forced trade is pending AND player has a valid set to trade
+  // Block skip while forced trade is pending (must trade then deploy before skipping).
+  // Simplified model: block if hand > 4 OR pendingReinforcements > 0.
   const skipPub = state.publicCards;
   if (skipPub?.pendingForcedTrade?.playerId === playerId) {
     const skipHand = state.cards?.hands[playerId] ?? [];
-    const skipHasValidSet = skipHand.length > 4 && suggestSets(skipHand, new Set()).length > 0;
-    if (skipHasValidSet || state.pendingReinforcements > 0) {
-      return { ok: false, error: "You must trade cards before skipping (forced trade pending)" };
+    if (skipHand.length > 4 || state.pendingReinforcements > 0) {
+      return { ok: false, error: "You must trade cards and deploy before skipping (forced trade pending)" };
     }
-    // No valid set and no pending reinforcements — allow skip
+    // Stale state (hand ≤ 4 and no pending reinforcements): allow skip
   }
 
   const now = Date.now();
@@ -680,7 +666,6 @@ function advanceToNextPlayer(
     ? {
         playerId: nextPlayer.id,
         phase: "deployment" as const,
-        pendingTradeReinforcements: 0,
       }
     : null;
 
