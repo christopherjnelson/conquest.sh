@@ -22,6 +22,7 @@ import { Header } from "./Header.js";
 import { MapCanvas } from "./MapCanvas.js";
 import { Sidebar } from "./Sidebar.js";
 import { CompactInspector } from "./CompactInspector.js";
+import { CardsPanel } from "./CardsPanel.js";
 import { EventLog } from "./EventLog.js";
 import { Footer } from "./Footer.js";
 import { MatchResultsScreen } from "./MatchResultsScreen.js";
@@ -218,6 +219,15 @@ export function App({
   const [conquestMoveUnits, setConquestMoveUnits] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(1);
+
+  // Auto-open Cards panel (tab 2) when forced trade is pending for this player
+  const forcedTradePending =
+    state?.publicCards?.pendingForcedTrade?.playerId === myPlayerId;
+  useEffect(() => {
+    if (forcedTradePending && activeTab !== 2) {
+      setActiveTab(2);
+    }
+  }, [forcedTradePending, activeTab]);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"info" | "success" | "error">("info");
@@ -577,6 +587,13 @@ export function App({
     client.ready(true);
     showToast("Marked ready! Waiting for game start...", "success");
   }, [client, showToast]);
+
+  const handleTradeCards = useCallback(
+    (cardIds: [string, string, string]) => {
+      client.send({ type: "client:trade_cards", cardIds });
+    },
+    [client]
+  );
 
   // Keyboard navigation
   useKeyboard((key) => {
@@ -949,42 +966,51 @@ export function App({
         >
           {/* The inspector has a fixed reading width; extra columns belong to the world map. */}
           <box flexGrow={1} flexBasis={0} flexDirection="column" style={{ width: 0, height: "100%" }}>
-            <MapCanvas
-              mapBundle={mapBundle}
-              contentDimensions={paneDimensions}
-              terminalDimensions={dimensions}
-              territories={state?.territories ?? {}}
-              players={state?.players ?? []}
-              myPlayerId={myPlayerId}
-              phase={phase}
-              selectedTerritoryId={selectedTerritoryId}
-              targetTerritoryId={targetTerritoryId}
-              hoveredTerritoryId={hoveredTerritoryId}
-              onHoverTerritory={setHoveredTerritoryId}
-              onSelectTerritory={(id) => {
-                setPhaseActionConfirmation(null);
-                setSelectedTerritoryId(id);
-                setTargetTerritoryId(null);
-              }}
-              onSelectTarget={(id) => {
-                setPhaseActionConfirmation(null);
-                setTargetTerritoryId(id);
-              }}
-              onInvalidAttackTarget={handleInvalidAttackTarget}
-              onDeselect={() => {
-                setPhaseActionConfirmation(null);
-                setSelectedTerritoryId(null);
-                setTargetTerritoryId(null);
-              }}
-              overlay={mapOverlay}
-              onOverlayConfirm={confirmMapOverlay}
-              onOverlayCancel={cancelMapOverlay}
-              onOverlayDecrease={decreaseMapOverlay}
-              onOverlayIncrease={increaseMapOverlay}
-              onOverlayMinimum={minimumMapOverlay}
-              onOverlayMaximum={maximumMapOverlay}
-              battle={battleReport}
-            />
+            {activeTab === 2 ? (
+              <CardsPanel
+                state={state}
+                myPlayerId={myPlayerId}
+                onTradeCards={handleTradeCards}
+                layoutMode={layoutMode}
+              />
+            ) : (
+              <MapCanvas
+                mapBundle={mapBundle}
+                contentDimensions={paneDimensions}
+                terminalDimensions={dimensions}
+                territories={state?.territories ?? {}}
+                players={state?.players ?? []}
+                myPlayerId={myPlayerId}
+                phase={phase}
+                selectedTerritoryId={selectedTerritoryId}
+                targetTerritoryId={targetTerritoryId}
+                hoveredTerritoryId={hoveredTerritoryId}
+                onHoverTerritory={setHoveredTerritoryId}
+                onSelectTerritory={(id) => {
+                  setPhaseActionConfirmation(null);
+                  setSelectedTerritoryId(id);
+                  setTargetTerritoryId(null);
+                }}
+                onSelectTarget={(id) => {
+                  setPhaseActionConfirmation(null);
+                  setTargetTerritoryId(id);
+                }}
+                onInvalidAttackTarget={handleInvalidAttackTarget}
+                onDeselect={() => {
+                  setPhaseActionConfirmation(null);
+                  setSelectedTerritoryId(null);
+                  setTargetTerritoryId(null);
+                }}
+                overlay={mapOverlay}
+                onOverlayConfirm={confirmMapOverlay}
+                onOverlayCancel={cancelMapOverlay}
+                onOverlayDecrease={decreaseMapOverlay}
+                onOverlayIncrease={increaseMapOverlay}
+                onOverlayMinimum={minimumMapOverlay}
+                onOverlayMaximum={maximumMapOverlay}
+                battle={battleReport}
+              />
+            )}
           </box>
 
           {/* Right: readable tactical inspector without unbounded width growth. */}

@@ -144,7 +144,7 @@ export function Sidebar({
             # Player
           </text>
           <text fg="#64748b">
-            {isLobby ? "Status" : "Terrs Armies   Turn"}
+            {isLobby ? "Status" : (state?.publicCards?.mode === "escalating" ? "Cds Terrs Armies   Turn" : "Terrs Armies   Turn")}
           </text>
         </box>
 
@@ -206,6 +206,11 @@ export function Sidebar({
                 </text>
                 <text fg={isActive ? "#00ff66" : isEliminated ? "#ef4444" : "#e2e8f0"}>
                   <b>
+                    {state?.publicCards?.mode === "escalating" && (
+                      <span fg="#a78bfa">
+                        {String(state.publicCards.playerHandCounts[p.id] ?? 0).padStart(2, " ")}{"  "}
+                      </span>
+                    )}
                     {String(owned.length).padStart(3, " ")}  {String(totalUnits).padStart(4, " ")}   {turnText.padStart(6, " ")}
                   </b>
                 </text>

@@ -152,6 +152,30 @@ export function formatEvent(
         color: "#ffaa00",
       };
     }
+    case "card_awarded":
+      return {
+        text: `🃏 ${getPlayerName(e.playerId)} claimed a territory card`,
+        color: "#a78bfa",
+      };
+    case "cards_traded": {
+      const traderName = getPlayerName(e.playerId);
+      const bonus = (e as any).territoryBonus
+        ? ` (+2 on ${getTerritoryName((e as any).territoryBonus.territoryId)})`
+        : "";
+      return {
+        text: `🃏 ${traderName} traded a set for ${e.armies} armies${bonus} (#${e.setNumber})`,
+        color: "#818cf8",
+      };
+    }
+    case "cards_captured": {
+      const captor = getPlayerName((e as any).toPlayerId);
+      const victim = getPlayerName((e as any).fromPlayerId);
+      const count = (e as any).count;
+      return {
+        text: `🃏 ${captor} seized ${count} card${count !== 1 ? "s" : ""} from ${victim}`,
+        color: "#f87171",
+      };
+    }
     case "chat_message":
       return {
         text: `💬 ${e.senderName}: "${e.text}"`,
