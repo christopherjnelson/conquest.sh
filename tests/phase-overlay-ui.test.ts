@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createInitialGameState } from "@conquest/game-core";
 import type { GameState, Player } from "@conquest/protocol";
+import { waitForFrameToContain, waitForFrameNotToContain } from "./helpers/render-wait.js";
 import { getGeographyBoundingBox, getTerritoryAt, selectRenderVariant } from "@conquest/map-engine";
 import { EARTH_42, EARTH_42_BUNDLE } from "../packages/map-engine/src/maps/earth-42.js";
 
@@ -86,6 +87,7 @@ describe("phase confirmation overlay", () => {
     try {
       await press("e");
       expect(calls()).toEqual({ skipped: 0, ended: 0 });
+      await waitForFrameToContain(setup, "SKIP ATTACK PHASE?");
       const frame = setup.captureCharFrame();
       expect(frame).toContain("SKIP ATTACK PHASE?");
       const confirm = textPoint(frame, "[Enter] Confirm");
@@ -104,14 +106,17 @@ describe("phase confirmation overlay", () => {
     try {
       await press("e");
       await press("escape");
+      await waitForFrameNotToContain(setup, "SKIP ATTACK PHASE?");
       expect(setup.captureCharFrame()).not.toContain("SKIP ATTACK PHASE?");
       expect(calls()).toEqual({ skipped: 0, ended: 0 });
       await press("e");
+      await waitForFrameToContain(setup, "[Esc] Cancel");
       const cancel = textPoint(setup.captureCharFrame(), "[Esc] Cancel");
       await act(async () => {
         await setup.mockMouse.click(cancel.x, cancel.y);
         await setup.renderOnce();
       });
+      await waitForFrameNotToContain(setup, "SKIP ATTACK PHASE?");
       expect(setup.captureCharFrame()).not.toContain("SKIP ATTACK PHASE?");
       expect(calls()).toEqual({ skipped: 0, ended: 0 });
     } finally {
@@ -124,6 +129,7 @@ describe("phase confirmation overlay", () => {
     try {
       await press("e");
       expect(calls()).toEqual({ skipped: 0, ended: 0 });
+      await waitForFrameToContain(setup, "SKIP FORTIFICATION & END TURN?");
       const frame = setup.captureCharFrame();
       expect(frame).toContain("SKIP FORTIFICATION & END TURN?");
       const confirm = textPoint(frame, "[Enter] Confirm");
@@ -142,6 +148,7 @@ describe("phase confirmation overlay", () => {
     try {
       const variant = selectRenderVariant(EARTH_42_BUNDLE, { width: 135, height: 36 }).grid;
       const bounds = getGeographyBoundingBox(variant);
+      await waitForFrameToContain(setup, "WORLD MAP");
       const raster = findRaster(setup.renderer.root, bounds.width, bounds.height);
       expect(raster).toBeDefined();
       const ocean = (() => {
@@ -158,6 +165,7 @@ describe("phase confirmation overlay", () => {
       });
       await press("a");
       expect(calls()).toEqual({ skipped: 0, ended: 0 });
+      await waitForFrameToContain(setup, "Select a friendly territory to attack from");
       expect(setup.captureCharFrame()).toContain("Select a friendly territory to attack from");
     } finally {
       await act(async () => { setup.renderer.destroy(); });
@@ -169,6 +177,7 @@ describe("phase confirmation overlay", () => {
     try {
       const variant = selectRenderVariant(EARTH_42_BUNDLE, { width: 135, height: 36 }).grid;
       const bounds = getGeographyBoundingBox(variant);
+      await waitForFrameToContain(setup, "WORLD MAP");
       const raster = findRaster(setup.renderer.root, bounds.width, bounds.height);
       expect(raster).toBeDefined();
       if (!raster) throw new Error("Expected rendered Earth raster");
@@ -179,6 +188,7 @@ describe("phase confirmation overlay", () => {
         await setup.renderOnce();
       });
       await press("a");
+      await waitForFrameToContain(setup, "Select a friendly territory to attack from");
       expect(setup.captureCharFrame()).toContain("Select a friendly territory to attack from");
     } finally {
       await act(async () => { setup.renderer.destroy(); });
@@ -199,6 +209,7 @@ describe("phase confirmation overlay", () => {
         emitSnapshot(next);
         await setup.renderOnce();
       });
+      await waitForFrameToContain(setup, "TURN COMPLETE");
       const frame = setup.captureCharFrame();
       expect(frame).toContain("TURN COMPLETE");
       expect(frame).toContain("TURN PASSED — Bravo is now active");

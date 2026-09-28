@@ -8,6 +8,7 @@
  *  - Deploy/attack keys show a helpful toast while forced trade is pending
  */
 import { describe, expect, it } from "bun:test";
+import { waitForFrame } from "./helpers/render-wait.js";
 // @ts-ignore Test renderer from client workspace
 import React from "../apps/client/node_modules/react/index.js";
 // @ts-ignore
@@ -291,6 +292,9 @@ describe("App: Cards panel key handling", () => {
     await press("a");
 
     // Should show a toast mentioning forced trade / Cards panel
+    await waitForFrame(setup, frame => /trade|Trade|Cards/.test(frame), {
+      description: "frame to match /trade|Trade|Cards/",
+    });
     const frame = setup.captureCharFrame();
     expect(frame).toMatch(/trade|Trade|Cards/);
 

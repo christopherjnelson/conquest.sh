@@ -55,6 +55,7 @@ describe("cartographic label hit testing", () => {
     }), { width: 20, height: 8 });
     try {
       await act(async () => { await setup.renderOnce(); });
+      await setup.flush();
       const mapBody = findMapBody(setup.renderer.root, bounds.width, bounds.height);
       expect(mapBody).toBeDefined();
       if (!mapBody) throw new Error("Expected interactive synthetic map body");
