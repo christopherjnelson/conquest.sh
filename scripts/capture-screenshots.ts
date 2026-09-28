@@ -402,7 +402,7 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log("\n[b] Lobby with players...");
   {
-    const cols = 180; const rows = 51;
+    const cols = 200; const rows = 55;
     const client: any = {
       state: clientAtlas.state,
       myPlayerId: clientAtlas.myPlayerId,
