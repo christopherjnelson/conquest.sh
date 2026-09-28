@@ -395,7 +395,6 @@ export function tradeCards(
     pendingReinforcements: nextPendingReinforcements,
     cards: newCardState,
     publicCards: nextPublicCards,
-    history: [...state.history, tradeEvent],
   };
 
   return { ok: true, state: nextState, events: [tradeEvent] };

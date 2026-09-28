@@ -804,6 +804,10 @@ export class GameRoom {
     const result = forfeitTurn(this.state, playerId, reason, makeShuffleFn(this.rng));
     if (result.ok) {
       this.state = result.state;
+      // Append forfeit events to the authoritative history.
+      if (result.events.length > 0) {
+        this.state.history.push(...result.events);
+      }
       // Stamp the turn deadline BEFORE broadcasting so clients receive it.
       this.applyTurnDeadline();
       for (const event of result.events) {
@@ -835,6 +839,12 @@ export class GameRoom {
   ): ActionResult<T> {
     if (result.ok) {
       this.state = result.state;
+      // Append new events to the authoritative history array in place.
+      // game-core preserves the same history reference, so this.state.history
+      // is the same array that was passed into the action.
+      if (result.events.length > 0) {
+        this.state.history.push(...result.events);
+      }
       // Detect turn advancement early so we can stamp the deadline BEFORE
       // any broadcast, ensuring clients receive the new turnDeadlineAt.
       const turnAdvanced =

@@ -336,5 +336,17 @@ export const GameStateSchema = z.object({
    * Never present in the authoritative state; always null/undefined there.
    */
   myHand: z.array(CardSchema).nullable().optional(),
+  /**
+   * Authoritative elimination order: one entry per eliminated player, in the
+   * order they were eliminated.  Maintained by evaluatePlayerEliminations and
+   * used by buildMatchResult (replacing the old state.history scan).
+   * Optional with default [] for back-compat with clients and tests that were
+   * serialised before this field was added.
+   */
+  eliminationOrder: z.array(z.object({
+    playerId: z.string(),
+    eliminatedBy: z.string(),
+    timestamp: z.number(),
+  })).default([]).optional(),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

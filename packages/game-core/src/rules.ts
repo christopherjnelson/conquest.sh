@@ -142,7 +142,6 @@ export function deployUnits(
     pendingReinforcements: remaining,
     phase: nextPhase,
     publicCards: nextPublicCards,
-    history: [...state.history, ...events],
   };
 
   return { ok: true, state: nextState, events, data: { remainingReinforcements: remaining } };
@@ -301,7 +300,6 @@ export function attackTerritory(
           maximumUnits: nextSourceUnits + unitsMoved - 1,
         }
       : null,
-    history: [...state.history, ...events],
   };
 
   return {
@@ -360,14 +358,16 @@ export function completeConquestMove(
       [target.id]: { ...target, units: target.units + additionalUnits },
     },
     pendingConquestMove: null,
-    history: [...state.history, moveEvent],
   };
   const events: GameEvent[] = [moveEvent];
   const elimRes = evaluatePlayerEliminations(nextState, pending.defenderId, playerId, now);
   nextState = { ...nextState, players: elimRes.nextPlayers };
-  if (elimRes.eliminationEvent) {
+  if (elimRes.isNewlyEliminated && elimRes.eliminationEvent && elimRes.eliminationEntry) {
     events.push(elimRes.eliminationEvent);
-    nextState.history = [...nextState.history, elimRes.eliminationEvent];
+    nextState = {
+      ...nextState,
+      eliminationOrder: [...(nextState.eliminationOrder ?? []), elimRes.eliminationEntry],
+    };
     // ── Card capture on elimination ──────────────────────────────────────────
     nextState = applyCardCaptureOnElimination(nextState, pending.defenderId, playerId, now, events);
   }
@@ -432,7 +432,6 @@ function applyCardCaptureOnElimination(
     ...state,
     cards: newCardState,
     publicCards: nextPub,
-    history: [...state.history, captureEvent],
   };
 }
 
@@ -589,7 +588,6 @@ export function skipPhase(state: GameState, playerId: string, shuffleFn?: <T>(ar
       state: {
         ...state,
         phase: "fortify",
-        history: [...state.history, event],
       },
       events: [event],
     };
@@ -701,7 +699,6 @@ function advanceToNextPlayer(
     hasConqueredThisTurn: false,
     cards: nextCardState,
     publicCards: nextPublicCards ?? state.publicCards,
-    history: [...state.history, ...turnEndEvents],
   };
 
   return { ok: true, state: finalState, events: [...priorEvents, ...turnEndEvents] };
@@ -734,13 +731,7 @@ export function endTurn(
     return { ok: false, error: "Eliminated players cannot end turn" };
   }
 
-  // Fold priorEvents into history so advanceToNextPlayer can work uniformly.
-  const stateWithPrior: GameState =
-    priorEvents.length > 0
-      ? { ...state, history: [...state.history, ...priorEvents] }
-      : state;
-
-  return advanceToNextPlayer(stateWithPrior, playerId, priorEvents, shuffleFn);
+  return advanceToNextPlayer(state, playerId, priorEvents, shuffleFn);
 }
 
 /**
@@ -798,14 +789,16 @@ export function forfeitTurn(
       workingState = {
         ...workingState,
         pendingConquestMove: null,
-        history: [...workingState.history, moveEvent],
       };
       // Evaluate eliminations after conquest
       const elimRes = evaluatePlayerEliminations(workingState, pending.defenderId, playerId, now);
       workingState = { ...workingState, players: elimRes.nextPlayers };
-      if (elimRes.eliminationEvent) {
+      if (elimRes.isNewlyEliminated && elimRes.eliminationEvent && elimRes.eliminationEntry) {
         priorEvents.push(elimRes.eliminationEvent);
-        workingState = { ...workingState, history: [...workingState.history, elimRes.eliminationEvent] };
+        workingState = {
+          ...workingState,
+          eliminationOrder: [...(workingState.eliminationOrder ?? []), elimRes.eliminationEntry],
+        };
         // Card capture on elimination (forfeit: forced-trade will just accumulate; we skip trading in forfeit)
         const captureEvents: GameEvent[] = [];
         workingState = applyCardCaptureOnElimination(workingState, pending.defenderId, playerId, now, captureEvents);
@@ -824,11 +817,7 @@ export function forfeitTurn(
       if (victoryRes.isVictory && victoryRes.winnerId) {
         // Emit turn_forfeited BEFORE game_won so event order reads causally.
         const forfeitEvent: GameEvent = { type: "turn_forfeited", playerId, reason, timestamp: now };
-        const stateWithForfeit: GameState = {
-          ...workingState,
-          history: [...workingState.history, forfeitEvent],
-        };
-        const finalRes = finalizeMatch(stateWithForfeit, victoryRes.winnerId, victoryRes.reason ?? "conquest", now);
+        const finalRes = finalizeMatch(workingState, victoryRes.winnerId, victoryRes.reason ?? "conquest", now);
         return { ok: true, state: finalRes.state, events: [...priorEvents, forfeitEvent, ...finalRes.events] };
       }
     }
@@ -882,7 +871,6 @@ export function forfeitTurn(
         },
         pendingReinforcements: 0,
         phase: "attack",
-        history: [...workingState.history, deployEvent, phaseEvent],
       };
     }
   }
@@ -895,13 +883,8 @@ export function forfeitTurn(
   // Step 4: Emit forfeit event
   const forfeitEvent: GameEvent = { type: "turn_forfeited", playerId, reason, timestamp: now };
   priorEvents.push(forfeitEvent);
-  workingState = {
-    ...workingState,
-    history: [...workingState.history, forfeitEvent],
-  };
 
-  // Step 5: Advance to next player using shared helper (workingState.history already
-  // includes all priorEvents, so advanceToNextPlayer can build on it directly).
+  // Step 5: Advance to next player using shared helper.
   // forfeitTurn also awards a card if the forfeiting player conquered this turn.
   return advanceToNextPlayer(workingState, playerId, priorEvents, shuffleFn);
 }
