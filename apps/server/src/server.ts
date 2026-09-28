@@ -469,6 +469,7 @@ export class ConquestServer {
       visibility: msg.visibility,
       maxPlayers: msg.maxPlayers,
       map: requestedMap?.definition,
+      cardMode: msg.cardMode,
     });
     if (!room) {
       this.sendError(ws, "SERVER_FULL", "Server has reached the maximum number of rooms");
@@ -593,6 +594,15 @@ export class ConquestServer {
           // Surface rate limit distinctly
           const code = res.error === "RATE_LIMITED" ? "RATE_LIMITED" : "ACTION_FAILED";
           this.sendError(ws, code, res.error === "RATE_LIMITED" ? "Chat rate limit exceeded" : res.error);
+        }
+        break;
+      }
+
+      case "client:trade_cards": {
+        const cardIds = msg.cardIds as [string, string, string];
+        const res = room.tradeCards(playerId, cardIds);
+        if (!res.ok) {
+          this.sendError(ws, "ACTION_FAILED", res.error);
         }
         break;
       }

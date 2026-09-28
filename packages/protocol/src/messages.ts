@@ -39,6 +39,7 @@ export const ClientCreateRoomSchema = z.object({
   visibility: RoomVisibilitySchema.default("public"),
   maxPlayers: z.number().int().min(2).max(6).default(4),
   mapId: z.string().optional(),
+  cardMode: z.enum(["escalating", "off"]).optional(),
 });
 export type ClientCreateRoom = z.infer<typeof ClientCreateRoomSchema>;
 
@@ -115,6 +116,12 @@ export const ClientRematchSchema = z.object({
 });
 export type ClientRematch = z.infer<typeof ClientRematchSchema>;
 
+export const ClientTradeCardsSchema = z.object({
+  type: z.literal("client:trade_cards"),
+  cardIds: z.array(z.string()).length(3),
+});
+export type ClientTradeCards = z.infer<typeof ClientTradeCardsSchema>;
+
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   ClientJoinSchema,
   ClientCreateRoomSchema,
@@ -130,6 +137,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   ClientChatSchema,
   ClientPingSchema,
   ClientResyncSchema,
+  ClientTradeCardsSchema,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 

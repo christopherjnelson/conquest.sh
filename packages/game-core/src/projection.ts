@@ -6,27 +6,27 @@ export const CLIENT_HISTORY_TAIL = 200;
 /**
  * Top-level GameState keys that must never be sent to any client.
  *
- * Convention: add the field name here and mark it `@serverOnly` in GameState
- * when you add a field that should not leave the server (e.g. an internal RNG
- * state field if it were ever moved into GameState).  Currently empty because
- * server-only data (RNG seed, socket map) lives on GameRoom, not GameState.
- *
- * `projectStateFor` iterates this list and deletes every matching key before
- * returning the projected state, so any future addition is enforced
- * automatically.
+ * - `cards`: The full ServerCardState (deck order, all hands, discard).
+ *   projectStateFor replaces it with per-viewer `myHand` injection instead.
+ * - `cardMode`: Stored redundantly in publicCards.mode; the raw field is server-only.
  */
 export const SERVER_ONLY_KEYS: string[] = [
-  // Example (uncomment when/if added to GameState):
-  // "rngState",
+  "cards",
+  "cardMode",
 ];
 
 /**
  * Project the authoritative game state for a specific viewer.
  *
- * - Strips any `SERVER_ONLY_KEYS` from the state.
- * - Bounds `history` to the last `CLIENT_HISTORY_TAIL` events.
- * - Future per-player hidden information (Risk card hands, etc.) belongs here:
- *   filter out other players' private fields when `viewerId` is set.
+ * Hidden-information contract:
+ * - `cards` (deck, discard, ALL hands) is stripped entirely (SERVER_ONLY_KEYS).
+ * - `cardMode` is stripped (mode is accessible via publicCards.mode).
+ * - `myHand` is injected as the viewer's own hand from cards.hands[viewerId].
+ *   Spectators (viewerId=null) get myHand=null.
+ * - publicCards contains only counts (no hand contents), visible to all.
+ *
+ * Deltas computed generically from projected states in room.ts therefore
+ * can never leak another player's hand or the deck order.
  */
 export function projectStateFor(
   state: GameState,
@@ -47,19 +47,14 @@ export function projectStateFor(
     : state.history;
   projected["history"] = history;
 
-  // ── Per-player hidden information hook ──────────────────────────────────────
-  // When viewerId is set, filter out fields that are private to other players.
-  // Example (Risk cards): strip other players' card hands so each player only
-  // sees their own hand.
-  //
-  //   if (viewerId && projected["playerHands"]) {
-  //     const hands = projected["playerHands"] as Record<string, unknown>;
-  //     projected["playerHands"] = { [viewerId]: hands[viewerId] };
-  //   }
-  //
-  // The `viewerId` parameter is intentionally used (not prefixed _) so that
-  // future callers can rely on it without a lint-clean rename.
-  void viewerId;
+  // ── Card hand injection ──────────────────────────────────────────────────────
+  // Inject the viewer's own hand as `myHand`. Spectators get null.
+  // Other players' hands are never included — `cards` is already stripped above.
+  if (viewerId && state.cards) {
+    projected["myHand"] = state.cards.hands[viewerId] ?? [];
+  } else {
+    projected["myHand"] = null;
+  }
 
   return projected as GameState;
 }

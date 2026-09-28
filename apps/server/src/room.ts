@@ -20,6 +20,7 @@ import {
   forfeitTurn,
   fortifyUnits,
   skipPhase,
+  tradeCards,
   projectStateFor,
   type ActionResult,
   type MapDefinition,
@@ -68,6 +69,8 @@ export interface GameRoomOptions {
   chatRefillMs?: number;
   /** Deterministic seed for tests. Production code omits this and generates one via crypto. */
   rngSeed?: Uint8Array;
+  /** Card mode for all matches in this room. Default: "escalating". */
+  cardMode?: "escalating" | "off";
 }
 
 export interface RoomPlayerSummary {
@@ -197,6 +200,7 @@ export class GameRoom {
   private chatBuckets = new Map<string, { tokens: number; lastRefill: number }>();
   public readonly chatBucketCapacity: number;
   public readonly chatRefillMs: number;
+  public readonly cardMode: "escalating" | "off";
 
   constructor(options: GameRoomOptions) {
     this.roomCode = options.roomCode.toUpperCase();
@@ -217,6 +221,7 @@ export class GameRoom {
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.chatBucketCapacity = options.chatBucketCapacity ?? 5;
     this.chatRefillMs = options.chatRefillMs ?? 10_000;
+    this.cardMode = options.cardMode ?? "escalating";
     this.injectedSeed = options.rngSeed;
     // Provide a no-op rng until the first match starts.
     this.rngSeed = new Uint8Array(16);
@@ -457,7 +462,8 @@ export class GameRoom {
       this.map,
       3,
       makeShuffleFn(this.rng),
-      this.matchNumber
+      this.matchNumber,
+      this.cardMode
     );
 
     const activePlayer = initialState.players[initialState.activePlayerIndex];
@@ -520,7 +526,8 @@ export class GameRoom {
       this.map,
       3,
       makeShuffleFn(this.rng),
-      1
+      1,
+      this.cardMode
     );
 
     this.state = initialState;
@@ -794,7 +801,7 @@ export class GameRoom {
     // Also cancel any pending disconnect forfeit for this player
     this.cancelDisconnectForfeit(playerId);
 
-    const result = forfeitTurn(this.state, playerId, reason);
+    const result = forfeitTurn(this.state, playerId, reason, makeShuffleFn(this.rng));
     if (result.ok) {
       this.state = result.state;
       // Stamp the turn deadline BEFORE broadcasting so clients receive it.
@@ -951,7 +958,7 @@ export class GameRoom {
       return { ok: false, error: "Game is over" };
     }
     const prev = this.state.activePlayerIndex;
-    return this.applyResult(prev, skipPhase(this.state, playerId));
+    return this.applyResult(prev, skipPhase(this.state, playerId, makeShuffleFn(this.rng)));
   }
 
   /**
@@ -962,7 +969,18 @@ export class GameRoom {
       return { ok: false, error: "Game is over" };
     }
     const prev = this.state.activePlayerIndex;
-    return this.applyResult(prev, endTurn(this.state, playerId));
+    return this.applyResult(prev, endTurn(this.state, playerId, [], makeShuffleFn(this.rng)));
+  }
+
+  /**
+   * Authoritative trade cards action.
+   */
+  tradeCards(playerId: string, cardIds: [string, string, string]): ActionResult<void> {
+    if (this.state.phase === "game_over") {
+      return { ok: false, error: "Game is over" };
+    }
+    const prev = this.state.activePlayerIndex;
+    return this.applyResult(prev, tradeCards(this.state, playerId, cardIds, makeShuffleFn(this.rng)));
   }
 
   /**
@@ -1124,6 +1142,7 @@ export class GameRoom {
       mapName: this.map.name,
       turnNumber: this.state.turnNumber,
       createdAt: this.createdAt,
+      cardMode: this.cardMode,
     };
   }
 }
@@ -1186,6 +1205,7 @@ export class RoomManager {
     visibility?: RoomVisibility;
     maxPlayers?: number;
     map?: MapDefinition;
+    cardMode?: "escalating" | "off";
   }): GameRoom | null {
     if (this.rooms.size >= this.maxRooms) {
       return null;
@@ -1203,6 +1223,7 @@ export class RoomManager {
       autoStart: false,
       maxPlayers: options?.maxPlayers ?? 4,
       map: options?.map ?? this.defaultMap,
+      cardMode: options?.cardMode ?? "escalating",
       ...this.roomDefaults,
       onDeserted: (c) => this.removeRoom(c),
     });

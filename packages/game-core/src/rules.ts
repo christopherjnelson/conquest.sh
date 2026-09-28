@@ -1,6 +1,7 @@
 import type { GameEvent, GamePhase, GameState, Player, TerritoryState } from "@conquest/protocol";
 import { resolveCombat, type RandomNumberGenerator } from "./combat.js";
 import { evaluatePlayerEliminations, evaluateVictory, finalizeMatch } from "./victory.js";
+import { drawCard, captureCards, getTradeValue, suggestSets } from "./cards.js";
 
 export type ActionResult<T = unknown> =
   | { ok: true; state: GameState; events: GameEvent[]; data?: T }
@@ -55,8 +56,29 @@ export function deployUnits(
     return { ok: false, error: "Eliminated players cannot deploy units" };
   }
 
-  if (state.phase !== "deployment") {
+  // During attack phase, allow deployment ONLY when forced-trade reinforcements are pending
+  const pub = state.publicCards;
+  const isAttackPhaseTradeReinf =
+    state.phase === "attack" &&
+    pub?.pendingForcedTrade?.playerId === playerId &&
+    pub.pendingForcedTrade.pendingTradeReinforcements === 0 &&
+    state.pendingReinforcements > 0;
+
+  if (state.phase !== "deployment" && !isAttackPhaseTradeReinf) {
     return { ok: false, error: `Cannot deploy during ${state.phase} phase` };
+  }
+
+  // Block deployment if a forced trade is pending (deployment phase with 5+ cards)
+  // BUT: only block if the player actually has a valid set to trade. If no valid set exists,
+  // allow deployment to proceed and auto-clear the stuck forced trade.
+  if (pub?.pendingForcedTrade?.playerId === playerId &&
+      pub.pendingForcedTrade.phase === "deployment") {
+    const hand = state.cards?.hands[playerId] ?? [];
+    const hasValidSet = suggestSets(hand, new Set()).length > 0;
+    if (hasValidSet) {
+      return { ok: false, error: "You must trade cards before deploying (5 or more cards in hand)" };
+    }
+    // No valid set — proceed with deployment; pendingForcedTrade cleared in nextState below
   }
 
   if (count <= 0 || count > state.pendingReinforcements) {
@@ -83,7 +105,10 @@ export function deployUnits(
     },
   };
 
-  const nextPhase = remaining === 0 ? "attack" : "deployment";
+  // If we're in attack phase (forced-trade reinforcements case), stay in attack phase
+  const inAttackPhase = state.phase === "attack";
+  const nextPhase = inAttackPhase ? "attack" : (remaining === 0 ? "attack" : "deployment");
+
   const events: GameEvent[] = [
     {
       type: "units_deployed",
@@ -95,7 +120,7 @@ export function deployUnits(
     },
   ];
 
-  if (remaining === 0) {
+  if (!inAttackPhase && remaining === 0) {
     events.push({
       type: "phase_changed",
       phase: "attack",
@@ -105,11 +130,30 @@ export function deployUnits(
     });
   }
 
+  // Clear pendingForcedTrade in two cases:
+  // 1. Attack-phase forced trade reinforcements all deployed (remaining=0)
+  // 2. No valid set existed (impossible forced trade) — cleared by proceeding
+  let nextPublicCards = state.publicCards;
+  if (nextPublicCards?.pendingForcedTrade?.playerId === playerId) {
+    const shouldClear =
+      // Attack phase: all trade reinforcements deployed
+      (inAttackPhase && remaining === 0) ||
+      // Impossible forced trade: no valid set existed, allowed through
+      (!inAttackPhase && (() => {
+        const hand = state.cards?.hands[playerId] ?? [];
+        return suggestSets(hand, new Set()).length === 0;
+      })());
+    if (shouldClear) {
+      nextPublicCards = { ...nextPublicCards, pendingForcedTrade: null };
+    }
+  }
+
   const nextState: GameState = {
     ...state,
     territories: nextTerritories,
     pendingReinforcements: remaining,
     phase: nextPhase,
+    publicCards: nextPublicCards,
     history: [...state.history, ...events],
   };
 
@@ -120,7 +164,7 @@ export function deployUnits(
  * Validate and execute an attack between two adjacent territories.
  */
 export function attackTerritory(
-  state: GameState,
+  stateIn: GameState,
   playerId: string,
   sourceTerritoryId: string,
   targetTerritoryId: string,
@@ -133,6 +177,9 @@ export function attackTerritory(
   defenderLosses: number;
   conquered: boolean;
 }> {
+    // Allow reassignment to clear stuck forced-trade state
+  let state = stateIn;
+
   if (state.phase === "game_over") {
     return { ok: false, error: "Cannot attack when game is over" };
   }
@@ -152,6 +199,26 @@ export function attackTerritory(
 
   if (state.pendingConquestMove) {
     return { ok: false, error: "Complete the troop move after your conquest first" };
+  }
+
+  // Block attack if a forced card trade (from elimination capture) is pending.
+  // Only block if the player has a valid set to trade OR has pending reinforcements to deploy.
+  // Edge case: if 6+ cards but no valid set exists, allow attack (don't trap the player).
+  const pubCards = state.publicCards;
+  if (pubCards?.pendingForcedTrade?.playerId === playerId) {
+    if (state.pendingReinforcements > 0) {
+      return { ok: false, error: "Deploy your trade reinforcements before attacking" };
+    }
+    const attackHand = state.cards?.hands[playerId] ?? [];
+    const attackHasValidSet = attackHand.length > 4 && suggestSets(attackHand, new Set()).length > 0;
+    if (attackHasValidSet) {
+      return { ok: false, error: "You must trade cards before attacking (6 or more cards in hand after capture)" };
+    }
+    // No valid set and no pending reinforcements — auto-clear stuck forced trade
+    state = {
+      ...state,
+      publicCards: state.publicCards ? { ...state.publicCards, pendingForcedTrade: null } : state.publicCards,
+    };
   }
 
   const source = state.territories[sourceTerritoryId];
@@ -314,6 +381,8 @@ export function completeConquestMove(
   if (elimRes.eliminationEvent) {
     events.push(elimRes.eliminationEvent);
     nextState.history = [...nextState.history, elimRes.eliminationEvent];
+    // ── Card capture on elimination ──────────────────────────────────────────
+    nextState = applyCardCaptureOnElimination(nextState, pending.defenderId, playerId, now, events);
   }
   const victoryRes = evaluateVictory(nextState, playerId);
   if (victoryRes.isVictory && victoryRes.winnerId) {
@@ -322,6 +391,63 @@ export function completeConquestMove(
     events.push(...finalRes.events);
   }
   return { ok: true, state: nextState, events };
+}
+
+/**
+ * After a player elimination, transfer the eliminated player's cards to the eliminator.
+ * If the eliminator now holds 6+ cards, set pendingForcedTrade (must trade before attacking).
+ * Mutates events array by pushing card-related events.
+ */
+function applyCardCaptureOnElimination(
+  state: GameState,
+  eliminatedId: string,
+  eliminatorId: string,
+  now: number,
+  events: GameEvent[]
+): GameState {
+  const pub = state.publicCards;
+  const cardState = state.cards;
+  if (!pub || pub.mode !== "escalating" || !cardState) return state;
+
+  const { cardState: newCardState, count } = captureCards(cardState, eliminatedId, eliminatorId);
+  let nextPub = {
+    ...pub,
+    playerHandCounts: {
+      ...pub.playerHandCounts,
+      [eliminatedId]: 0,
+      [eliminatorId]: (newCardState.hands[eliminatorId] ?? []).length,
+    },
+  };
+
+  // Always emit cards_captured (even if count=0, for protocol clarity)
+  const captureEvent: GameEvent = {
+    type: "cards_captured",
+    fromPlayerId: eliminatedId,
+    toPlayerId: eliminatorId,
+    count,
+    timestamp: now,
+  };
+  events.push(captureEvent);
+
+  // Check if eliminator now holds 6+ cards → forced trade required
+  const eliminatorHandCount = (newCardState.hands[eliminatorId] ?? []).length;
+  if (eliminatorHandCount >= 6) {
+    nextPub = {
+      ...nextPub,
+      pendingForcedTrade: {
+        playerId: eliminatorId,
+        phase: "attack",
+        pendingTradeReinforcements: 0,
+      },
+    };
+  }
+
+  return {
+    ...state,
+    cards: newCardState,
+    publicCards: nextPub,
+    history: [...state.history, captureEvent],
+  };
 }
 
 /**
@@ -433,7 +559,7 @@ export function fortifyUnits(
 /**
  * Skip the current phase (Attack -> Fortify, or Fortify -> End Turn).
  */
-export function skipPhase(state: GameState, playerId: string): ActionResult<void> {
+export function skipPhase(state: GameState, playerId: string, shuffleFn?: <T>(arr: T[]) => T[]): ActionResult<void> {
   if (state.phase === "game_over") {
     return { ok: false, error: "Cannot skip phase when game is over" };
   }
@@ -449,6 +575,17 @@ export function skipPhase(state: GameState, playerId: string): ActionResult<void
 
   if (state.pendingConquestMove) {
     return { ok: false, error: "Complete the troop move after your conquest first" };
+  }
+
+  // Block skip if forced trade is pending AND player has a valid set to trade
+  const skipPub = state.publicCards;
+  if (skipPub?.pendingForcedTrade?.playerId === playerId) {
+    const skipHand = state.cards?.hands[playerId] ?? [];
+    const skipHasValidSet = skipHand.length > 4 && suggestSets(skipHand, new Set()).length > 0;
+    if (skipHasValidSet || state.pendingReinforcements > 0) {
+      return { ok: false, error: "You must trade cards before skipping (forced trade pending)" };
+    }
+    // No valid set and no pending reinforcements — allow skip
   }
 
   const now = Date.now();
@@ -473,7 +610,7 @@ export function skipPhase(state: GameState, playerId: string): ActionResult<void
   }
 
   if (state.phase === "fortify") {
-    return endTurn(state, playerId);
+    return endTurn(state, playerId, [], shuffleFn);
   }
 
   return { ok: false, error: `Cannot skip phase during ${state.phase}` };
@@ -487,7 +624,8 @@ export function skipPhase(state: GameState, playerId: string): ActionResult<void
 function advanceToNextPlayer(
   state: GameState,
   previousPlayerId: string,
-  priorEvents: GameEvent[]
+  priorEvents: GameEvent[],
+  shuffleFn?: <T>(arr: T[]) => T[]
 ): ActionResult<void> {
   const totalPlayers = state.players.length;
   let nextIndex = (state.activePlayerIndex + 1) % totalPlayers;
@@ -509,7 +647,49 @@ function advanceToNextPlayer(
   const reinforcements = calculateReinforcements(state, nextPlayer.id);
   const now = Date.now();
 
+  // ── Card: award card to previous player if they conquered this turn ──────
+  const cardEvents: GameEvent[] = [];
+  let nextCardState = state.cards;
+  let nextPublicCards = state.publicCards;
+
+  const pub = state.publicCards;
+  if (pub && pub.mode === "escalating" && state.hasConqueredThisTurn && nextCardState) {
+    const identity = <T>(arr: T[]) => arr;
+    const { cardState: newCs, card } = drawCard(nextCardState, previousPlayerId, shuffleFn ?? identity);
+    if (card) {
+      nextCardState = newCs;
+      const newHandCount = (nextCardState.hands[previousPlayerId] ?? []).length;
+      nextPublicCards = {
+        ...pub,
+        deckCount: nextCardState.deck.length,
+        discardCount: nextCardState.discard.length,
+        playerHandCounts: { ...pub.playerHandCounts, [previousPlayerId]: newHandCount },
+      };
+      cardEvents.push({
+        type: "card_awarded",
+        playerId: previousPlayerId,
+        timestamp: now,
+      });
+    }
+  }
+
+  // ── Check if next player has 5+ cards (forced trade at start of deployment) ──
+  const nextPlayerHand = nextCardState?.hands[nextPlayer.id] ?? [];
+  const needsForcedTrade = pub?.mode === "escalating" && nextPlayerHand.length >= 5;
+  const forcedTrade = needsForcedTrade
+    ? {
+        playerId: nextPlayer.id,
+        phase: "deployment" as const,
+        pendingTradeReinforcements: 0,
+      }
+    : null;
+
+  if (nextPublicCards && forcedTrade !== undefined) {
+    nextPublicCards = { ...nextPublicCards, pendingForcedTrade: forcedTrade };
+  }
+
   const turnEndEvents: GameEvent[] = [
+    ...cardEvents,
     {
       type: "turn_ended",
       previousPlayerId,
@@ -534,6 +714,8 @@ function advanceToNextPlayer(
     phase: "deployment",
     pendingReinforcements: reinforcements,
     hasConqueredThisTurn: false,
+    cards: nextCardState,
+    publicCards: nextPublicCards ?? state.publicCards,
     history: [...state.history, ...turnEndEvents],
   };
 
@@ -547,7 +729,8 @@ function advanceToNextPlayer(
 export function endTurn(
   state: GameState,
   playerId: string,
-  priorEvents: GameEvent[] = []
+  priorEvents: GameEvent[] = [],
+  shuffleFn?: <T>(arr: T[]) => T[]
 ): ActionResult<void> {
   if (state.phase === "game_over") {
     return { ok: false, error: "Cannot end turn when game is over" };
@@ -572,7 +755,7 @@ export function endTurn(
       ? { ...state, history: [...state.history, ...priorEvents] }
       : state;
 
-  return advanceToNextPlayer(stateWithPrior, playerId, priorEvents);
+  return advanceToNextPlayer(stateWithPrior, playerId, priorEvents, shuffleFn);
 }
 
 /**
@@ -592,7 +775,8 @@ export function endTurn(
 export function forfeitTurn(
   state: GameState,
   playerId: string,
-  reason: "disconnected" | "timeout"
+  reason: "disconnected" | "timeout",
+  shuffleFn?: <T>(arr: T[]) => T[]
 ): ActionResult<void> {
   if (state.phase === "game_over") {
     return { ok: false, error: "Cannot forfeit when game is over" };
@@ -637,6 +821,19 @@ export function forfeitTurn(
       if (elimRes.eliminationEvent) {
         priorEvents.push(elimRes.eliminationEvent);
         workingState = { ...workingState, history: [...workingState.history, elimRes.eliminationEvent] };
+        // Card capture on elimination (forfeit: forced-trade will just accumulate; we skip trading in forfeit)
+        const captureEvents: GameEvent[] = [];
+        workingState = applyCardCaptureOnElimination(workingState, pending.defenderId, playerId, now, captureEvents);
+        for (const ce of captureEvents) {
+          priorEvents.push(ce);
+        }
+        // In forfeit, clear any forced trade (we can't block forfeit for trading)
+        if (workingState.publicCards?.pendingForcedTrade) {
+          workingState = {
+            ...workingState,
+            publicCards: { ...workingState.publicCards, pendingForcedTrade: null },
+          };
+        }
       }
       const victoryRes = evaluateVictory(workingState, playerId);
       if (victoryRes.isVictory && victoryRes.winnerId) {
@@ -720,5 +917,6 @@ export function forfeitTurn(
 
   // Step 5: Advance to next player using shared helper (workingState.history already
   // includes all priorEvents, so advanceToNextPlayer can build on it directly).
-  return advanceToNextPlayer(workingState, playerId, priorEvents);
+  // forfeitTurn also awards a card if the forfeiting player conquered this turn.
+  return advanceToNextPlayer(workingState, playerId, priorEvents, shuffleFn);
 }
