@@ -273,3 +273,75 @@ describe("Generic diff/apply round-trip", () => {
     expect(delta.unset).toBeUndefined();
   });
 });
+
+// ─── Card projection: hidden-information invariants ───────────────────────────
+
+describe("cards: projection does not leak opponent hands", () => {
+  it("strips 'cards' from projected state for all players", () => {
+    const state = makeMinimalState();
+    // Both players should not see the raw cards field
+    for (const p of state.players) {
+      const projected = projectStateFor(state, p.id);
+      expect((projected as any).cards).toBeUndefined();
+    }
+  });
+
+  it("each player sees only their own hand in myHand", () => {
+    const base = makeMinimalState();
+    if (!base.cards) return; // cards not enabled for this map
+
+    const p1 = base.players[0]!.id;
+    const p2 = base.players[1]!.id;
+    const deck = base.cards.deck;
+    if (deck.length < 2) return;
+
+    // Give p1 card[0] and p2 card[1]
+    const state: GameState = {
+      ...base,
+      cards: {
+        ...base.cards,
+        deck: deck.slice(2),
+        hands: { [p1]: [deck[0]!], [p2]: [deck[1]!] },
+      },
+    };
+
+    const projP1 = projectStateFor(state, p1);
+    const projP2 = projectStateFor(state, p2);
+
+    // p1 sees their card, not p2's
+    expect(projP1.myHand).toHaveLength(1);
+    expect(projP1.myHand![0]!.id).toBe(deck[0]!.id);
+    expect(projP1.myHand!.some((c) => c.id === deck[1]!.id)).toBe(false);
+
+    // p2 sees their card, not p1's
+    expect(projP2.myHand).toHaveLength(1);
+    expect(projP2.myHand![0]!.id).toBe(deck[1]!.id);
+    expect(projP2.myHand!.some((c) => c.id === deck[0]!.id)).toBe(false);
+  });
+
+  it("delta from p1 state to p1 state after card gain does not include raw deck/hands", () => {
+    const base = makeMinimalState();
+    if (!base.cards) return;
+
+    const p1 = base.players[0]!.id;
+    const deck = base.cards.deck;
+    if (deck.length < 1) return;
+
+    const before = projectStateFor(base, p1);
+    const after = projectStateFor({
+      ...base,
+      cards: { ...base.cards, deck: deck.slice(1), hands: { ...base.cards.hands, [p1]: [deck[0]!] } },
+      publicCards: base.publicCards
+        ? { ...base.publicCards, deckCount: deck.length - 1, playerHandCounts: { ...base.publicCards.playerHandCounts, [p1]: 1 } }
+        : base.publicCards,
+    }, p1);
+
+    const delta = diffStates(before, after);
+    // Delta must not contain "cards" key (server-only)
+    expect(delta.set?.["cards"]).toBeUndefined();
+    // But may contain myHand or publicCards (public info)
+    if (delta.set?.["myHand"]) {
+      expect(Array.isArray(delta.set["myHand"])).toBe(true);
+    }
+  });
+});
