@@ -6,12 +6,12 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Bun 1.4.2](https://img.shields.io/badge/bun-1.4.2-f9f1e1?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![OpenTUI](https://img.shields.io/badge/OpenTUI-%40opentui%2Freact-6b37bf)](https://github.com/nicholasgasior/opentui)
+[![OpenTUI](https://img.shields.io/badge/OpenTUI-%40opentui%2Freact-6b37bf)](https://github.com/anomalyco/opentui)
 [![Docker](https://img.shields.io/badge/Docker-self--hostable-2496ed?logo=docker&logoColor=white)](docker-compose.yml)
 [![Protocol](https://img.shields.io/badge/protocol-v0.4.0-00d2ff)](packages/protocol/src/api.ts)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-![conquest.sh – active battle on Earth — Global Front](docs/images/ingame-wide.png)
+![conquest.sh – active battle on Earth — Global Front](docs/images/ingame-hero.png)
 
 ---
 

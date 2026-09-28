@@ -462,7 +462,7 @@ export function MatchResultsScreen({
         alignItems="center"
         paddingLeft={1}
         paddingRight={1}
-        style={{ height: 3, flexShrink: 0 }}
+        style={{ height: 5, flexShrink: 0 }}
       >
         <box flexDirection="row" gap={2}>
           {/* Rematch Button */}

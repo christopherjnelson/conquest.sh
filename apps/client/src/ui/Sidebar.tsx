@@ -474,7 +474,7 @@ export function Sidebar({
             <box flexDirection="row" justifyContent="space-between">
               <text fg="#64748b">Turn</text>
               <text fg="#e2e8f0">
-                <b>Turn {state?.turnNumber ?? 0}/∞</b>
+                <b>{state?.turnNumber ?? 0}/∞</b>
               </text>
             </box>
             <box flexDirection="row" justifyContent="space-between">
