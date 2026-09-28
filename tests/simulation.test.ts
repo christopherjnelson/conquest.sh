@@ -402,10 +402,6 @@ describe("simulation: full-game invariant tests", () => {
           let actions = 0;
           let turns = 0;
 
-          // History tail limit: keeps state.history from growing unboundedly and causing
-          // O(n²) spread overhead across thousands of actions.
-          const HISTORY_CAP = 500;
-
           while (state.phase !== "game_over" && actions < MAX_ACTIONS) {
             const prevTurn = state.turnNumber;
             const prevHistoryLength = state.history.length;
@@ -422,11 +418,6 @@ describe("simulation: full-game invariant tests", () => {
             }
             if (state.turnNumber > prevTurn) turns++;
             actions++;
-
-            // Cap history to prevent O(n²) array spread on long games
-            if (state.history.length > HISTORY_CAP * 2) {
-              state = { ...state, history: state.history.slice(-HISTORY_CAP) };
-            }
 
             assertInvariants(state, initialArmies, totalDeployments, totalLosses, seedHex, totalTradeBonusArmies);
           }

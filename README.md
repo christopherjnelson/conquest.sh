@@ -8,7 +8,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![OpenTUI](https://img.shields.io/badge/OpenTUI-%40opentui%2Freact-6b37bf)](https://github.com/anomalyco/opentui)
 [![Docker](https://img.shields.io/badge/Docker-self--hostable-2496ed?logo=docker&logoColor=white)](docker-compose.yml)
-[![Protocol](https://img.shields.io/badge/protocol-v0.4.0-00d2ff)](packages/protocol/src/api.ts)
+[![Protocol](https://img.shields.io/badge/protocol-v0.5.0-00d2ff)](packages/protocol/src/api.ts)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 ![conquest.sh – active battle on Earth — Global Front](docs/images/ingame-hero.png)
@@ -28,7 +28,7 @@
 | Rematches | ✅ |
 | Turn timers & disconnect-forfeit | ✅ |
 | Self-hosting (Docker Compose or standalone Bun) | ✅ |
-| Risk cards | 🚧 |
+| Risk cards | ✅ |
 | Diplomacy | 🚧 |
 | Dedicated chat view / DMs | 🚧 |
 | AI bots | 🚧 |
@@ -183,6 +183,7 @@ Client server address resolution order: `--server <host>` → `CONQUEST_SERVER` 
 | `C` | Open in-game chat |
 | `Q` | Quit or return to previous screen |
 | `1`–`5` | Switch bottom tabs (Map / Cards / Diplomacy / Chat / Help) |
+| `2` | Open / close the Cards panel |
 
 ---
 
@@ -192,7 +193,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical specific
 
 **Key design points:**
 
-- **Server-authoritative:** Clients emit typed intents; the server validates, executes, and broadcasts events plus per-player projected state deltas (protocol v0.4.0).
+- **Server-authoritative:** Clients emit typed intents; the server validates, executes, and broadcasts events plus per-player projected state deltas (protocol v0.5.0).
 - **Delta protocol:** Each player receives only the fields of `GameState` relevant to their view. Unresolvable gaps trigger a full `client:resync`.
 - **Seeded sfc32 RNG:** Each match draws a fresh 16-byte seed from the OS CSPRNG. The seed drives territory shuffles and all dice rolls and stays server-only; clients never see it.
 - **Responsive TUI:** Three layout modes — wide (≥ 180 cols × 51 rows), standard, and compact — driven by OpenTUI (`@opentui/core` + `@opentui/react`).
@@ -214,9 +215,22 @@ See [docs/ARCHITECTURE.md § 5](docs/ARCHITECTURE.md#5-map-platform-and-built-in
 
 ---
 
+## Cards
+
+When a room is created with **Cards: Escalating** mode, a standard territory deck (one card per territory, plus two wilds) is shuffled at match start.
+
+**Earning cards:** A player who conquers at least one territory during their turn receives one card at the end of that turn (drawn face-down, hidden from other players).
+
+**Trading sets:** Three-of-a-kind (Infantry / Cavalry / Artillery) or one of each count as a valid set. Wilds substitute for any symbol. Trading a set earns armies on an escalating schedule: 4 → 6 → 8 → 10 → 12 → 15, then +5 each trade thereafter. If either traded card matches a territory you own, you receive a +2 territory bonus on that territory.
+
+**Forced trades:** A player who holds 5 or more cards at the start of their deployment phase, or who ends an elimination and captures cards bringing their hand to 6 or more, must trade immediately before proceeding. The earned armies are placed during the normal deployment step (or immediately if the forced trade occurs during the attack phase). Attacks and phase-skips are blocked until all forced-trade armies are deployed.
+
+**Options:** Set `cardMode` to `"escalating"` (default when cards are enabled) or `"off"` when creating a room. The mode is shown in the room browser and carried through the full client → server path.
+
+---
+
 ## Roadmap
 
-- **Risk cards** — territory card deck, set trading, escalating bonus
 - **Diplomacy** — in-game messaging, non-aggression pacts
 - **Dedicated chat view / DMs**
 - **AI bots**
