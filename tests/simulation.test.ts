@@ -183,6 +183,8 @@ function botTradeCards(state: GameState, playerId: string, rng: () => number): G
     });
     if (!result.ok) break;
     state = result.state;
+    // Maintain history like the room does (append events, no copy).
+    state.history.push(...result.events);
     if (state.phase === "game_over") return state;
   }
   return state;
@@ -229,6 +231,8 @@ function runBotTurn(
     }
     deployments += remaining;
     state = r.state;
+    // Maintain history like the room (append in place, no copy).
+    state.history.push(...r.events);
     // state.phase is now "attack" (deployUnits auto-transitions on last unit)
   }
   if (state.phase === "game_over") return { state, deployments, losses };
@@ -262,6 +266,7 @@ function runBotTurn(
           if (r.ok) {
             deployments += state.pendingReinforcements;
             state = r.state;
+            state.history.push(...r.events);
             // deployUnits clears pendingForcedTrade when remaining hits 0
           }
         }
@@ -278,6 +283,7 @@ function runBotTurn(
       const r = completeConquestMove(state, playerId, units);
       if (!r.ok) break;
       state = r.state;
+      state.history.push(...r.events);
       if (state.phase === "game_over") return { state, deployments, losses };
       continue;
     }
@@ -311,6 +317,7 @@ function runBotTurn(
     const r = attackTerritory(state, playerId, choice.src.id, choice.tgt.id, undefined, rng);
     if (!r.ok) break;
     state = r.state;
+    state.history.push(...r.events);
     // Extract losses from the emitted attack_resolved event so the invariant
     // checks game-core applied the dice outcome correctly (not circular).
     const resolvedEvent = r.events.find((e) => e.type === "attack_resolved");
@@ -325,6 +332,7 @@ function runBotTurn(
     const r = skipPhase(state, playerId);
     if (r.ok) {
       state = r.state;
+      state.history.push(...r.events);
       if (state.phase === "game_over") return { state, deployments, losses };
     }
   }
@@ -332,7 +340,10 @@ function runBotTurn(
   // Fortify → end turn (skip)
   if (state.phase === "fortify") {
     const r = skipPhase(state, playerId);
-    if (r.ok) state = r.state;
+    if (r.ok) {
+      state = r.state;
+      state.history.push(...r.events);
+    }
   }
 
   return { state, deployments, losses };
