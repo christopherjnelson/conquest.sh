@@ -44,6 +44,8 @@ export interface ConquestServerOptions {
   floodGuardMsgPerSec?: number;
   /** Injectable timer scheduler for tests */
   scheduler?: TimerScheduler;
+  /** Fixed RNG seed injected into every room created by this server (test/screenshot-only). */
+  rngSeed?: Uint8Array;
 }
 
 export interface WSData {
@@ -82,6 +84,7 @@ export class ConquestServer {
       chatBucketCapacity: options?.chatBucketCapacity,
       chatRefillMs: options?.chatRefillMs,
       scheduler: options?.scheduler,
+      rngSeed: options?.rngSeed,
     });
   }
 

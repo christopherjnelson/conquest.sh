@@ -412,7 +412,7 @@ describe("visual sidebar composition", () => {
     const heights = [
       ["wide", 6],
       ["standard", 5],
-      ["compact", 4],
+      ["compact", 5],
     ] as const;
     for (const [layoutMode, expectedHeight] of heights) {
       const setup = await testRender(
@@ -428,6 +428,51 @@ describe("visual sidebar composition", () => {
       expect(setup.captureCharFrame()).toContain("No events yet.");
       await act(async () => { setup.renderer.destroy(); });
     }
+  });
+
+  it("keeps tab bar and event content on separate rows in compact EventLog", async () => {
+    const event: GameEvent = {
+      type: "units_deployed", playerId: "p1", territoryId: "B2",
+      count: 3, remainingReinforcements: 2, timestamp: 1,
+    };
+    const setup = await testRender(
+      React.createElement(EventLog, {
+        mapBundle: ironreachBundle,
+        events: [event], chatOpen: false, players, onToggleChat: () => {}, onSendChat: () => {}, layoutMode: "compact",
+      }),
+      { width: 100, height: 12 }
+    );
+    await act(async () => { await setup.renderOnce(); });
+    const lines = setup.captureCharFrame().split("\n");
+    // The tab bar ("All") and the event timestamp ("[") must be on different rows.
+    const tabLine = lines.findIndex((line: string) => line.includes("All"));
+    const eventLine = lines.findIndex((line: string) => line.includes("[") && !line.includes("All") && !line.includes("EVENT LOG"));
+    expect(tabLine).toBeGreaterThanOrEqual(0);
+    expect(eventLine).toBeGreaterThanOrEqual(0);
+    expect(tabLine).not.toBe(eventLine);
+    // Tab bar must appear before event content inside the box.
+    expect(tabLine).toBeLessThan(eventLine);
+    await act(async () => { setup.renderer.destroy(); });
+  });
+
+  it("hides Phase and Turn rows in the lobby REALM & SESSION INTEL panel", async () => {
+    const setup = await testRender(
+      React.createElement(App, { client: lobbyClient(), terminalDimensions: { columns: 180, rows: 51 } }),
+      { width: 180, height: 51 }
+    );
+    await act(async () => { await setup.renderOnce(); });
+    const lines = setup.captureCharFrame().split("\n");
+    const intelStart = lines.findIndex((line: string) => line.includes("REALM & SESSION INTEL"));
+    expect(intelStart).toBeGreaterThanOrEqual(0);
+    // Collect the lines belonging to the intel card (up to 12 rows max).
+    const intelBlock = lines.slice(intelStart, intelStart + 12).join("\n");
+    // Phase and Turn rows must be absent in the lobby.
+    expect(intelBlock).not.toContain("Phase");
+    expect(intelBlock).not.toContain("Turn");
+    // Session facts that should still appear.
+    expect(intelBlock).toContain("Room");
+    expect(intelBlock).toContain("Connection");
+    await act(async () => { setup.renderer.destroy(); });
   });
 
   it("renders sender names once and intact in every sender-bearing chronicle event", async () => {

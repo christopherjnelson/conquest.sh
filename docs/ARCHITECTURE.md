@@ -77,13 +77,28 @@ The server processes these strictly through `game-core`:
 
 ```text
 Client A (Intent: Attack)  ─┐
-                           ├─► Server validates & executes combat (deterministic PRNG)
+                           ├─► Server validates & executes combat (seeded sfc32 PRNG)
 Client B (Observes)        ─┘         │
                                       ▼
-                        Broadcast Event + State Snapshot
+                  Broadcast Event + Per-Player State Delta (protocol v0.4.0)
                                       ▼
                        All connected terminals update
 ```
+
+### RNG & Determinism
+
+Each match draws 16 bytes of entropy from the OS CSPRNG at start (`generateRngSeed` → `crypto.getRandomValues`). Those bytes seed an `sfc32` PRNG (`makeSfc32` in `packages/shared/src/rng.ts`). The seed is **server-only**: it drives territory shuffles and all dice rolls and is never broadcast to clients. Logged at match end so a specific match can be replayed in tests by supplying the seed as `ConquestServer({ rngSeed })`.
+
+### Per-Player State Projection & Delta Protocol (v0.4.0)
+
+The server does not broadcast a single canonical `GameState` to all players. Instead it applies a *projection* to each player's view before sending:
+
+- `packages/game-core/src/projection.ts` computes the per-player `GameState` by stripping server-only data (RNG seed, socket map) from the authoritative state.
+- On each state change the server diffs the new projected state against the last projected state sent to that player and sends a compact `StateDelta`:
+  - `delta.set`: fields that changed; merged into the client state.
+  - `delta.unset`: top-level keys deleted from the previous state.
+  - `delta.version`: monotonic state counter; a gap triggers `client:resync` and a full snapshot reply.
+- Clients apply deltas in `applyStateDelta` (`apps/client/src/network/client.ts`). If a version gap is detected, the client requests a fresh snapshot.
 
 ### Turn Phases:
 1. **Deployment**: Sovereign receives reinforcements based on owned territories ($\max(3, \lfloor N/3 \rfloor)$) plus continental control bonuses. Deploys armies to owned realms.

@@ -1157,6 +1157,8 @@ export interface RoomManagerOptions {
   scheduler?: TimerScheduler;
   chatBucketCapacity?: number;
   chatRefillMs?: number;
+  /** Fixed RNG seed injected into every room created by this manager (test-only). */
+  rngSeed?: Uint8Array;
 }
 
 export class RoomManager {
@@ -1177,6 +1179,7 @@ export class RoomManager {
       scheduler: options?.scheduler,
       chatBucketCapacity: options?.chatBucketCapacity,
       chatRefillMs: options?.chatRefillMs,
+      rngSeed: options?.rngSeed,
     };
   }
 

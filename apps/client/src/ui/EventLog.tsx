@@ -278,7 +278,7 @@ export function EventLog({
       : formattedItems.filter((item) => item.category === activeTab);
 
   // An empty chronicle is intentionally short so the tactical map keeps the spare rows.
-  const baseLogHeight = layoutMode === "compact" ? 4 : layoutMode === "standard" ? 5 : 6;
+  const baseLogHeight = layoutMode === "compact" ? 5 : layoutMode === "standard" ? 5 : 6;
   // The main tactical area owns all spare terminal rows. Chat borrows a row
   // from the existing chronicle content instead of growing the outer panel and
   // squeezing the map underneath it.
