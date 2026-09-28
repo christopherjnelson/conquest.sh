@@ -269,8 +269,8 @@ describe("cards: card awarded on conquest", () => {
     const p1Territories = Object.values(s.territories).filter((t) => t.ownerId === p1);
     const p1Terr = p1Territories[0]!;
     const r1 = deployUnits(s, p1, p1Terr.id, s.pendingReinforcements);
-    expect(r1.ok).toBe(true);
-    s = r1.state as GameState;
+    if (!r1.ok) throw new Error(r1.error);
+    s = r1.state;
 
     // Find an enemy territory adjacent to p1's strongest territory
     const p1Strong = Object.values(s.territories)
@@ -372,8 +372,8 @@ describe("cards: forced trade on deployment (5+ cards)", () => {
       [chosen[0]!.id, chosen[1]!.id, chosen[2]!.id],
       identity
     );
-    expect(tradeResult.ok).toBe(true);
-    const afterTrade = tradeResult.state as GameState;
+    if (!tradeResult.ok) throw new Error(tradeResult.error);
+    const afterTrade = tradeResult.state;
 
     // Hand is now 2 → forced trade cleared
     expect(afterTrade.publicCards?.pendingForcedTrade).toBeNull();
@@ -425,8 +425,8 @@ describe("cards: forced trade after elimination capture", () => {
     // Deploy first to get into attack phase
     const terr = Object.values(state.territories).find((t) => t.ownerId === p1)!;
     const deployRes = deployUnits(state, p1, terr.id, state.pendingReinforcements);
-    expect(deployRes.ok).toBe(true);
-    let s = deployRes.state as GameState;
+    if (!deployRes.ok) throw new Error(deployRes.error);
+    let s = deployRes.state;
     expect(s.phase).toBe("attack");
 
     // Inject 6 cards + force pendingForcedTrade
@@ -456,8 +456,8 @@ describe("cards: forced trade after elimination capture", () => {
     expect(sets.length).toBeGreaterThan(0);
     const chosen = sets[0]!;
     const tradeRes = tradeCards(s, p1, [chosen[0]!.id, chosen[1]!.id, chosen[2]!.id], identity);
-    expect(tradeRes.ok).toBe(true);
-    s = tradeRes.state as GameState;
+    if (!tradeRes.ok) throw new Error(tradeRes.error);
+    s = tradeRes.state;
 
     // Hand is now 3, pendingForcedTrade still set, pendingReinforcements > 0
     expect(s.publicCards?.pendingForcedTrade).not.toBeNull();
@@ -471,8 +471,8 @@ describe("cards: forced trade after elimination capture", () => {
     // Deploy all armies → clears pendingForcedTrade
     const deployForcedTerr = Object.values(s.territories).find((t) => t.ownerId === p1)!;
     const deployForced = deployUnits(s, p1, deployForcedTerr.id, s.pendingReinforcements);
-    expect(deployForced.ok).toBe(true);
-    s = deployForced.state as GameState;
+    if (!deployForced.ok) throw new Error(deployForced.error);
+    s = deployForced.state;
 
     // pendingForcedTrade cleared, attack now allowed
     expect(s.publicCards?.pendingForcedTrade).toBeNull();
@@ -602,8 +602,8 @@ describe("cards: deck + discard + hands = total cards", () => {
       [chosen[0]!.id, chosen[1]!.id, chosen[2]!.id],
       identity
     );
-    expect(result.ok).toBe(true);
-    const after = result.state as GameState;
+    if (!result.ok) throw new Error(result.error);
+    const after = result.state;
 
     const totalAfter =
       after.cards!.deck.length +

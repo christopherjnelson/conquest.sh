@@ -335,7 +335,7 @@ function runBotTurn(
     if (r.ok) state = r.state;
   }
 
-  return { state, deployments, losses, tradeBonusArmies: 0 };
+  return { state, deployments, losses };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
