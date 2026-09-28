@@ -17,7 +17,8 @@ import {
   type LayoutMode,
 } from "@conquest/map-engine";
 import { GameClient, type ConnectionStatus } from "../network/client.js";
-import { deriveBattleReport } from "./battle-report.js";
+import { deriveBattleReport, resolveBattlePanelPlacement } from "./battle-report.js";
+import { FULL_W, FULL_H, COND_W, COND_H } from "./BattlePanel.js";
 import { Header } from "./Header.js";
 import { MapCanvas } from "./MapCanvas.js";
 import { Sidebar } from "./Sidebar.js";
@@ -296,6 +297,14 @@ export function App({
   const paneDimensions = getMapContentDimensionsForLayout(dimensions.columns, dimensions.rows, layoutMode);
   const sidebarWidth = getSidebarWidthForTerminal(dimensions.columns, dimensions.rows, layoutMode);
   const activeMapDef = selectRenderVariant(mapBundle, paneDimensions).grid;
+
+  // Whether MapCanvas will place a full or condensed battle panel.
+  // Used to decide whether the compact inspector should show a fallback
+  // battle-summary line (it should only when no panel fits).
+  const battlePanelPlacement = resolveBattlePanelPlacement(
+    activeMapDef, paneDimensions, FULL_W, FULL_H, COND_W, COND_H,
+  );
+  const battlePanelPlaced = battlePanelPlacement !== "none";
 
   // A conquest move is complete only when the server's snapshot removes the
   // pending action. Do not leave the former source or conquered target armed.
@@ -977,6 +986,8 @@ export function App({
               setSelectedTerritoryId(id);
               setTargetTerritoryId(null);
             }}
+            battleReport={battleReport}
+            battlePanelPlaced={battlePanelPlaced}
           />
         </box>
       ) : (

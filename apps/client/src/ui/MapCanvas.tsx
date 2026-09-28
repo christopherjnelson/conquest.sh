@@ -15,7 +15,7 @@ import {
   getLayoutModeForMap,
 } from "@conquest/map-engine";
 import type { BattleReport } from "./battle-report.js";
-import { findPanelCorner } from "./battle-report.js";
+import { findPanelCorner, resolveBattlePanelPlacement } from "./battle-report.js";
 import { BattlePanel, FULL_W, FULL_H, COND_W, COND_H } from "./BattlePanel.js";
 
 export interface MapCanvasProps {
@@ -1183,10 +1183,15 @@ export function MapCanvas({
     const hOffset = canCenterH ? Math.floor((innerW - renderLayout.width) / 2) : 0;
     const vOffset = canCenterV ? Math.floor((innerH - renderLayout.height) / 2) : 0;
     const maxRows = innerH - vOffset - 1;
-    const fullCorner = findPanelCorner(activeMap, FULL_W, FULL_H, undefined, maxRows);
-    const condensedCorner = !fullCorner ? findPanelCorner(activeMap, COND_W, COND_H, undefined, maxRows) : null;
+    // resolveBattlePanelPlacement is the shared helper (also used by App to drive
+    // the compact-inspector fallback line) — call it first so both code paths
+    // share the same placement decision, then call findPanelCorner only for the
+    // concrete corner coordinates needed for absolute positioning.
+    const placement = resolveBattlePanelPlacement(activeMap, { width: availableContentW, height: availableContentH }, FULL_W, FULL_H, COND_W, COND_H);
+    const isCondensed = placement === "condensed";
+    const fullCorner   = placement === "full"      ? findPanelCorner(activeMap, FULL_W, FULL_H, undefined, maxRows) : null;
+    const condensedCorner = placement === "condensed" ? findPanelCorner(activeMap, COND_W, COND_H, undefined, maxRows) : null;
     const chosenCorner = fullCorner ?? condensedCorner;
-    const isCondensed = !fullCorner && !!condensedCorner;
     if (chosenCorner) {
       // chosenCorner.col/row are in land-crop coordinates (0..land.width-1, 0..land.height-1).
       // Math.max(0, …) prevents the panel from landing outside the content area when the map

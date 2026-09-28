@@ -1,6 +1,7 @@
 import React from "react";
 import type { GamePhase, GameState } from "@conquest/protocol";
 import { getDefaultMap, type MapBundle } from "@conquest/map-engine";
+import type { BattleReport } from "./battle-report.js";
 
 export interface CompactInspectorProps {
   mapBundle?: MapBundle;
@@ -21,6 +22,19 @@ export interface CompactInspectorProps {
   onReady?: () => void;
   onSelectTarget?: (territoryId: string) => void;
   onSelectTerritory?: (territoryId: string) => void;
+  /**
+   * The most recent battle report derived from game events.
+   * Passed in from App, which derives it via deriveBattleReport.
+   */
+  battleReport?: BattleReport | null;
+  /**
+   * Whether MapCanvas successfully placed a battle panel (full or condensed).
+   * When false and battleReport is set, the inspector shows a one-line battle
+   * summary in place of the territory info — the lowest-priority left-side
+   * content. This keeps the inspector's height:3 unchanged (no new rows) while
+   * giving compact players visual battle feedback that the map couldn't provide.
+   */
+  battlePanelPlaced?: boolean;
 }
 
 function fitCompactText(value: string, maxLength: number): string {
@@ -43,6 +57,8 @@ export function CompactInspector({
   onEndTurn,
   pendingPhaseAction,
   onReady,
+  battleReport,
+  battlePanelPlaced = false,
 }: CompactInspectorProps) {
   const territories = state?.territories ?? {};
   const activePlayer = state ? state.players[state.activePlayerIndex] : undefined;
@@ -97,6 +113,12 @@ export function CompactInspector({
   const compactInfoWidth = pendingConquestMove && isMyTurn ? 55 : 65;
   const compactNameLimit = pendingConquestMove && isMyTurn ? 10 : 14;
 
+  // Battle summary line — shown only when the map could NOT place a panel.
+  // Replaces the territory / players left-info section (same row, same width),
+  // because it's the lowest-priority content there: territory info is still
+  // available by hovering and actions buttons on the right are unaffected.
+  const showBattleSummary = !battlePanelPlaced && !!battleReport;
+
   const myPlayer = players.find((p) => p.id === myPlayerId);
   const isReady = myPlayer?.ready ?? false;
 
@@ -121,9 +143,48 @@ export function CompactInspector({
       justifyContent="space-between"
       alignItems="center"
     >
-      {/* Left Info: Territory or Players summary */}
+      {/* Left Info: Territory/Players summary, or battle summary when no map panel fit */}
       <box flexDirection="row" alignItems="center" gap={0} style={{ width: compactInfoWidth }} flexShrink={1}>
-        {inspectionMode !== "none" && displayTid ? (
+        {showBattleSummary && battleReport ? (
+          /* One-line battle summary — replaces territory info when the map panel
+             couldn't be placed (compact profile). Height stays at 3 (unchanged). */
+          battleReport.conquered ? (
+            <text fg={battleReport.attackerColor}>
+              ⚔ CONQUERED {fitCompactText(battleReport.targetTerritoryName, compactInfoWidth - 12)}
+            </text>
+          ) : (
+            <text>
+              {(() => {
+                // Width-aware: truncate territory names to fit the left-info lane.
+                // Fixed overhead: "⚔ R{n} " + "▸" + " [" + atkDice + "]v[" + defDice + "] −a/−d"
+                const atkDice = battleReport.attackerRolls.length > 0 ? battleReport.attackerRolls.join(" ") : "?";
+                const defDice = battleReport.defenderRolls.length > 0 ? battleReport.defenderRolls.join(" ") : "?";
+                const lossStr = `−${battleReport.attackerLosses}/−${battleReport.defenderLosses}`;
+                const dicePart = `[${atkDice}]v[${defDice}]`;
+                // Fixed chars: "⚔ R" + round + " " + "▸" + " " + dicePart + " " + lossStr
+                const fixedOverhead = 4 + String(battleReport.engagementRound).length + 1 + dicePart.length + 1 + lossStr.length + 1;
+                const namesBudget = Math.max(4, compactInfoWidth - fixedOverhead);
+                const half = Math.floor(namesBudget / 2);
+                const src = fitCompactText(battleReport.sourceTerritoryName, half);
+                const tgtBudget = Math.max(1, namesBudget - src.length);
+                const tgt = fitCompactText(battleReport.targetTerritoryName, tgtBudget);
+                return (
+                  <>
+                    <span fg="#ffffff">⚔ R{battleReport.engagementRound} {src}</span>
+                    <span fg="#475569">▸</span>
+                    <span fg="#ffffff">{tgt} </span>
+                    <span fg="#475569">[</span>
+                    <span fg={battleReport.attackerColor}>{atkDice}</span>
+                    <span fg="#475569">]v[</span>
+                    <span fg={battleReport.defenderColor}>{defDice}</span>
+                    <span fg="#475569">]</span>
+                    <span fg="#94a3b8"> {lossStr}</span>
+                  </>
+                );
+              })()}
+            </text>
+          )
+        ) : inspectionMode !== "none" && displayTid ? (
           <>
             {/* Keep the compact lane to the facts that fit beside its actions. */}
             <text>

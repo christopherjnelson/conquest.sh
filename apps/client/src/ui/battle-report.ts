@@ -253,3 +253,89 @@ export function findPanelCorner(
   }
   return null;
 }
+
+// ─── Panel placement resolver ─────────────────────────────────────────────────
+
+/** Whether the battle panel fits at all, and which variant. */
+export type BattlePanelPlacement = "full" | "condensed" | "none";
+
+/**
+ * Pure helper: returns which battle-panel variant (full / condensed / none)
+ * would be placed by MapCanvas for the given grid and pane size.
+ *
+ * Encapsulates the same centre-offset + maxRows arithmetic that MapCanvas uses
+ * so that App can determine placement without duplicating that logic, enabling
+ * the compact-inspector battle summary to appear only when the map can't show
+ * a panel.
+ *
+ * @param grid       The active GridMapDefinition (from selectRenderVariant).
+ * @param paneDims   Content pane dimensions (contentDimensions prop of MapCanvas).
+ * @param fullW/H    FULL_W / FULL_H from BattlePanel.
+ * @param condW/H    COND_W / COND_H from BattlePanel.
+ */
+export function resolveBattlePanelPlacement(
+  grid: GridMapDefinition,
+  paneDims: { width: number; height: number },
+  fullW: number,
+  fullH: number,
+  condW: number,
+  condH: number,
+): BattlePanelPlacement {
+  const land = getGeographyBoundingBox(grid);
+  // Mirror MapCanvas: innerH/W = pane minus the 1-char border on each side.
+  const innerH = paneDims.height - 2;
+  const innerW = paneDims.width - 2;
+  // Centering offsets (may be 0 when the pane is smaller than the land).
+  const canCenterV = innerH >= land.height;
+  const vOffset = canCenterV ? Math.floor((innerH - land.height) / 2) : 0;
+  // maxRows matches MapCanvas: panel bottom must land inside the inner canvas.
+  const maxRows = innerH - vOffset - 1;
+
+  if (findPanelCorner(grid, fullW, fullH, undefined, maxRows)) return "full";
+  if (findPanelCorner(grid, condW, condH, undefined, maxRows)) return "condensed";
+  return "none";
+}
+
+// ─── Compact battle line formatter ───────────────────────────────────────────
+
+/**
+ * Formats a single-line battle summary for the compact inspector strip.
+ *
+ * Normal:   `⚔ R{n} {src}▸{tgt} [{atkDice}]v[{defDice}] −{a}/−{d}`
+ * Conquest: `⚔ CONQUERED {tgt}`
+ *
+ * Territory names are truncated with "…" to keep the line within maxWidth.
+ * Returns a plain string (no ANSI); the caller handles colour spans.
+ */
+export function formatCompactBattleLine(report: BattleReport, maxWidth: number): string {
+  if (report.conquered) {
+    const line = `⚔ CONQUERED ${report.targetTerritoryName}`;
+    return line.length <= maxWidth ? line : line.slice(0, maxWidth - 1) + "…";
+  }
+
+  const atkDice = report.attackerRolls.length > 0 ? report.attackerRolls.join(" ") : "?";
+  const defDice = report.defenderRolls.length > 0 ? report.defenderRolls.join(" ") : "?";
+  const lossSuffix = ` −${report.attackerLosses}/−${report.defenderLosses}`;
+  const dicePart   = ` [${atkDice}]v[${defDice}]${lossSuffix}`;
+  const prefix     = `⚔ R${report.engagementRound} `;
+
+  const srcFull = report.sourceTerritoryName;
+  const tgtFull = report.targetTerritoryName;
+  const fullLine = `${prefix}${srcFull}▸${tgtFull}${dicePart}`;
+
+  if (fullLine.length <= maxWidth) return fullLine;
+
+  // Truncate territory names to fit, splitting budget evenly.
+  const fixedLen = prefix.length + 1 /* ▸ */ + dicePart.length;
+  const namesBudget = maxWidth - fixedLen;
+  if (namesBudget >= 4) {
+    const half = Math.floor(namesBudget / 2);
+    const src = srcFull.length > half ? srcFull.slice(0, half - 1) + "…" : srcFull;
+    const tgtBudget = namesBudget - src.length;
+    const tgt = tgtFull.length > tgtBudget ? tgtFull.slice(0, Math.max(1, tgtBudget - 1)) + "…" : tgtFull;
+    return `${prefix}${src}▸${tgt}${dicePart}`;
+  }
+
+  // Last-resort hard truncation.
+  return fullLine.slice(0, maxWidth - 1) + "…";
+}
