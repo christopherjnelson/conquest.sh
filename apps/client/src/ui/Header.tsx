@@ -61,7 +61,7 @@ export function Header({
 
         <box flexDirection="row" gap={1}>
           <text fg="#64748b">
-            <span fg="#00ff66"><b>YOU: {currentPlayerName}</b></span>  │  Ctrl+C to quit  │  v0.5.0-beta.1
+            <span fg="#00ff66"><b>YOU: {currentPlayerName}</b></span>  │  Ctrl+C to quit  │  v0.5.0
           </text>
         </box>
       </box>
