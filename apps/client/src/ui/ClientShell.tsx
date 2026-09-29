@@ -7,6 +7,7 @@ import { RoomBrowser } from "./RoomBrowser.js";
 import { CreateGameScreen } from "./CreateGameScreen.js";
 import { JoinRoomScreen } from "./JoinRoomScreen.js";
 import { ServerInfoScreen } from "./ServerInfoScreen.js";
+import { openDiscordInvite, DISCORD_INVITE_URL } from "./discord.js";
 import { App } from "./App.js";
 
 export type ClientScreen =
@@ -112,6 +113,13 @@ export function ClientShell({
     setScreen("server-info");
   }, []);
 
+  const handleJoinDiscord = useCallback(() => {
+    setErrorMessage(null);
+    void openDiscordInvite().catch(() => {
+      setErrorMessage(`Could not open a browser. Join at ${DISCORD_INVITE_URL}`);
+    });
+  }, []);
+
   const handleJoinFromBrowser = useCallback(
     (roomCode: string) => {
       setErrorMessage(null);
@@ -154,6 +162,7 @@ export function ClientShell({
           onJoinByCode={handleJoinByCode}
           onResumeGame={handleResumeGame}
           onServerInfo={handleServerInfo}
+          onJoinDiscord={handleJoinDiscord}
           onQuit={() => onExit?.()}
           terminalDimensions={terminalDimensions}
         />
