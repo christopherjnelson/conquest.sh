@@ -243,6 +243,8 @@ When a room is created with **Cards: Escalating** mode, a standard territory dec
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, test conventions, and the branch/PR flow.
 
+Join the [conquest.sh Discord](https://discord.gg/XrGAErGqm) to find players and share feedback. You can also open the invite from the client’s main menu with `D`.
+
 ## Security
 
 See [SECURITY.md](SECURITY.md) for responsible disclosure instructions.

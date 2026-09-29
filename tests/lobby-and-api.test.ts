@@ -905,6 +905,7 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
           onJoinByCode: () => {},
           onResumeGame: () => {},
           onServerInfo: () => {},
+          onJoinDiscord: () => { actionTriggered = true; },
           onQuit: () => {},
           terminalDimensions: { columns: 120, rows: 40 },
         }),
@@ -922,7 +923,10 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       expect(frame).toContain("BROWSE GAMES");
       expect(frame).toContain("CREATE GAME");
       expect(frame).toContain("JOIN BY CODE");
+      expect(frame).toContain("JOIN DISCORD");
       expect(frame).toContain("Apex-Ironreach-Prime");
+      await act(async () => { setup.mockInput.pressKey("d"); });
+      expect(actionTriggered).toBe(true);
       await act(async () => {
         setup.renderer.destroy();
       });

@@ -189,7 +189,7 @@ describe("visual sidebar composition", () => {
       );
       await act(async () => { await setup.renderOnce(); });
       const lines = setup.captureCharFrame().split("\n");
-      if (layoutMode === "wide") expect(lines.join("\n")).toContain("v0.3.0");
+      if (layoutMode === "wide") expect(lines.join("\n")).toContain("v0.5.0-beta.1");
       const youLine = lines.find((line: string) => line.includes("YOU:"));
       expect(youLine).toBeDefined();
       expect(youLine).toContain("YOU:");

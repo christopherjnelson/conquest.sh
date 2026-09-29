@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { ConnectionStatus, SessionData } from "../network/client.js";
+import { DISCORD_INVITE_URL } from "./discord.js";
 
 export interface HomeScreenProps {
   serverName?: string | null;
@@ -14,6 +15,7 @@ export interface HomeScreenProps {
   onJoinByCode: () => void;
   onResumeGame?: (roomCode: string) => void;
   onServerInfo: () => void;
+  onJoinDiscord: () => void;
   onQuit: () => void;
   terminalDimensions?: { columns: number; rows: number };
 }
@@ -38,6 +40,7 @@ export function HomeScreen({
   onJoinByCode,
   onResumeGame,
   onServerInfo,
+  onJoinDiscord,
   onQuit,
 }: HomeScreenProps) {
   const menuItems: MenuItem[] = [];
@@ -84,6 +87,13 @@ export function HomeScreen({
       action: onServerInfo,
     },
     {
+      id: "discord",
+      label: "JOIN DISCORD",
+      description: `Find players and share feedback: ${DISCORD_INVITE_URL}`,
+      shortcut: "D",
+      action: onJoinDiscord,
+    },
+    {
       id: "quit",
       label: "QUIT",
       description: "Exit conquest.sh",
@@ -109,6 +119,10 @@ export function HomeScreen({
     }
     if (key.name === "q" || key.name === "Q") {
       onQuit();
+      return;
+    }
+    if (key.name === "d" || key.name === "D") {
+      onJoinDiscord();
       return;
     }
     if (key.name === "escape") {
@@ -213,28 +227,39 @@ export function HomeScreen({
         {menuItems.map((item, idx) => {
           const isSelected = idx === selectedIndex;
           const isResume = item.id === "resume";
+          const isDiscord = item.id === "discord";
 
           const borderColor = isSelected
             ? isResume
               ? "#00ff66"
-              : "#00d2ff"
+              : isDiscord
+                ? "#a78bfa"
+                : "#00d2ff"
             : isResume
-            ? "#166534"
-            : "#1e293b";
+              ? "#166534"
+              : isDiscord
+                ? "#4c1d95"
+                : "#1e293b";
 
           const bgColor = isSelected
             ? isResume
               ? "#052e16"
-              : "#0c2b3d"
-            : "#0b1524";
+              : isDiscord
+                ? "#251443"
+                : "#0c2b3d"
+            : isDiscord
+              ? "#170f2c"
+              : "#0b1524";
 
           const labelColor = isSelected
             ? isResume
               ? "#00ff66"
               : "#ffffff"
             : isResume
-            ? "#4ade80"
-            : "#cbd5e1";
+              ? "#4ade80"
+              : isDiscord
+                ? "#c4b5fd"
+                : "#cbd5e1";
 
           return (
             <box
@@ -257,7 +282,7 @@ export function HomeScreen({
               }}
             >
               <box flexDirection="row" gap={1} alignItems="center">
-                <text fg={isSelected ? (isResume ? "#00ff66" : "#00d2ff") : "#475569"}>
+                <text fg={isSelected ? (isResume ? "#00ff66" : isDiscord ? "#a78bfa" : "#00d2ff") : "#475569"}>
                   {isSelected ? "▶" : " "}
                 </text>
                 <text fg={labelColor}>
@@ -265,7 +290,7 @@ export function HomeScreen({
                 </text>
               </box>
               <text fg="#64748b">
-                <span fg={isSelected ? "#00d2ff" : "#475569"}>({item.shortcut})</span>
+                <span fg={isSelected ? (isDiscord ? "#a78bfa" : "#00d2ff") : "#475569"}>({item.shortcut})</span>
               </text>
             </box>
           );
