@@ -17,6 +17,7 @@
       "@conquest/shared": ["packages/shared/src/index.ts"],
       "@conquest/protocol": ["packages/protocol/src/index.ts"],
       "@conquest/game-core": ["packages/game-core/src/index.ts"],
+      "@conquest/bot-core": ["packages/bot-core/src/index.ts"],
       "@conquest/map-engine": ["packages/map-engine/src/index.ts"]
     }
   }

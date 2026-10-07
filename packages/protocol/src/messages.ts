@@ -38,6 +38,7 @@ export const ClientCreateRoomSchema = z.object({
   displayName: z.string().min(1).max(40).optional(),
   visibility: RoomVisibilitySchema.default("public"),
   maxPlayers: z.number().int().min(2).max(6).default(4),
+  botCount: z.number().int().min(0).max(5).optional(),
   mapId: z.string().optional(),
   cardMode: z.enum(["escalating", "off"]).optional(),
 });

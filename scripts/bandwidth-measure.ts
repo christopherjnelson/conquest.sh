@@ -13,7 +13,7 @@
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
 import { projectStateFor } from "../packages/game-core/src/index.js";
-import { MAP_IRONREACH } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
 import type { GameState } from "../packages/protocol/src/index.js";
 import { makeSfc32, makeShuffleFn } from "../packages/shared/src/index.js";
 
@@ -145,7 +145,7 @@ async function measureBandwidth(): Promise<void> {
   const server = new ConquestServer({
     port: 0,
     serverName: "bandwidth-test",
-    defaultMap: MAP_IRONREACH,
+    defaultMap: EARTH_42_BUNDLE.definition,
     maxPlayersPerRoom: 2,
     rngSeed: seed,
   } as any);
@@ -254,7 +254,7 @@ async function measureBandwidth(): Promise<void> {
     // Realistic estimate: average message size in old protocol = size of full state.
     const fullStateJson = JSON.stringify({
       type: "server:event",
-      event: { type: "units_deployed", playerId: "p1", territoryId: "A1", count: 3, remainingReinforcements: 0, timestamp: Date.now() },
+      event: { type: "units_deployed", playerId: "p1", territoryId: "na_alaska_range", count: 3, remainingReinforcements: 0, timestamp: Date.now() },
       state: serverState,
     });
     oldProtocolEstimate = fullStateJson.length * msgCountToClientA;

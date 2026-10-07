@@ -37,6 +37,7 @@
         "conquest-server": "./src/index.ts",
       },
       "dependencies": {
+        "@conquest/bot-core": "workspace:*",
         "@conquest/game-core": "workspace:*",
         "@conquest/map-engine": "workspace:*",
         "@conquest/protocol": "workspace:*",
@@ -50,6 +51,13 @@
       "dependencies": {
         "@conquest/protocol": "workspace:*",
         "@conquest/shared": "workspace:*",
+      },
+    },
+    "packages/bot-core": {
+      "name": "@conquest/bot-core",
+      "version": "0.1.0",
+      "dependencies": {
+        "@conquest/game-core": "workspace:*",
       },
     },
     "packages/map-engine": {
@@ -74,6 +82,8 @@
   },
   "packages": {
     "@conquest/client": ["@conquest/client@workspace:apps/client"],
+
+    "@conquest/bot-core": ["@conquest/bot-core@workspace:packages/bot-core"],
 
     "@conquest/game-core": ["@conquest/game-core@workspace:packages/game-core"],
 

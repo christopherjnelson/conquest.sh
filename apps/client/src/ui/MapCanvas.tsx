@@ -261,12 +261,12 @@ function getUnclaimedTint(color: string, tid?: string | null): string {
   // Explicit xterm-cube shades prevent RGB blending from being quantized into
   // a shared charcoal while keeping every unclaimed sector very dark.
   const xtermTint: Record<string, string> = {
-    "#00ff66": "#005f00", // Verdant Fringe
-    "#ffaa00": "#5f5f00", // Amber Steppes
-    "#00d2ff": "#005f87", // Northreach
-    "#ff4444": "#5f0000", // Crimson Caldera
-    "#9966ff": "#5f005f", // The Blackfen
-    "#22c55e": "#005f5f", // Emerald Isles
+    "#00ff66": "#005f00", // green sector
+    "#ffaa00": "#5f5f00", // gold sector
+    "#00d2ff": "#005f87", // blue sector
+    "#ff4444": "#5f0000", // red sector
+    "#9966ff": "#5f005f", // purple sector
+    "#22c55e": "#005f5f", // teal sector
   };
   return xtermTint[color.toLowerCase()] ?? mixColors(color, "#080f1a", 0.34);
 }

@@ -72,12 +72,19 @@ export const PublicCardStateSchema = z.object({
 export type PublicCardState = z.infer<typeof PublicCardStateSchema>;
 export type GamePhase = z.infer<typeof GamePhaseSchema>;
 
+export const PlayerControllerSchema = z.enum(["human", "bot"]);
+export type PlayerController = z.infer<typeof PlayerControllerSchema>;
+export const BotProfileSchema = z.literal("standard");
+export type BotProfile = z.infer<typeof BotProfileSchema>;
+
 export const PlayerSchema = z.object({
   id: z.string(),
   name: z.string(),
   colorIndex: z.number(),
   colorHex: z.string(),
   connected: z.boolean(),
+  controller: PlayerControllerSchema.optional(),
+  botProfile: BotProfileSchema.optional(),
   isAlive: z.boolean(),
   ready: z.boolean().default(false),
   rematchReady: z.boolean().optional(),

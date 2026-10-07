@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
-import { MAP_IRONREACH } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
 import type { GameEvent, ServerEvent } from "@conquest/protocol";
 
 describe("GameClient: Client Flow & State Synchronization", () => {
@@ -35,7 +35,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       port: 0,
       serverName: "test-client-flow-server",
       maxPlayersPerRoom: 2,
-      defaultMap: MAP_IRONREACH,
+      defaultMap: EARTH_42_BUNDLE.definition,
     });
     server.start();
     port = server.port;
@@ -108,12 +108,11 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     expect(bobId).not.toBe(aliceId);
     expect(bobToken).toBeDefined();
 
-    // Verify 20 territories of Ironreach are initialized
+    // Verify all 42 Earth territories are initialized
     const territoryIds = Object.keys(gameSnapshotA.territories);
-    expect(territoryIds.length).toBe(20);
-    expect(territoryIds).toContain("A1");
-    expect(territoryIds).toContain("A2");
-    expect(territoryIds).toContain("C1");
+    expect(territoryIds.length).toBe(42);
+    expect(territoryIds).toContain("na_alaska_range");
+    expect(territoryIds).toContain("oc_eastern_australia");
 
     // Alice is active player (index 0)
     expect(gameSnapshotA.activePlayerIndex).toBe(0);
@@ -137,7 +136,6 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     // 3. Alice deploys all reinforcements to the chosen territory
     const alicePending = clientA.state!.pendingReinforcements;
     clientA.deploy(deployTerritoryId, alicePending);
-
     // Both clients receive units_deployed event
     const deployEventA = await clientA.waitForEvent((e) => e.type === "units_deployed");
     const deployEventB = await clientB.waitForEvent((e) => e.type === "units_deployed");
@@ -145,8 +143,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     expect(deployEventA.type).toBe("units_deployed");
     if (deployEventA.type === "units_deployed") {
       expect(deployEventA.playerId).toBe(aliceId);
-      expect(deployEventA.territoryId).toBe(deployTerritoryId);
-      expect(deployEventA.count).toBe(alicePending);
+      expect(deployEventA.territoryId).toBe(deployTerritoryId);      expect(deployEventA.count).toBe(alicePending);
     }
     expect(deployEventB.type).toBe("units_deployed");
 
@@ -171,7 +168,6 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     )!;
     expect(attackTgtId).toBeDefined();
     clientA.attack(attackSrc.id, attackTgtId, 3);
-
     const attackEventA = await clientA.waitForEvent((e) => e.type === "attack_resolved");
     const attackEventB = await clientB.waitForEvent((e) => e.type === "attack_resolved");
 
@@ -180,8 +176,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       expect(attackEventA.attackerId).toBe(aliceId);
       expect(attackEventA.defenderId).toBe(bobId);
       expect(attackEventA.sourceTerritoryId).toBe(attackSrc.id);
-      expect(attackEventA.targetTerritoryId).toBe(attackTgtId);
-      expect(attackEventA.attackerRolls.length).toBeGreaterThan(0);
+      expect(attackEventA.targetTerritoryId).toBe(attackTgtId);      expect(attackEventA.attackerRolls.length).toBeGreaterThan(0);
       expect(attackEventA.defenderRolls.length).toBeGreaterThan(0);
     }
     expect(attackEventB.type).toBe("attack_resolved");
@@ -286,7 +281,7 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     });
 
     // Send action before joining a room -> server responds with UNAUTHORIZED error
-    client.deploy("frostfell", 3);
+    client.deploy("na_alaska_range", 3);
 
     // Wait for error callback
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -781,12 +776,11 @@ describe("GameClient: Client Flow & State Synchronization", () => {
     }
   });
 
-  it("runs full game flow against default MAP_GRID_IRONREACH server: distributes 20 territories, deploys, attacks, ends turn", async () => {
+  it("runs full game flow against the default Earth-42 server: distributes 42 territories, deploys, attacks, ends turn", async () => {
     // Use the per-run temp dir set by tests/setup.ts (same as the rest of the suite)
     // so we never write session files into the project working directory.
     const sessionFileAliceGrid = path.join(testSessionDir, ".conquest-test-grid-alice.json");
     const sessionFileBobGrid = path.join(testSessionDir, ".conquest-test-grid-bob.json");
-
     const cleanupGrid = () => {
       try {
         if (fs.existsSync(sessionFileAliceGrid)) fs.unlinkSync(sessionFileAliceGrid);
@@ -798,11 +792,11 @@ describe("GameClient: Client Flow & State Synchronization", () => {
 
     cleanupGrid();
 
-    // Default ConquestServer constructor uses MAP_GRID_IRONREACH without specifying defaultMap
+    // Default ConquestServer constructor uses EARTH_42_BUNDLE.definition without specifying defaultMap
     const gridServer = new ConquestServer({
       port: 0,
       serverName: "test-grid-server",
-      defaultMap: MAP_IRONREACH,
+      defaultMap: EARTH_42_BUNDLE.definition,
       maxPlayersPerRoom: 2,
     });
     gridServer.start();
@@ -854,31 +848,23 @@ describe("GameClient: Client Flow & State Synchronization", () => {
       const bobId = clientB.myPlayerId!;
       expect(bobId).not.toBe(aliceId);
 
-      // Verify all 20 territories (A1-A3, B1-B3, C1-C4, D1-D4, E1-E3, F1-F3) are distributed
+      // Verify all 42 Earth territories are distributed.
       const territoryIds = Object.keys(gameSnapshotA.territories);
-      expect(territoryIds.length).toBe(20);
-
-      const expectedGridTerritories = [
-        "A1", "A2", "A3",
-        "B1", "B2", "B3",
-        "C1", "C2", "C3", "C4",
-        "D1", "D2", "D3", "D4",
-        "E1", "E2", "E3",
-        "F1", "F2", "F3",
-      ];
-      for (const expectedId of expectedGridTerritories) {
-        expect(territoryIds).toContain(expectedId);
-        const t = gameSnapshotA.territories[expectedId];
+      expect(territoryIds.length).toBe(42);
+      expect(territoryIds).toContain("na_alaska_range");
+      expect(territoryIds).toContain("oc_eastern_australia");
+      for (const territoryId of territoryIds) {
+        const t = gameSnapshotA.territories[territoryId];
         expect(t).toBeDefined();
         expect([aliceId, bobId]).toContain(t.ownerId);
         expect(t.units).toBeGreaterThanOrEqual(1);
       }
 
-      // Verify even distribution (10 territories each)
+      // Verify even distribution (21 territories each)
       const aliceTerritories = territoryIds.filter((id) => gameSnapshotA.territories[id].ownerId === aliceId);
       const bobTerritories = territoryIds.filter((id) => gameSnapshotA.territories[id].ownerId === bobId);
-      expect(aliceTerritories.length).toBe(10);
-      expect(bobTerritories.length).toBe(10);
+      expect(aliceTerritories.length).toBe(21);
+      expect(bobTerritories.length).toBe(21);
 
       // Alice is active player (turn 1)
       expect(gameSnapshotA.activePlayerIndex).toBe(0);
@@ -896,7 +882,6 @@ describe("GameClient: Client Flow & State Synchronization", () => {
         // With a 2-player 20-territory split the map is always connected, so at least
         // one Alice territory must border a Bob territory.
       );
-
       const pendingReinforcements = clientA.state!.pendingReinforcements;
       expect(pendingReinforcements).toBeGreaterThanOrEqual(3);
 

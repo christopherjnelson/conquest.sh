@@ -130,7 +130,7 @@ export function ClientShell({
   );
 
   const handleCreateSubmit = useCallback(
-    (options: { displayName: string; maxPlayers: number; visibility: RoomVisibility; cardMode: "escalating" | "off" }) => {
+    (options: { displayName: string; maxPlayers: number; visibility: RoomVisibility; cardMode: "escalating" | "off"; botCount: number }) => {
       setErrorMessage(null);
       client.createRoom(options);
       setScreen("game");

@@ -22,11 +22,14 @@ import {
   skipPhase,
   tradeCards,
   projectStateFor,
+  suggestSets,
   type ActionResult,
   type MapDefinition,
 } from "@conquest/game-core";
 import { getDefaultMap } from "@conquest/map-engine";
 import { generateId, generateRoomCode, getPlayerColor, logger, generateRngSeed, makeSfc32, makeShuffleFn } from "@conquest/shared";
+import { decideBotAction } from "@conquest/bot-core";
+import type { BotDecision } from "@conquest/bot-core";
 
 /** Minimal timer abstraction for testability. */
 export interface TimerScheduler {
@@ -38,7 +41,6 @@ const defaultScheduler: TimerScheduler = {
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (id) => clearTimeout(id),
 };
-
 export interface RoomSocket {
   send(data: string): void;
   close?(code?: number, reason?: string): void;
@@ -71,6 +73,13 @@ export interface GameRoomOptions {
   rngSeed?: Uint8Array;
   /** Card mode for all matches in this room. Default: "escalating". */
   cardMode?: "escalating" | "off";
+  botCount?: number;
+  botActionDelayMs?: number;
+  botScheduler?: {
+    schedule(callback: () => void, delayMs: number): unknown;
+    cancel(handle: unknown): void;
+  };
+  botPolicy?: (state: Readonly<GameState>, playerId: string) => BotDecision | null;
 }
 
 export interface RoomPlayerSummary {
@@ -170,7 +179,15 @@ export class GameRoom {
   private rngSeed: Uint8Array;
   /** Optional test-injected seed; when set, every match reuses it deterministically. */
   private readonly injectedSeed?: Uint8Array;
-
+  public readonly botCount: number;
+  private botActionDelayMs: number;
+  private botTimer: unknown;
+  private readonly botScheduler: NonNullable<GameRoomOptions["botScheduler"]>;
+  private readonly botPolicy: NonNullable<GameRoomOptions["botPolicy"]>;
+  private botGeneration = 0;
+  private botActionsThisTurn = 0;
+  private botBudgetKey = "";
+  private disposed = false;
   public state: GameState;
   /** Monotonically increasing state version. Increments on every successful applyResult. */
   public stateVersion: number = 0;
@@ -226,7 +243,13 @@ export class GameRoom {
     // Provide a no-op rng until the first match starts.
     this.rngSeed = new Uint8Array(16);
     this.rng = Math.random;
-
+    this.botCount = Math.max(0, Math.min(this.maxPlayers - 1, options.botCount ?? 0));
+    this.botActionDelayMs = Math.max(0, options.botActionDelayMs ?? 150);
+    this.botScheduler = options.botScheduler ?? {
+      schedule: (callback, delayMs) => setTimeout(callback, delayMs),
+      cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    };
+    this.botPolicy = options.botPolicy ?? decideBotAction;
     const initialSectors: Record<string, Sector> = {};
     for (const s of this.map.sectors) {
       initialSectors[s.id] = { ...s };
@@ -259,7 +282,183 @@ export class GameRoom {
   }
 
   get connectedPlayersCount(): number {
-    return this.state.players.filter((p) => p.connected).length;
+    return this.state.players.filter((p) => p.connected && p.controller !== "bot").length;
+  }
+
+  get humanPlayersCount(): number {
+    return this.state.players.filter((p) => p.controller !== "bot").length;
+  }
+
+  get botPlayersCount(): number {
+    return this.state.players.filter((p) => p.controller === "bot").length;
+  }
+
+  private participatingPlayers(): Player[] {
+    return this.state.players.filter((p) => p.controller === "bot" || p.connected);
+  }
+
+  private scheduleBotTurn(): void {
+    this.cancelBotTurn();
+    const player = this.state.players[this.state.activePlayerIndex];
+    if (
+      this.disposed ||
+      this.connectedPlayersCount === 0 ||
+      this.state.phase === "lobby" ||
+      this.state.phase === "game_over" ||
+      player?.controller !== "bot" ||
+      !player.isAlive
+    ) return;
+    const generation = this.botGeneration;
+    const gameId = this.state.gameId;
+    const playerId = player.id;
+    this.botTimer = this.botScheduler.schedule(() => {
+      this.botTimer = undefined;
+      if (
+        generation !== this.botGeneration ||
+        this.disposed ||
+        this.state.gameId !== gameId ||
+        this.state.phase === "game_over" ||
+        this.connectedPlayersCount === 0
+      ) return;
+      const active = this.state.players[this.state.activePlayerIndex];
+      if (!active || active.id !== playerId || active.controller !== "bot") return;
+      this.runBotAction(playerId);
+    }, this.botActionDelayMs);
+  }
+
+  private cancelBotTurn(): void {
+    this.botGeneration++;
+    if (this.botTimer !== undefined) this.botScheduler.cancel(this.botTimer);
+    this.botTimer = undefined;
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.clearAllTimers();
+  }
+
+  private runBotAction(playerId: string): void {
+    const active = this.state.players[this.state.activePlayerIndex];
+    if (this.disposed || this.state.phase === "game_over" || this.connectedPlayersCount === 0 || active?.id !== playerId || !active.isAlive) return;
+    const turnKey = `${this.state.gameId}:${this.state.turnNumber}:${active.id}`;
+    if (turnKey !== this.botBudgetKey) {
+      this.botBudgetKey = turnKey;
+      this.botActionsThisTurn = 0;
+    }
+    if (this.botActionsThisTurn >= 80) {
+      const result = this.performBotFallback(playerId);
+      if (!result.ok) {
+        logger.error(`Bot action cap fallback failed in room ${this.roomCode}: ${result.error}`);
+        this.cancelBotTurn();
+        return;
+      }
+      this.scheduleBotTurn();
+      return;
+    }
+    let decision;
+    try {
+      decision = this.botPolicy(projectStateFor(this.state, playerId), playerId);
+    } catch (error) {
+      logger.error(`Bot policy threw in room ${this.roomCode}:`, error);
+      const fallback = this.performBotFallback(playerId);
+      if (!fallback.ok) this.cancelBotTurn();
+      else this.scheduleBotTurn();
+      return;
+    }
+    if (!decision) {
+      const fallback = this.performBotFallback(playerId);
+      if (!fallback.ok) {
+        logger.error(`Bot had no decision in room ${this.roomCode}: ${fallback.error}`);
+        this.cancelBotTurn();
+      } else this.scheduleBotTurn();
+      return;
+    }
+    const { action } = decision;
+    let result: ActionResult<unknown>;
+    switch (action.type) {
+      case "trade_cards":
+        result = this.tradeCards(playerId, action.cardIds);
+        break;
+      case "deploy":
+        result = this.deploy(playerId, action.territoryId, action.count);
+        break;
+      case "attack":
+        result = this.attack(playerId, action.sourceTerritoryId, action.targetTerritoryId, action.dice);
+        break;
+      case "complete_conquest_move":
+        result = this.completeConquestMove(playerId, action.units);
+        break;
+      case "fortify":
+        result = this.fortify(playerId, action.sourceTerritoryId, action.targetTerritoryId, action.units);
+        break;
+      case "skip_phase":
+        result = this.skipPhase(playerId);
+        break;
+      case "end_turn":
+        result = this.endTurn(playerId);
+        break;
+    }
+    if (!result.ok) {
+      logger.error(`Bot decision failed in room ${this.roomCode} (${decision.reason}): ${result.error}`);
+      const fallback = this.performBotFallback(playerId);
+      if (!fallback.ok) {
+        logger.error(`Bot fallback failed in room ${this.roomCode}: ${fallback.error}`);
+        this.cancelBotTurn();
+        return;
+      }
+      this.botActionsThisTurn++;
+      this.scheduleBotTurn();
+      return;
+    }
+    const nextActive = this.state.players[this.state.activePlayerIndex];
+    const nextKey = `${this.state.gameId}:${this.state.turnNumber}:${nextActive?.id ?? ""}`;
+    if (nextKey !== turnKey) {
+      this.botBudgetKey = nextKey;
+      this.botActionsThisTurn = 0;
+    } else this.botActionsThisTurn++;
+    this.scheduleBotTurn();
+  }
+
+  private performBotFallback(playerId: string): ActionResult<unknown> {
+    if (this.state.pendingConquestMove) {
+      return this.completeConquestMove(playerId, this.state.pendingConquestMove.minimumUnits);
+    }
+    const projected = projectStateFor(this.state, playerId);
+    const hand = [...(projected.myHand ?? [])].sort((a, b) =>
+      a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    );
+    const pendingTrade = projected.publicCards?.pendingForcedTrade?.playerId === playerId;
+    if (pendingTrade || (this.state.phase === "deployment" && this.state.pendingReinforcements === 0)) {
+      const sets = projected.publicCards?.mode === "escalating" && hand.length >= 3
+        ? suggestSets(hand, new Set(Object.values(this.state.territories)
+          .filter((territory) => territory.ownerId === playerId)
+          .map((territory) => territory.id)))
+        : [];
+      if (sets[0]?.length === 3) {
+        return this.tradeCards(playerId, sets[0].map((card) => card.id) as [string, string, string]);
+      }
+    }
+    if (pendingTrade && this.state.pendingReinforcements > 0) {
+      const territory = this.firstOwnedTerritory(playerId);
+      if (!territory) return { ok: false, error: "No legal deployment fallback" };
+      return this.deploy(playerId, territory.id, this.state.pendingReinforcements);
+    }
+    if (this.state.phase === "deployment") {
+      const territory = this.firstOwnedTerritory(playerId);
+      if (!territory || this.state.pendingReinforcements < 1) {
+        return { ok: false, error: "No legal deployment fallback" };
+      }
+      return this.deploy(playerId, territory.id, this.state.pendingReinforcements);
+    }
+    if (this.state.phase === "attack") return this.skipPhase(playerId);
+    if (this.state.phase === "fortify") return this.endTurn(playerId);
+    return { ok: false, error: "No fallback for current phase" };
+  }
+
+  private firstOwnedTerritory(playerId: string) {
+    return Object.values(this.state.territories)
+      .filter((territory) => territory.ownerId === playerId)
+      .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)[0];
   }
 
   get isFull(): boolean {
@@ -360,6 +559,44 @@ export class GameRoom {
     return { ok: true };
   }
 
+  addBots(count: number): boolean {
+    if (
+      this.state.phase !== "lobby" ||
+      !Number.isInteger(count) ||
+      count < 0 ||
+      count > this.maxPlayers - this.state.players.length ||
+      this.botPlayersCount + count > this.botCount
+    ) {
+      return false;
+    }
+    for (let i = 0; i < count; i++) {
+      const colorIndex = this.state.players.length;
+      const colorDef = getPlayerColor(colorIndex);
+      const player: Player = {
+        id: generateId("bot"),
+        name: `Bot ${i + 1}`,
+        colorIndex,
+        colorHex: colorDef.hex,
+        connected: false,
+        isAlive: true,
+        ready: true,
+        rematchReady: true,
+        controller: "bot",
+        botProfile: "standard",
+      };
+      this.state.players.push(player);
+      const event: GameEvent = {
+        type: "player_joined",
+        player,
+        timestamp: Date.now(),
+      };
+      this.state.history.push(event);
+      this.broadcastEvent(event, this.state);
+    }
+    this.broadcastSnapshot();
+    return true;
+  }
+
   /**
    * Mark player ready. If all connected players ready and at least 2 players present, start game.
    * If readiness changes and game does not start, broadcast updated lobby state.
@@ -371,8 +608,9 @@ export class GameRoom {
 
     player.ready = ready;
 
-    const connectedPlayers = this.state.players.filter((p) => p.connected);
-    const allReady = connectedPlayers.length >= 2 && connectedPlayers.every((p) => p.ready);
+    const connectedPlayers = this.state.players.filter((p) => p.connected && p.controller !== "bot");
+    const participants = this.participatingPlayers();
+    const allReady = connectedPlayers.length >= 1 && participants.length >= 2 && participants.every((p) => p.controller === "bot" || (p.connected && p.ready));
     if (allReady) {
       this.startGame();
       return true;
@@ -394,9 +632,10 @@ export class GameRoom {
 
     player.rematchReady = ready;
 
-    const connectedPlayers = this.state.players.filter((p) => p.connected);
-    const readyCount = connectedPlayers.filter((p) => p.rematchReady).length;
-    const requiredCount = connectedPlayers.length;
+    const connectedPlayers = this.state.players.filter((p) => p.connected && p.controller !== "bot");
+    const participants = this.participatingPlayers();
+    const readyCount = participants.filter((p) => p.controller === "bot" || (p.connected && p.rematchReady)).length;
+    const requiredCount = participants.length;
 
     const event: GameEvent = {
       type: "rematch_ready_changed",
@@ -410,9 +649,7 @@ export class GameRoom {
     this.broadcastEvent(event, this.state);
     this.broadcastSnapshot();
 
-    const allRematchReady =
-      connectedPlayers.length >= 2 &&
-      connectedPlayers.every((p) => p.rematchReady === true);
+    const allRematchReady = connectedPlayers.length >= 1 && participants.length >= 2 && participants.every((p) => p.controller === "bot" || (p.connected && p.rematchReady === true));
 
     if (allRematchReady) {
       this.startRematch();
@@ -428,12 +665,13 @@ export class GameRoom {
    */
   startRematch(): boolean {
     if (this.state.phase !== "game_over") return false;
-    const connectedPlayers = this.state.players.filter((p) => p.connected);
-    if (connectedPlayers.length < 2) return false;
+    const connectedPlayers = this.state.players.filter((p) => p.connected && p.controller !== "bot");
+    const participating = this.participatingPlayers();
+    if (connectedPlayers.length < 1 || participating.length < 2) return false;
 
     // Drop disconnected players from registration
     for (const p of this.state.players) {
-      if (!p.connected) {
+      if (!p.connected && p.controller !== "bot") {
         this.playerSockets.delete(p.id);
         this.playerTokens.delete(p.id);
       }
@@ -443,7 +681,7 @@ export class GameRoom {
     this.matchNumber += 1;
     this.gameId = generateId("game");
 
-    const participatingPlayers: Player[] = connectedPlayers.map((p, index) => {
+    const participatingPlayers: Player[] = participating.map((p, index) => {
       const colorDef = getPlayerColor(index);
       return {
         ...p,
@@ -451,7 +689,7 @@ export class GameRoom {
         colorHex: colorDef.hex,
         isAlive: true,
         ready: false,
-        rematchReady: false,
+        rematchReady: p.controller === "bot",
       };
     });
 
@@ -465,6 +703,12 @@ export class GameRoom {
       this.matchNumber,
       this.cardMode
     );
+    for (const player of initialState.players) {
+      if (player.controller === "bot") {
+        player.ready = true;
+        player.rematchReady = true;
+      }
+    }
 
     const activePlayer = initialState.players[initialState.activePlayerIndex];
     const rematchEvent: GameEvent = {
@@ -495,6 +739,8 @@ export class GameRoom {
     logger.info(
       `Rematch #${this.matchNumber} started in room ${this.roomCode} with ${participatingPlayers.length} players. Active player: ${activePlayer.name}`
     );
+    this.botActionsThisTurn = 0;
+    this.scheduleBotTurn();
     return true;
   }
 
@@ -514,8 +760,10 @@ export class GameRoom {
    */
   startGame(): boolean {
     if (this.state.phase !== "lobby") return false;
-    const activePlayers = this.state.players.filter((p) => p.connected);
-    if (activePlayers.length < 2) return false;
+    const activePlayers = this.participatingPlayers();
+    const humanPlayers = activePlayers.filter((p) => p.controller !== "bot" && p.connected);
+    if (humanPlayers.length < 1 || activePlayers.length < 2) return false;
+    if (!humanPlayers.every((p) => p.ready)) return false;
 
     this.reseedForMatch();
     this.matchNumber = 1;
@@ -551,6 +799,8 @@ export class GameRoom {
     logger.info(
       `Game started in room ${this.roomCode} with ${activePlayers.length} players. Active player: ${activePlayers[0].name}`
     );
+    this.botActionsThisTurn = 0;
+    this.scheduleBotTurn();
     return true;
   }
 
@@ -559,7 +809,7 @@ export class GameRoom {
    */
   reconnectPlayer(playerId: string, socket: RoomSocket): boolean {
     const player = this.getPlayer(playerId);
-    if (!player) return false;
+    if (!player || player.controller === "bot") return false;
 
     player.connected = true;
     this.playerSockets.set(playerId, socket);
@@ -587,7 +837,7 @@ export class GameRoom {
     if (activePlayer?.id === playerId) {
       this.scheduleTurnTimeout();
     }
-
+    this.scheduleBotTurn();
     logger.info(`Player ${player.name} (${playerId}) reconnected to room ${this.roomCode}`);
     return true;
   }
@@ -618,6 +868,7 @@ export class GameRoom {
       this.broadcastSnapshot();
 
       logger.info(`Player ${player.name} (${playerId}) left lobby ${this.roomCode} (seat freed)`);
+      if (this.connectedPlayersCount === 0) this.onDeserted?.(this.roomCode);
       return;
     }
 
@@ -639,12 +890,13 @@ export class GameRoom {
 
       logger.info(`Player ${player.name} (${playerId}) left finished room ${this.roomCode}`);
 
-      const connected = this.state.players.filter((p) => p.connected);
+      const connected = this.state.players.filter((p) => p.connected && p.controller !== "bot");
       if (connected.length >= 2 && connected.every((p) => p.rematchReady)) {
         this.startRematch();
       }
 
       if (connected.length === 0) {
+        this.cancelBotTurn();
         this.onDeserted?.(this.roomCode);
       }
       return;
@@ -679,6 +931,8 @@ export class GameRoom {
     if (connectedCount === 0 && this.abandonTimeoutMs > 0) {
       this.scheduleAbandonTimer();
     }
+    if (this.connectedPlayersCount === 0) this.cancelBotTurn();
+    else this.scheduleBotTurn();
   }
 
   removePlayer(playerId: string, reason?: string) {
@@ -691,6 +945,8 @@ export class GameRoom {
 
   /** Schedule a forfeit for a disconnected active player after the grace period. */
   private scheduleDisconnectForfeit(playerId: string) {
+    const player = this.getPlayer(playerId);
+    if (!player || player.controller === "bot") return;
     this.cancelDisconnectForfeit(playerId);
     const timer = this.scheduler.setTimeout(() => {
       this.disconnectForfeitTimers.delete(playerId);
@@ -714,9 +970,11 @@ export class GameRoom {
    * Must be called BEFORE any broadcastEvent / broadcastSnapshot for the new turn.
    */
   private applyTurnDeadline() {
-    if (this.turnTimeoutMs <= 0) return;
     const activePlayer = this.state.players[this.state.activePlayerIndex];
-    if (!activePlayer?.isAlive) return;
+    if (this.turnTimeoutMs <= 0 || !activePlayer?.isAlive || activePlayer.controller === "bot") {
+      this.state = { ...this.state, turnDeadlineAt: null };
+      return;
+    }
     const deadline = Date.now() + this.turnTimeoutMs;
     this.state = { ...this.state, turnDeadlineAt: deadline };
   }
@@ -727,13 +985,12 @@ export class GameRoom {
    * clients received.
    */
   private armTurnTimer() {
-    if (this.turnTimeoutMs <= 0) return;
     const activePlayer = this.state.players[this.state.activePlayerIndex];
-    if (!activePlayer?.isAlive) return;
+    if (this.turnTimeoutMs <= 0 || !activePlayer?.isAlive || activePlayer.controller === "bot") return;
     this.turnTimeoutTimer = this.scheduler.setTimeout(() => {
       this.turnTimeoutTimer = null;
       const ap = this.state.players[this.state.activePlayerIndex];
-      if (ap) this.executeForfeit(ap.id, "timeout");
+      if (ap && ap.controller !== "bot") this.executeForfeit(ap.id, "timeout");
     }, this.turnTimeoutMs);
   }
 
@@ -779,6 +1036,7 @@ export class GameRoom {
 
   /** Clear all pending timers. Should be called when removing a room. */
   clearAllTimers() {
+    this.cancelBotTurn();
     for (const [pid, timer] of this.disconnectForfeitTimers) {
       this.scheduler.clearTimeout(timer);
     }
@@ -791,7 +1049,7 @@ export class GameRoom {
   private executeForfeit(playerId: string, reason: "disconnected" | "timeout") {
     if (this.state.phase === "game_over") return;
     const activePlayer = this.state.players[this.state.activePlayerIndex];
-    if (!activePlayer || activePlayer.id !== playerId) return;
+    if (!activePlayer || activePlayer.id !== playerId || activePlayer.controller === "bot") return;
     if (!activePlayer.isAlive) return;
 
     logger.info(`Forfeiting turn for player ${activePlayer.name} (${playerId}) in room ${this.roomCode} — reason: ${reason}`);
@@ -818,9 +1076,10 @@ export class GameRoom {
       this.armTurnTimer();
       // If the new active player is also disconnected, schedule their forfeit too
       const nextPlayer = this.state.players[this.state.activePlayerIndex];
-      if (nextPlayer && !nextPlayer.connected && this.disconnectGraceMs > 0) {
+      if (nextPlayer && nextPlayer.controller !== "bot" && !nextPlayer.connected && this.disconnectGraceMs > 0) {
         this.scheduleDisconnectForfeit(nextPlayer.id);
       }
+      this.scheduleBotTurn();
     } else {
       logger.warn(`forfeitTurn failed for ${playerId} in ${this.roomCode}: ${result.error}`);
     }
@@ -884,6 +1143,7 @@ export class GameRoom {
 
       // If game ended, clear all timers and log the RNG seed for reproducibility
       if (this.state.phase === "game_over") {
+        this.cancelBotTurn();
         this.clearAllTimers();
         logger.debug(
           `Match ${this.matchNumber} ended in room ${this.roomCode}. ` +
@@ -894,10 +1154,11 @@ export class GameRoom {
         this.armTurnTimer();
         // If the new active player is disconnected, schedule their forfeit
         const newActive = this.state.players[this.state.activePlayerIndex];
-        if (newActive && !newActive.connected && this.disconnectGraceMs > 0) {
+        if (newActive && newActive.controller !== "bot" && !newActive.connected && this.disconnectGraceMs > 0) {
           this.scheduleDisconnectForfeit(newActive.id);
         }
       }
+      this.scheduleBotTurn();
     }
     return result;
   }
@@ -1147,6 +1408,8 @@ export class GameRoom {
       kind: this.kind,
       phase: this.state.phase,
       playersCount: this.state.players.length,
+      humanPlayersCount: this.humanPlayersCount,
+      botPlayersCount: this.botPlayersCount,
       maxPlayers: this.maxPlayers,
       mapId: this.map.id,
       mapName: this.map.name,
@@ -1219,6 +1482,7 @@ export class RoomManager {
     maxPlayers?: number;
     map?: MapDefinition;
     cardMode?: "escalating" | "off";
+    botCount?: number;
   }): GameRoom | null {
     if (this.rooms.size >= this.maxRooms) {
       return null;
@@ -1237,6 +1501,7 @@ export class RoomManager {
       maxPlayers: options?.maxPlayers ?? 4,
       map: options?.map ?? this.defaultMap,
       cardMode: options?.cardMode ?? "escalating",
+      botCount: options?.botCount ?? 0,
       ...this.roomDefaults,
       onDeserted: (c) => this.removeRoom(c),
     });
@@ -1266,10 +1531,12 @@ export class RoomManager {
     const code = roomCode.toUpperCase();
     const room = this.rooms.get(code);
     if (room) {
-      room.clearAllTimers();
+      room.dispose();
     }
     return this.rooms.delete(code);
   }
+
+  dispose(): void { for (const room of this.rooms.values()) room.dispose(); this.rooms.clear(); }
 
   getRoomsCount(): number {
     return this.rooms.size;

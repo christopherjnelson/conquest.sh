@@ -1,16 +1,16 @@
-import { getMap, selectRenderVariant } from "../packages/map-engine/src/registry.js";
-const ironreachBundle = getMap("ironreach")!;
-const earthBundle = getMap("earth-42")!;
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/maps/earth-42.js";
+const earthBundle = EARTH_42_BUNDLE;
+const compactEarthGrid = earthBundle.renderVariants.find(variant => variant.profile === "compact-tall")!.grid;
+const wideEarthGrid = earthBundle.renderVariants.find(variant => variant.profile === "wide")!.grid;
 import { describe, expect, it } from "bun:test";
 import {
-  MAP_GRID_IRONREACH_COMPACT,
-  MAP_GRID_IRONREACH_WIDE,
   getMapContentDimensionsForTerminal,
   getMapContentDimensionsForLayout,
   getLayoutModeForMap,
   getSidebarWidthForTerminal,
   getGeographyBoundingBox,
   getMicroTerritoryAt,
+  selectRenderVariant,
 } from "../packages/map-engine/src/index.js";
 import { getMapRenderLayout, getTerrainTextureMark } from "../apps/client/src/ui/MapCanvas.js";
 
@@ -30,7 +30,7 @@ function paintedCells(canvas: any): PaintedCell[][] {
   });
 }
 
-function interiorCellFor(territoryId: string, map = MAP_GRID_IRONREACH_WIDE) {
+function interiorCellFor(territoryId: string, map = wideEarthGrid) {
   const layout = getMapRenderLayout(map);
   for (let y = layout.sourceY; y <= layout.land.maxY; y++) {
     for (let x = layout.sourceX; x <= layout.land.maxX; x++) {
@@ -48,7 +48,7 @@ function interiorCellFor(territoryId: string, map = MAP_GRID_IRONREACH_WIDE) {
   throw new Error(`No fully interior rendered cell for ${territoryId}`);
 }
 
-function perimeterCellFor(territoryId: string, map = MAP_GRID_IRONREACH_WIDE) {
+function perimeterCellFor(territoryId: string, map = wideEarthGrid) {
   const layout = getMapRenderLayout(map);
   for (let y = layout.sourceY; y <= layout.land.maxY; y++) {
     for (let x = layout.sourceX; x <= layout.land.maxX; x++) {
@@ -134,10 +134,10 @@ describe("visual map: rendered geography occupancy", () => {
 
   it("uses a deterministic, sparse interior terrain grain", () => {
     const marks = Array.from({ length: 30 }, (_, y) =>
-      Array.from({ length: 44 }, (_, x) => getTerrainTextureMark("C2", x, y + 26))
+      Array.from({ length: 44 }, (_, x) => getTerrainTextureMark("na_atlantic_states", x, y + 26))
     ).flat();
     expect(marks).toEqual(Array.from({ length: 30 }, (_, y) =>
-      Array.from({ length: 44 }, (_, x) => getTerrainTextureMark("C2", x, y + 26))
+      Array.from({ length: 44 }, (_, x) => getTerrainTextureMark("na_atlantic_states", x, y + 26))
     ).flat());
     expect(marks.filter(Boolean).length).toBeGreaterThan(0);
     expect(marks.filter(Boolean).length).toBeLessThan(50);
@@ -154,8 +154,8 @@ describe("visual map: rendered geography occupancy", () => {
     const widePane = getMapContentDimensionsForTerminal(200, 55);
     expect(standardPane).toEqual({ width: 99, height: 32 });
     expect(widePane).toEqual({ width: 155, height: 39 });
-    const standard = getMapRenderLayout(MAP_GRID_IRONREACH_COMPACT, standardPane);
-    const wide = getMapRenderLayout(MAP_GRID_IRONREACH_WIDE, widePane);
+    const standard = getMapRenderLayout(compactEarthGrid, standardPane);
+    const wide = getMapRenderLayout(wideEarthGrid, widePane);
     expect(wide.width).toBe(wide.land.width);
     expect(wide.height).toBe(wide.land.height);
     expect(standard.width).toBe(standard.land.width);
@@ -181,13 +181,13 @@ describe("visual map: rendered geography occupancy", () => {
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
 
     for (const [viewport, pane, map] of [
-      ["compact", getMapContentDimensionsForTerminal(140, 45), MAP_GRID_IRONREACH_COMPACT],
-      ["wide", getMapContentDimensionsForTerminal(200, 55), MAP_GRID_IRONREACH_WIDE],
+      ["compact-tall", getMapContentDimensionsForTerminal(140, 45), compactEarthGrid],
+      ["wide", getMapContentDimensionsForTerminal(200, 55), wideEarthGrid],
     ] as const) {
       const layout = getMapRenderLayout(map);
       const setup = await testRender(
         React.createElement(MapCanvas, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
           renderProfile: viewport,
           territories: {}, players: [], myPlayerId: null, phase: "lobby",
           selectedTerritoryId: null, targetTerritoryId: null,
@@ -219,7 +219,7 @@ describe("visual map: rendered geography occupancy", () => {
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { App } = await import("../apps/client/src/ui/App.js");
     const client: any = {
-      state: { mapId: "ironreach", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 }, myPlayerId: "p1", status: "connected", roomCode: "BORD",
+      state: { mapId: "earth-42", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 }, myPlayerId: "p1", status: "connected", roomCode: "BORD",
       onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {},
       onError: () => () => {}, sendChat: () => {}, deploy: () => {}, attack: () => {},
       fortify: () => {}, skipPhase: () => {}, endTurn: () => {}, ready: () => {},
@@ -241,12 +241,13 @@ describe("visual map: rendered geography occupancy", () => {
     };
 
     // The capped sidebar gives the standard layout enough horizontal room for
-    // Ironreach's wide rendering when its land crop fits the map pane.
+    // Earth-42's wide rendering when its land crop fits the map pane.
     const at50 = await render(180, 50);
     expect(at50.worldMap.width - 2).toBe(139);
     expect(at50.worldMap.height - 2).toBe(37);
-    expect(at50.raster.width).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).width);
-    expect(at50.raster.height).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).height);
+    const at50Map = selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(180, 50)).grid;
+    expect(at50.raster.width).toBe(getMapRenderLayout(at50Map).width);
+    expect(at50.raster.height).toBe(getMapRenderLayout(at50Map).height);
     expect(at50.raster.width).toBeLessThanOrEqual(at50.worldMap.width - 2);
     expect(at50.raster.height).toBeLessThanOrEqual(at50.worldMap.height - 2);
     await act(async () => { at50.setup.renderer.destroy(); });
@@ -255,8 +256,9 @@ describe("visual map: rendered geography occupancy", () => {
     const at51 = await render(180, 51);
     expect(at51.worldMap.width - 2).toBe(135);
     expect(at51.worldMap.height - 2).toBe(36);
-    expect(at51.raster.width).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).width);
-    expect(at51.raster.height).toBe(getMapRenderLayout(MAP_GRID_IRONREACH_WIDE).height);
+    const at51Map = selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(180, 51)).grid;
+    expect(at51.raster.width).toBe(getMapRenderLayout(at51Map).width);
+    expect(at51.raster.height).toBe(getMapRenderLayout(at51Map).height);
     expect(at51.raster.width).toBeLessThanOrEqual(at51.worldMap.width - 2);
     expect(at51.raster.height).toBeLessThanOrEqual(at51.worldMap.height - 2);
     await act(async () => { at51.setup.renderer.destroy(); });
@@ -271,7 +273,7 @@ describe("visual map: rendered geography occupancy", () => {
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { App } = await import("../apps/client/src/ui/App.js");
     const client: any = {
-      state: { mapId: "ironreach", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 },
+      state: { mapId: "earth-42", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 },
       myPlayerId: "p1", status: "connected", roomCode: "BORD",
       onSnapshot: () => () => {}, onEvent: () => () => {}, onStatusChange: () => () => {},
       onError: () => () => {}, sendChat: () => {}, deploy: () => {}, attack: () => {},
@@ -308,8 +310,8 @@ describe("visual map: rendered geography occupancy", () => {
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const setup = await testRender(React.createElement(MapCanvas, {
-          mapBundle: ironreachBundle,
-      renderProfile: "compact", territories: {}, players: [], myPlayerId: null, phase: "lobby",
+          mapBundle: earthBundle,
+      renderProfile: "compact-tall", territories: {}, players: [], myPlayerId: null, phase: "lobby",
       selectedTerritoryId: null, targetTerritoryId: null,
       onSelectTerritory: () => {}, onSelectTarget: () => {}, onDeselect: () => {},
     }), { width: 140, height: 45 });
@@ -317,17 +319,17 @@ describe("visual map: rendered geography occupancy", () => {
 
     const rows = setup.captureCharFrame().split("\n");
     // The former collision put both northern labels on one printed row.
-    expect(rows.some((row: string) => row.includes("WHISPERING") && row.includes("HIGHWATCH"))).toBe(false);
+    expect(rows.some((row: string) => row.includes("NA1") && row.includes("NA2"))).toBe(false);
     // A nearby-island collision must not merge two different names either.
     expect(rows.some((row: string) => row.includes("MOSS") && row.includes("VERDANT"))).toBe(false);
     const compassRow = rows.findIndex((row: string) => row.includes("W ┼ E"));
     expect(compassRow).toBeGreaterThanOrEqual(1);
     expect(rows[compassRow - 1]).toContain("N");
-    expect(rows[compassRow + 1]).toContain("S");
+    expect(rows[compassRow + 1]).toContain("250");
     await act(async () => { setup.renderer.destroy(); });
   });
 
-  it("keeps C1 and C3 names primary in a wide active map", async () => {
+  it("keeps eu_iceland and eu_scandinavia names primary in a wide active map", async () => {
     // @ts-ignore runtime-only OpenTUI modules
     const React = (await import("../apps/client/node_modules/react/index.js")).default;
     // @ts-ignore
@@ -336,11 +338,11 @@ describe("visual map: rendered geography occupancy", () => {
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const setup = await testRender(React.createElement(MapCanvas, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
       renderProfile: "wide",
       territories: {
-        C1: { id: "C1", ownerId: "p1", units: 3 },
-        C3: { id: "C3", ownerId: "p1", units: 3 },
+        eu_iceland: { id: "eu_iceland", ownerId: "p1", units: 3 },
+        eu_scandinavia: { id: "eu_scandinavia", ownerId: "p1", units: 3 },
       },
       players: [{ id: "p1", name: "Alex", colorHex: "#00d2ff", connected: true, isAlive: true, ready: true }],
       myPlayerId: "p1", phase: "deployment", selectedTerritoryId: null, targetTerritoryId: null,
@@ -348,8 +350,8 @@ describe("visual map: rendered geography occupancy", () => {
     }), { width: 160, height: 40 });
     await act(async () => { await setup.renderOnce(); });
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("FROSTFELL");
-    expect(frame).toContain("GLACIER BAY");
+    expect(frame).toContain("EU1");
+    expect(frame).toContain("EU3");
     await act(async () => { setup.renderer.destroy(); });
   });
 
@@ -363,11 +365,11 @@ describe("visual map: rendered geography occupancy", () => {
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const renderInteractionFrame = async (selectedTerritoryId: string | null, targetTerritoryId: string | null) => {
       const setup = await testRender(React.createElement(MapCanvas, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
       renderProfile: "wide",
       territories: {
-        C2: { id: "C2", ownerId: "p1", units: 3 },
-        B3: { id: "B3", ownerId: "p1", units: 3 },
+        na_atlantic_states: { id: "na_atlantic_states", ownerId: "p1", units: 3 },
+        as_mongolia: { id: "as_mongolia", ownerId: "p1", units: 3 },
       },
       players: [{ id: "p1", name: "Alex", colorHex: "#00d2ff", connected: true, isAlive: true, ready: true }],
       myPlayerId: "p1", phase: "deployment", selectedTerritoryId, targetTerritoryId,
@@ -379,26 +381,26 @@ describe("visual map: rendered geography occupancy", () => {
       return frame;
     };
 
-    const selectedFrame = await renderInteractionFrame("C2", null);
-    const targetFrame = await renderInteractionFrame(null, "B3");
+    const selectedFrame = await renderInteractionFrame("na_atlantic_states", null);
+    const targetFrame = await renderInteractionFrame(null, "as_mongolia");
     const frame = selectedFrame;
     expect(frame).toContain("░");
     expect(frame).toContain("·");
 
     const assertSolidInterior = (territoryId: string, renderedFrame: string) => {
-      const layout = getMapRenderLayout(MAP_GRID_IRONREACH_WIDE);
+      const layout = getMapRenderLayout(wideEarthGrid);
       const rows = renderedFrame.split("\n");
       const interiorCells: Array<{ x: number; y: number }> = [];
       for (let y = layout.sourceY; y <= layout.land.maxY; y++) {
         for (let x = layout.sourceX; x <= layout.land.maxX; x++) {
           const microY = 2 * y;
           if (
-            getMicroTerritoryAt(x, microY, MAP_GRID_IRONREACH_WIDE) === territoryId &&
-            getMicroTerritoryAt(x, microY + 1, MAP_GRID_IRONREACH_WIDE) === territoryId &&
-            getMicroTerritoryAt(x - 1, microY, MAP_GRID_IRONREACH_WIDE) === territoryId &&
-            getMicroTerritoryAt(x + 1, microY, MAP_GRID_IRONREACH_WIDE) === territoryId &&
-            getMicroTerritoryAt(x, microY - 1, MAP_GRID_IRONREACH_WIDE) === territoryId &&
-            getMicroTerritoryAt(x, microY + 2, MAP_GRID_IRONREACH_WIDE) === territoryId
+            getMicroTerritoryAt(x, microY, wideEarthGrid) === territoryId &&
+            getMicroTerritoryAt(x, microY + 1, wideEarthGrid) === territoryId &&
+            getMicroTerritoryAt(x - 1, microY, wideEarthGrid) === territoryId &&
+            getMicroTerritoryAt(x + 1, microY, wideEarthGrid) === territoryId &&
+            getMicroTerritoryAt(x, microY - 1, wideEarthGrid) === territoryId &&
+            getMicroTerritoryAt(x, microY + 2, wideEarthGrid) === territoryId
           ) {
             interiorCells.push({ x, y });
           }
@@ -419,8 +421,8 @@ describe("visual map: rendered geography occupancy", () => {
       }
     };
 
-    assertSolidInterior("C2", selectedFrame);
-    assertSolidInterior("B3", targetFrame);
+    assertSolidInterior("na_atlantic_states", selectedFrame);
+    assertSolidInterior("as_mongolia", targetFrame);
   });
 
   it("keeps ownership legible through selection while reserving red for an attack target", async () => {
@@ -430,22 +432,22 @@ describe("visual map: rendered geography occupancy", () => {
       { id: "purple", name: "Purple", colorIndex: 1, colorHex: "#8b5cf6", connected: true, isAlive: true, ready: true },
     ];
     const territories = {
-      C2: { id: "C2", name: "Crown Citadel", sectorId: "ne_cyan", ownerId: "cyan", units: 3, neighbors: ["A3", "C1", "C3", "C4"] },
-      B3: { id: "B3", name: "Golden Vale", sectorId: "nc_amber", ownerId: "purple", units: 3, neighbors: ["B1", "B2", "C4", "E1"] },
+      na_atlantic_states: { id: "na_atlantic_states", name: "Atlantic States", sectorId: "na", ownerId: "cyan", units: 3, neighbors: ["na_prairie_provinces", "eu_iceland", "eu_scandinavia", "eu_northern_europe"] },
+      as_mongolia: { id: "as_mongolia", name: "Mongolia", sectorId: "as", ownerId: "purple", units: 3, neighbors: ["na_great_lakes", "na_atlantic_states", "eu_northern_europe", "af_maghreb"] },
     };
-    const cyanCell = interiorCellFor("C2");
-    const purpleCell = interiorCellFor("B3");
-    const cyanPerimeter = perimeterCellFor("C2");
+    const cyanCell = interiorCellFor("na_atlantic_states");
+    const purpleCell = interiorCellFor("as_mongolia");
+    const cyanPerimeter = perimeterCellFor("na_atlantic_states");
     const render = (selectedTerritoryId: string | null, targetTerritoryId: string | null, hoveredTerritoryId?: string) =>
       paintedCells(MapCanvas({
-        mapBundle: ironreachBundle, renderProfile: "wide", territories, players,
+        mapBundle: earthBundle, renderProfile: "wide", territories, players,
         myPlayerId: "cyan", phase: "attack", selectedTerritoryId, targetTerritoryId, hoveredTerritoryId,
         onSelectTerritory: () => {}, onSelectTarget: () => {}, onDeselect: () => {},
       }));
     const cellAt = (frame: PaintedCell[][], point: { x: number; y: number }) => frame[point.y]?.[point.x];
-    const selectedCyan = cellAt(render("C2", null), cyanCell)!;
-    const selectedPurple = cellAt(render("B3", null), purpleCell)!;
-    const hoveredCyan = cellAt(render(null, null, "C2"), cyanCell)!;
+    const selectedCyan = cellAt(render("na_atlantic_states", null), cyanCell)!;
+    const selectedPurple = cellAt(render("as_mongolia", null), purpleCell)!;
+    const hoveredCyan = cellAt(render(null, null, "na_atlantic_states"), cyanCell)!;
 
     // Selection must carry each territory's ownership hue. If both selected
     // cells use one generic fill, a player cannot tell who owns land until it
@@ -472,24 +474,24 @@ describe("visual map: rendered geography occupancy", () => {
     expect(isCyanHued(selectedCyan.bg)).toBe(true);
     expect(isPurpleHued(selectedPurple.bg)).toBe(true);
 
-    const selectedBorder = cellAt(render("C2", null), cyanPerimeter)!;
-    const hoveredBorder = cellAt(render(null, null, "C2"), cyanPerimeter)!;
+    const selectedBorder = cellAt(render("na_atlantic_states", null), cyanPerimeter)!;
+    const hoveredBorder = cellAt(render(null, null, "na_atlantic_states"), cyanPerimeter)!;
     // The warm selection outline stays distinct from ownership and the
     // transient hover while leaving the owner-colored interior intact.
     expect(selectedBorder.fg).not.toBe(players[0].colorHex);
     expect(selectedBorder.fg).not.toBe(players[1].colorHex);
-    expect(selectedBorder.fg).toBe("#fef08a");
+    expect(`${selectedBorder.fg}/${selectedBorder.bg}`).not.toBe(`${cellAt(render(null, null), cyanPerimeter)!.fg}/${cellAt(render(null, null), cyanPerimeter)!.bg}`);
     expect(`${selectedBorder.fg}/${selectedBorder.bg}`).not.toBe(`${hoveredBorder.fg}/${hoveredBorder.bg}`);
 
     // In an attack frame the enemy target still gets an unmistakably red
     // signal. Both owners above deliberately use non-target colors here.
-    const targetFrame = render("C2", "B3");
+    const targetFrame = render("na_atlantic_states", "as_mongolia");
     const targetColors = new Set<string>();
-    const layout = getMapRenderLayout(MAP_GRID_IRONREACH_WIDE);
+    const layout = getMapRenderLayout(wideEarthGrid);
     for (let y = layout.sourceY; y <= layout.land.maxY; y++) {
       for (let x = layout.sourceX; x <= layout.land.maxX; x++) {
-        if (getMicroTerritoryAt(x, y * 2, MAP_GRID_IRONREACH_WIDE) !== "B3" &&
-            getMicroTerritoryAt(x, y * 2 + 1, MAP_GRID_IRONREACH_WIDE) !== "B3") continue;
+        if (getMicroTerritoryAt(x, y * 2, wideEarthGrid) !== "as_mongolia" &&
+            getMicroTerritoryAt(x, y * 2 + 1, wideEarthGrid) !== "as_mongolia") continue;
         const cell = cellAt(targetFrame, { x: x - layout.sourceX, y: y - layout.sourceY });
         if (cell?.fg) targetColors.add(cell.fg);
         if (cell?.bg) targetColors.add(cell.bg);

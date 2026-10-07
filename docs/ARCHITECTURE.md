@@ -45,7 +45,7 @@ conquest.sh/
 │   │   └── package.json
 │   ├── map-engine/          # Canonical microcell templates, topologies, geometry helpers
 │   │   ├── src/
-│   │   │   ├── maps/        # Built-in bundles and authored render data (earth-42.ts, grid-ironreach.ts)
+│   │   │   ├── maps/        # Earth-42 logical topology and authored render data
 │   │   │   ├── registry.ts  # Built-in map registration and render-variant selection
 │   │   │   ├── grid-engine.ts # Microcell centroids, bounds, hit-testing, half-block rendering
 │   │   │   ├── layout.ts    # Responsive viewport modes (compact, standard, wide)
@@ -80,7 +80,7 @@ Client A (Intent: Attack)  ─┐
                            ├─► Server validates & executes combat (seeded sfc32 PRNG)
 Client B (Observes)        ─┘         │
                                       ▼
-                  Broadcast Event + Per-Player State Delta (protocol v0.4.0)
+                  Broadcast Event + Per-Player State Delta (protocol v0.5.0)
                                       ▼
                        All connected terminals update
 ```
@@ -89,16 +89,20 @@ Client B (Observes)        ─┘         │
 
 Each match draws 16 bytes of entropy from the OS CSPRNG at start (`generateRngSeed` → `crypto.getRandomValues`). Those bytes seed an `sfc32` PRNG (`makeSfc32` in `packages/shared/src/rng.ts`). The seed is **server-only**: it drives territory shuffles and all dice rolls and is never broadcast to clients. Logged at match end so a specific match can be replayed in tests by supplying the seed as `ConquestServer({ rngSeed })`.
 
-### Per-Player State Projection & Delta Protocol (v0.4.0)
+### Per-Player State Projection & Delta Protocol (v0.5.0)
 
 The server does not broadcast a single canonical `GameState` to all players. Instead it applies a *projection* to each player's view before sending:
 
-- `packages/game-core/src/projection.ts` computes the per-player `GameState` by stripping server-only data (RNG seed, socket map) from the authoritative state.
+- `packages/game-core/src/projection.ts` computes each per-player `GameState`, stripping server-only data and private card hands from the authoritative state.
 - On each state change the server diffs the new projected state against the last projected state sent to that player and sends a compact `StateDelta`:
   - `delta.set`: fields that changed; merged into the client state.
   - `delta.unset`: top-level keys deleted from the previous state.
   - `delta.version`: monotonic state counter; a gap triggers `client:resync` and a full snapshot reply.
 - Clients apply deltas in `applyStateDelta` (`apps/client/src/network/client.ts`). If a version gap is detected, the client requests a fresh snapshot.
+
+Card hands are private player data. The server projects a player's own hand into that player's state while keeping opponents' hands hidden; public card counts and events communicate only what other players need to know.
+
+Game history is append-only. State transitions append events instead of copying the full event history into every new state, avoiding quadratic copying as a match grows. Client snapshots project only the latest 200 events; player-specific projections preserve only the history and private fields intended for that player.
 
 ### Turn Phases:
 1. **Deployment**: Sovereign receives reinforcements based on owned territories ($\max(3, \lfloor N/3 \rfloor)$) plus continental control bonuses. Deploys armies to owned realms.
@@ -177,7 +181,7 @@ MapBundle
 
 ### Earth — Global Front (default)
 
-`earth-42` is the default built-in map. It has 42 territories, uses 6 continent regions, and recommends 2–6 players:
+`earth-42` is the only supported map before version 1.0. It has 42 territories, uses 6 continent regions, and recommends 2–6 players:
 
 | Continent | Territories | Reinforcement bonus |
 | --- | ---: | ---: |
@@ -202,11 +206,6 @@ Earth provides a sequence of terminal render densities from compact through ultr
 The standard layout caps its sidebar at 38 columns; wide layouts cap it at 42. `getMapContentDimensionsForTerminal` shares those measurements with App and variant selection. Army badge placement uses an optional per-variant `unitPos` preference, falling back to a wholly owned interior run. Labels yield to badges; counts at 100 or more render as `100+` on the map while the inspector shows the exact value.
 The checked-in rasters were constructed from [Natural Earth 1:110m land polygons](https://www.naturalearthdata.com/downloads/110m-physical-vectors/110m-land/), which are [public domain](https://www.naturalearthdata.com/about/terms-of-use/). The generation script documents the source; the game never fetches map data at runtime.
 
-### Additional built-in map: Ironreach
-
-The existing 20-territory fictional `ironreach` map remains registered through the same bundle API. `grid-ironreach` and `ironreach-legacy` continue as compatibility aliases for server configuration.
-The earlier `sector-07` cyber grid remains available as a built-in compatibility map.
-
 ### Adding a Map
 
 1. Define a logical `MapDefinition` with stable territory IDs, region membership, bonuses, and bidirectional adjacency.
@@ -214,7 +213,7 @@ The earlier `sector-07` cyber grid remains available as a built-in compatibility
 3. Register a `MapBundle` with `registerMap` at the map-engine bootstrap boundary.
 4. Add topology, geometry, navigation, and render-selection tests.
 
-No change to game rules, client map components, or server map-routing branches should be required for another built-in map.
+Additional playable maps are deferred until after version 1.0. Keep new maps as independent logical definitions and render bundles; test their topology and geometry when map work resumes.
 
 ---
 
@@ -253,13 +252,21 @@ Client navigation is organized into explicit screens:
 ### Screen Flow:
 - `home`: Central launcher displaying public games, create game, join by code, resume match, and server info.
 - `room-browser`: Live table of public rooms polling `GET /api/rooms` (parsed via `z.array(RoomSummarySchema)`) every 4 seconds. Shows room name, player count, map, and status.
-- `create-game`: Configurable game creation (room name, max players 2–6, visibility: public vs unlisted). Emits `client:create_room`.
+- `create-game`: Configurable game creation (room name, total seats 2–6, bot seats, visibility: public vs unlisted). `Ctrl+P` applies the Solo Practice preset: an unlisted two-seat room with one bot. Emits `client:create_room`.
 - `join-code`: Explicit 4-character uppercase alphanumeric code entry validated via `RoomCodeSchema`. Rejects unknown codes with `ROOM_NOT_FOUND` and full rooms with `JOIN_FAILED` instead of silently auto-creating rooms.
 - `game`: The tactical match UI (`App.tsx`), encompassing the map canvas, sidebar/compact inspector, event log chronicle, and action council.
 
 ### Room Kinds & Lifecycle:
 - **`RoomKind`**: `"custom"` rooms are created by players.
 - **`RoomVisibility`**: `"public"` (listed in browser) vs `"unlisted"` (joinable only by direct room code).
-- **Start Conditions**: Rooms require at least 2 connected players and all participating connected players marked **Ready**.
+- **Start Conditions**: Rooms require at least 2 participants, including bots, at least 1 connected human, and every human participant marked **Ready**. Bots are ready by default and have no socket.
 - **Lobby Disconnect Semantics**: Disconnecting before game start frees the lobby seat immediately so public room summaries and joinability stay in sync. Disconnected lobby players do not receive territory when the match starts.
 - **Leaving / Switching Rooms**: Returning from a lobby to Home explicitly detaches the player and clears the room session so subsequent room creation starts clean. Quitting during an active match (`phase !== 'lobby'`) preserves the local session to allow reconnecting.
+
+## 8. Bot Players and Offline Simulations
+
+`packages/bot-core` implements the versioned `standard` bot profile as a deterministic state-to-action function. It chooses legal deployment, attack, conquest-transfer, and fortification actions from the public game state; room actions still pass through the same validated game rules used for humans.
+
+Each `GameRoom` owns bot scheduling. It waits 150 ms between bot actions, pauses when no human is connected, and limits bot decisions to 80 per player turn. If the limit is reached during conquest, the room completes the mandatory troop move and advances phases safely; required confirmations may add actions. Disposal cancels pending work, and stale callbacks cannot change a disposed room. Bots count toward capacity, are ready by default, and never receive fake sockets.
+
+The server's live territory shuffle and combat use the match's private OS-seeded `sfc32` stream. The offline simulation tool uses separately seeded shuffle and combat streams for repeatable runs. For example, `bun run scripts/bot-simulate.ts 30 100 721` runs 30 Earth-42 games for up to 100 rounds with seed 721; its deterministic output does not make live match outcomes predictable to clients.

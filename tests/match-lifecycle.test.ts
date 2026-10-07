@@ -12,7 +12,7 @@ import {
   finalizeMatch,
   isActiveMatchPhase,
 } from "../packages/game-core/src/index.js";
-import { MAP_GRID_IRONREACH } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
 import type { GameState, Player, ServerEvent, ServerSnapshot } from "../packages/protocol/src/index.js";
 import { GameRoom, RoomManager } from "../apps/server/src/room.js";
 import { ConquestServer } from "../apps/server/src/server.js";
@@ -39,7 +39,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
   describe("1. Authoritative Game State Machine & Phase Enforcement", () => {
     it("rejects endTurn() during deployment phase", () => {
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
       expect(state.phase).toBe("deployment");
 
       const res = endTurn(state, "p1");
@@ -51,7 +51,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
 
     it("rejects endTurn() during attack phase", () => {
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
       state.phase = "attack";
       state.pendingReinforcements = 0;
 
@@ -64,7 +64,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
 
     it("advances from attack to fortify via skipPhase()", () => {
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
       state.phase = "attack";
       state.pendingReinforcements = 0;
 
@@ -77,7 +77,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
 
     it("advances from fortify to next player's deployment via endTurn() or skipPhase()", () => {
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
       state.phase = "fortify";
       state.pendingReinforcements = 0;
 
@@ -100,7 +100,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
     });
 
     it("records and broadcasts one canonical fortify turn event sequence", () => {
-      const room = new GameRoom({ roomCode: "HIST", map: MAP_GRID_IRONREACH });
+      const room = new GameRoom({ roomCode: "HIST", map: EARTH_42_BUNDLE.definition });
       const messagesA: ServerEvent[] = [];
       const messagesB: ServerEvent[] = [];
       const socketA = { send: (payload: string) => messagesA.push(JSON.parse(payload) as ServerEvent) };
@@ -108,16 +108,16 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
 
       room.addPlayer("p1", "Alice", socketA);
       room.addPlayer("p2", "Bob", socketB);
-      room.startGame();
+      for (const player of room.state.players) if (player.controller !== "bot") room.setReady(player.id, true);
       room.state.history = [];
       messagesA.length = 0;
       messagesB.length = 0;
       room.state.phase = "fortify";
       room.state.activePlayerIndex = 0;
-      room.state.territories.A1 = { ...room.state.territories.A1, ownerId: "p1", units: 3 };
-      room.state.territories.A2 = { ...room.state.territories.A2, ownerId: "p1", units: 1 };
+      room.state.territories.na_alaska_range = { ...room.state.territories.na_alaska_range, ownerId: "p1", units: 3 };
+      room.state.territories.na_northwest_canada = { ...room.state.territories.na_northwest_canada, ownerId: "p1", units: 1 };
 
-      const result = room.fortify("p1", "A1", "A2", 1);
+      const result = room.fortify("p1", "na_alaska_range", "na_northwest_canada", 1);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -146,12 +146,12 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
 
     it("rejects all gameplay mutating actions when phase === 'game_over'", () => {
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
       state.phase = "game_over";
 
-      expect(deployUnits(state, "p1", "A1", 1).ok).toBe(false);
-      expect(attackTerritory(state, "p1", "A1", "A2").ok).toBe(false);
-      expect(fortifyUnits(state, "p1", "A1", "A2", 1).ok).toBe(false);
+      expect(deployUnits(state, "p1", "na_alaska_range", 1).ok).toBe(false);
+      expect(attackTerritory(state, "p1", "na_alaska_range", "na_northwest_canada").ok).toBe(false);
+      expect(fortifyUnits(state, "p1", "na_alaska_range", "na_northwest_canada", 1).ok).toBe(false);
       expect(skipPhase(state, "p1").ok).toBe(false);
       expect(endTurn(state, "p1").ok).toBe(false);
     });
@@ -160,9 +160,9 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       const room = new GameRoom({ roomCode: "TEST" });
       room.state.phase = "game_over";
 
-      expect(room.deploy("p1", "A1", 1).ok).toBe(false);
-      expect(room.attack("p1", "A1", "A2").ok).toBe(false);
-      expect(room.fortify("p1", "A1", "A2", 1).ok).toBe(false);
+      expect(room.deploy("p1", "na_alaska_range", 1).ok).toBe(false);
+      expect(room.attack("p1", "na_alaska_range", "na_northwest_canada").ok).toBe(false);
+      expect(room.fortify("p1", "na_alaska_range", "na_northwest_canada", 1).ok).toBe(false);
       expect(room.skipPhase("p1").ok).toBe(false);
       expect(room.endTurn("p1").ok).toBe(false);
     });
@@ -185,7 +185,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
   describe("2. Player Elimination Evaluation & Turn Order", () => {
     it("emits player_eliminated when player loses their last territory", () => {
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
 
       // p2 has no territories
       for (const t of Object.values(state.territories)) {
@@ -205,7 +205,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
     it("never emits a second player_eliminated for an already dead player", () => {
       const players = createTestPlayers(2);
       players[1].isAlive = false;
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
       state.players[1].isAlive = false;
 
       const res = evaluatePlayerEliminations(state, "p2", "p1");
@@ -218,7 +218,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       // p2 is eliminated
       players[1].isAlive = false;
 
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
       state.players = players;
       state.activePlayerIndex = 0; // p1
       state.phase = "fortify";
@@ -236,13 +236,13 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
     it("rejects actions initiated by an eliminated player", () => {
       const players = createTestPlayers(2);
       players[0].isAlive = false;
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
       state.players[0].isAlive = false;
       state.activePlayerIndex = 0;
 
-      expect(deployUnits(state, "p1", "A1", 1).ok).toBe(false);
-      expect(attackTerritory(state, "p1", "A1", "A2").ok).toBe(false);
-      expect(fortifyUnits(state, "p1", "A1", "A2", 1).ok).toBe(false);
+      expect(deployUnits(state, "p1", "na_alaska_range", 1).ok).toBe(false);
+      expect(attackTerritory(state, "p1", "na_alaska_range", "na_northwest_canada").ok).toBe(false);
+      expect(fortifyUnits(state, "p1", "na_alaska_range", "na_northwest_canada", 1).ok).toBe(false);
       expect(skipPhase(state, "p1").ok).toBe(false);
       expect(endTurn(state, "p1").ok).toBe(false);
     });
@@ -251,7 +251,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
   describe("3. Victory Evaluation, Finalize Match & Reverse-Chronological Placements", () => {
     it("evaluates victory upon total conquest and produces canonical MatchResult", () => {
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
 
       for (const t of Object.values(state.territories)) {
         t.ownerId = "p1";
@@ -276,7 +276,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
 
     it("ranks 3+ player games in reverse chronological order of elimination", () => {
       const players = createTestPlayers(3); // p1, p2, p3
-      const state = createInitialGameState("game-1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
 
       // Simulate p3 eliminated first at t=1000, p2 eliminated second at t=2000.
       // buildMatchResult now reads from eliminationOrder (not history).
@@ -321,7 +321,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
 
       room.addPlayer("p1", "Alice", socketA);
       room.addPlayer("p2", "Bob", socketB);
-      room.startGame();
+      for (const player of room.state.players) if (player.controller !== "bot") room.setReady(player.id, true);
       expect(room.matchNumber).toBe(1);
       expect(room.state.matchNumber).toBe(1);
 
@@ -369,7 +369,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       room.addPlayer("p1", "Alice", socketA);
       room.addPlayer("p2", "Bob", socketB);
       room.addPlayer("p3", "Charlie", socketC);
-      room.startGame();
+      for (const player of room.state.players) if (player.controller !== "bot") room.setReady(player.id, true);
 
       // Charlie disconnects during active game
       room.disconnectPlayer("p3", "network loss");
@@ -565,7 +565,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       const { MatchResultsScreen } = await import("../apps/client/src/ui/MatchResultsScreen.js");
 
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "W1N1", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "W1N1", players, EARTH_42_BUNDLE.definition, 3);
       for (const t of Object.values(state.territories)) {
         t.ownerId = "p1";
       }
@@ -606,7 +606,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       const { MatchResultsScreen } = await import("../apps/client/src/ui/MatchResultsScreen.js");
 
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "LOSE", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "LOSE", players, EARTH_42_BUNDLE.definition, 3);
       for (const t of Object.values(state.territories)) {
         t.ownerId = "p1";
       }
@@ -646,7 +646,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       const { MatchResultsScreen } = await import("../apps/client/src/ui/MatchResultsScreen.js");
 
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "CMP1", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "CMP1", players, EARTH_42_BUNDLE.definition, 3);
       for (const t of Object.values(state.territories)) {
         t.ownerId = "p1";
       }
@@ -685,7 +685,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
       const { MatchResultsScreen } = await import("../apps/client/src/ui/MatchResultsScreen.js");
 
       const players = createTestPlayers(2);
-      const state = createInitialGameState("game-1", "CHAT", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "CHAT", players, EARTH_42_BUNDLE.definition, 3);
       for (const territory of Object.values(state.territories)) {
         territory.ownerId = "p1";
       }
@@ -724,7 +724,7 @@ describe("Match Lifecycle, Victory, Results & Rematch", () => {
 
       const players = createTestPlayers(6);
       const readyPlayerIds = new Set(["p1", "p3", "p5"]);
-      const state = createInitialGameState("game-1", "CMP6", players, MAP_GRID_IRONREACH, 3);
+      const state = createInitialGameState("game-1", "CMP6", players, EARTH_42_BUNDLE.definition, 3);
       for (const player of state.players) {
         player.rematchReady = readyPlayerIds.has(player.id);
       }

@@ -145,10 +145,10 @@ describe("Earth-42 logical topology", () => {
 });
 
 describe("map bundles and geometry", () => {
-  it("defaults to Earth and resolves Ironreach aliases", () => {
+  it("defaults to and registers only Earth-42", () => {
     expect(getDefaultMap().definition.id).toBe("earth-42");
-    expect(getMap("ironreach")?.definition.territories.length).toBe(20);
-    expect(getMap("grid-ironreach")).toBe(getMap("ironreach"));
+    expect(getMap("earth-42")).toBe(EARTH_42_BUNDLE);
+    expect(getMap("unregistered-map")).toBeUndefined();
     expect(getRenderVariant("earth-42", { width: 144, height: 38 }).profile).toBe("wide");
   });
 

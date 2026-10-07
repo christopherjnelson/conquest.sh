@@ -696,6 +696,7 @@ export class GameClient {
       maxPlayers?: number;
       mapId?: string;
       cardMode?: "escalating" | "off";
+      botCount?: number;
     } = {}
   ): void {
     if (options.playerName) {
@@ -709,6 +710,7 @@ export class GameClient {
       maxPlayers: options.maxPlayers ?? 4,
       mapId: options.mapId,
       cardMode: options.cardMode,
+      botCount: options.botCount,
       sessionToken: this.sessionToken ?? undefined,
     };
     this.send(msg);
