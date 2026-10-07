@@ -33,7 +33,7 @@ import {
   drawCard,
   captureCards,
 } from "../packages/game-core/src/cards.js";
-import { listMaps } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
 import { makeSfc32, makeShuffleFn } from "../packages/shared/src/index.js";
 import type { Card, GameState, Player } from "../packages/protocol/src/index.js";
 
@@ -54,10 +54,9 @@ function makePlayers(count: number): Player[] {
   }));
 }
 
-/** Create a 2-player game on ironreach with escalating cards. */
+/** Create a 2-player Earth-42 game with escalating cards. */
 function make2pState(cardMode: "escalating" | "off" = "escalating"): GameState {
-  const maps = listMaps();
-  const map = maps.find((m) => m.definition.id === "ironreach")!.definition;
+  const map = EARTH_42_BUNDLE.definition;
   const rng = makeSfc32(new Uint8Array(16));
   return createInitialGameState(
     "test-game",
@@ -237,8 +236,7 @@ describe("cards: suggestSets", () => {
 
 describe("cards: buildDeck", () => {
   it("creates one card per territory plus 2 wilds", () => {
-    const maps = listMaps();
-    const map = maps[0]!.definition;
+    const map = EARTH_42_BUNDLE.definition;
     const deck = buildDeck(map);
     expect(deck.length).toBe(map.territories.length + 2);
     const wilds = deck.filter((c) => c.symbol === "wild");
@@ -249,8 +247,7 @@ describe("cards: buildDeck", () => {
   });
 
   it("produces stable card ids across calls", () => {
-    const maps = listMaps();
-    const map = maps[0]!.definition;
+    const map = EARTH_42_BUNDLE.definition;
     const deck1 = buildDeck(map);
     const deck2 = buildDeck(map);
     expect(deck1.map((c) => c.id)).toEqual(deck2.map((c) => c.id));
@@ -393,7 +390,7 @@ describe("cards: forced trade after elimination capture", () => {
     const p2 = state.players.find((p) => p.id !== p1)!.id;
 
     // Give p2 six cards (will be captured)
-    const allCards = buildDeck(listMaps()[0]!.definition);
+    const allCards = buildDeck(EARTH_42_BUNDLE.definition);
     const sixCards = allCards.slice(0, 6);
     const withCards: GameState = {
       ...state,
@@ -419,7 +416,7 @@ describe("cards: forced trade after elimination capture", () => {
     const p1 = state.players[state.activePlayerIndex]!.id;
 
     // Set up: p1 in attack phase with pendingForcedTrade (6 cards)
-    const allCards = buildDeck(listMaps()[0]!.definition);
+    const allCards = buildDeck(EARTH_42_BUNDLE.definition);
     const sixCards = allCards.slice(0, 6);
 
     // Deploy first to get into attack phase
@@ -577,7 +574,7 @@ describe("cards: deck + discard + hands = total cards", () => {
     const state = make2pState("escalating");
     const p1 = state.players[state.activePlayerIndex]!.id;
 
-    const allCards = buildDeck(listMaps()[0]!.definition);
+    const allCards = buildDeck(EARTH_42_BUNDLE.definition);
     const threeCards = allCards.slice(0, 3);
     const stateWithHand: GameState = {
       ...state,

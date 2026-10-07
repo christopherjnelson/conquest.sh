@@ -10,7 +10,8 @@ import {
   resolveCombat,
   skipPhase,
 } from "../packages/game-core/src/index.js";
-import { MAP_IRONREACH, MAP_SECTOR_07 } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
+const earth = EARTH_42_BUNDLE.definition;
 import type { Player } from "../packages/protocol/src/index.js";
 
 describe("game-core: combat resolution", () => {
@@ -47,32 +48,32 @@ describe("game-core: state initialization", () => {
     { id: "p2", name: "Bob", colorIndex: 1, colorHex: "#ffaa00", connected: true, isAlive: true, ready: true },
   ];
 
-  it("distributes 8 territories evenly between 2 players", () => {
-    const state = createInitialGameState("g1", "TEST", players, MAP_SECTOR_07, 3);
+  it("distributes Earth-42 territories evenly between 2 players", () => {
+    const state = createInitialGameState("g1", "TEST", players, earth, 3);
     expect(state.players.length).toBe(2);
-    expect(Object.keys(state.territories).length).toBe(8);
+    expect(Object.keys(state.territories).length).toBe(42);
 
     const p1Territories = Object.values(state.territories).filter((t) => t.ownerId === "p1");
     const p2Territories = Object.values(state.territories).filter((t) => t.ownerId === "p2");
 
-    expect(p1Territories.length).toBe(4);
-    expect(p2Territories.length).toBe(4);
+    expect(p1Territories.length).toBe(21);
+    expect(p2Territories.length).toBe(21);
 
     expect(state.phase).toBe("deployment");
     expect(state.pendingReinforcements).toBeGreaterThanOrEqual(3);
     expect(state.activePlayerIndex).toBe(0);
   });
 
-  it("distributes 20 territories evenly between 2 players for MAP_IRONREACH", () => {
-    const state = createInitialGameState("g1", "TEST", players, MAP_IRONREACH, 3);
+  it("distributes all Earth-42 territories evenly between 2 players", () => {
+    const state = createInitialGameState("g1", "TEST", players, earth, 3);
     expect(state.players.length).toBe(2);
-    expect(Object.keys(state.territories).length).toBe(20);
+    expect(Object.keys(state.territories).length).toBe(42);
 
     const p1Territories = Object.values(state.territories).filter((t) => t.ownerId === "p1");
     const p2Territories = Object.values(state.territories).filter((t) => t.ownerId === "p2");
 
-    expect(p1Territories.length).toBe(10);
-    expect(p2Territories.length).toBe(10);
+    expect(p1Territories.length).toBe(21);
+    expect(p2Territories.length).toBe(21);
 
     expect(state.phase).toBe("deployment");
     expect(state.pendingReinforcements).toBeGreaterThanOrEqual(3);
@@ -87,7 +88,7 @@ describe("game-core: deployment rules", () => {
   ];
 
   it("allows valid deployment and transitions phase when all units deployed", () => {
-    const state = createInitialGameState("g1", "TEST", players, MAP_SECTOR_07, 3);
+    const state = createInitialGameState("g1", "TEST", players, earth, 3);
     const p1Territory = Object.values(state.territories).find((t) => t.ownerId === "p1")!;
     const initialUnits = p1Territory.units;
     const totalPending = state.pendingReinforcements;
@@ -103,7 +104,7 @@ describe("game-core: deployment rules", () => {
   });
 
   it("rejects deployment from wrong player or to enemy territory", () => {
-    const state = createInitialGameState("g1", "TEST", players, MAP_SECTOR_07, 3);
+    const state = createInitialGameState("g1", "TEST", players, earth, 3);
     const p2Territory = Object.values(state.territories).find((t) => t.ownerId === "p2")!;
 
     // Bob trying to deploy during Alice's turn
@@ -123,34 +124,34 @@ describe("game-core: attack & conquest", () => {
       { id: "p2", name: "Bob", colorIndex: 1, colorHex: "#ffaa00", connected: true, isAlive: true, ready: true },
     ];
 
-    let state = createInitialGameState("g1", "TEST", players, MAP_SECTOR_07, 3);
+    let state = createInitialGameState("g1", "TEST", players, earth, 3);
     state.phase = "attack";
     state.pendingReinforcements = 0;
 
     // Set A1 to Alice with 10 units, A2 to Bob with 1 unit
-    state.territories["A1"] = { ...state.territories["A1"], ownerId: "p1", units: 10 };
-    state.territories["A2"] = { ...state.territories["A2"], ownerId: "p2", units: 1 };
+    state.territories["na_alaska_range"] = { ...state.territories["na_alaska_range"], ownerId: "p1", units: 10 };
+    state.territories["na_northwest_canada"] = { ...state.territories["na_northwest_canada"], ownerId: "p2", units: 1 };
 
     // Attacker rolls [6, 6, 6], defender rolls [1] -> Bob loses 1 unit, down to 0
     const sequence = [0.99, 0.99, 0.99, 0.1];
     let i = 0;
     const mockRandom = () => sequence[i++];
 
-    const attackRes = attackTerritory(state, "p1", "A1", "A2", 3, mockRandom);
+    const attackRes = attackTerritory(state, "p1", "na_alaska_range", "na_northwest_canada", 3, mockRandom);
     expect(attackRes.ok).toBe(true);
     if (!attackRes.ok) return;
 
     expect(attackRes.data?.conquered).toBe(true);
-    expect(attackRes.state.territories["A2"].ownerId).toBe("p1");
-    expect(attackRes.state.territories["A2"].units).toBe(3); // attacking dice moved in
-    expect(attackRes.state.territories["A1"].units).toBe(7); // 10 - 3 = 7
+    expect(attackRes.state.territories["na_northwest_canada"].ownerId).toBe("p1");
+    expect(attackRes.state.territories["na_northwest_canada"].units).toBe(3); // attacking dice moved in
+    expect(attackRes.state.territories["na_alaska_range"].units).toBe(7); // 10 - 3 = 7
     expect(attackRes.state.pendingConquestMove).toMatchObject({ minimumUnits: 3, maximumUnits: 9 });
 
     const moveRes = completeConquestMove(attackRes.state, "p1", 8);
     expect(moveRes.ok).toBe(true);
     if (!moveRes.ok) return;
-    expect(moveRes.state.territories["A1"].units).toBe(2);
-    expect(moveRes.state.territories["A2"].units).toBe(8);
+    expect(moveRes.state.territories["na_alaska_range"].units).toBe(2);
+    expect(moveRes.state.territories["na_northwest_canada"].units).toBe(8);
     expect(moveRes.state.pendingConquestMove).toBeNull();
   });
 
@@ -159,17 +160,17 @@ describe("game-core: attack & conquest", () => {
       { id: "p1", name: "Alice", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
       { id: "p2", name: "Bob", colorIndex: 1, colorHex: "#ffaa00", connected: true, isAlive: true, ready: true },
     ];
-    let state = createInitialGameState("g1", "TEST", players, MAP_SECTOR_07, 3);
+    let state = createInitialGameState("g1", "TEST", players, earth, 3);
     state.phase = "attack";
-    state.territories["A1"] = { ...state.territories["A1"], ownerId: "p1", units: 6 };
-    state.territories["A2"] = { ...state.territories["A2"], ownerId: "p2", units: 1 };
+    state.territories["na_alaska_range"] = { ...state.territories["na_alaska_range"], ownerId: "p1", units: 6 };
+    state.territories["na_northwest_canada"] = { ...state.territories["na_northwest_canada"], ownerId: "p2", units: 1 };
     const rolls = [0.99, 0.99, 0.99, 0.1];
     let index = 0;
-    const conquered = attackTerritory(state, "p1", "A1", "A2", 3, () => rolls[index++]!);
+    const conquered = attackTerritory(state, "p1", "na_alaska_range", "na_northwest_canada", 3, () => rolls[index++]!);
     expect(conquered.ok).toBe(true);
     if (!conquered.ok) return;
 
-    expect(attackTerritory(conquered.state, "p1", "A1", "A2").ok).toBe(false);
+    expect(attackTerritory(conquered.state, "p1", "na_alaska_range", "na_northwest_canada").ok).toBe(false);
     expect(skipPhase(conquered.state, "p1").ok).toBe(false);
     expect(completeConquestMove(conquered.state, "p2", 3).ok).toBe(false);
     expect(completeConquestMove(conquered.state, "p1", 2).ok).toBe(false);
@@ -183,22 +184,21 @@ describe("game-core: attack & conquest", () => {
       { id: "p2", name: "Bob", colorIndex: 1, colorHex: "#ffaa00", connected: true, isAlive: true, ready: true },
     ];
 
-    let state = createInitialGameState("g1", "TEST", players, MAP_SECTOR_07, 3);
+    let state = createInitialGameState("g1", "TEST", players, earth, 3);
     state.phase = "attack";
-    // Make Alice own 7 territories, Bob own only A2
+    // Give Alice the map, then leave one adjacent territory to Bob
     for (const tid of Object.keys(state.territories)) {
       state.territories[tid] = { ...state.territories[tid], ownerId: "p1", units: 5 };
     }
-    state.territories["A2"] = { ...state.territories["A2"], ownerId: "p2", units: 1 };
+    state.territories["na_northwest_canada"] = { ...state.territories["na_northwest_canada"], ownerId: "p2", units: 1 };
 
     // Attack A2 from A1
-    const mockRandom = () => 0.99; // Attacker rolls 6, defender rolls 6 -> wait, tie!
     // Let's ensure attacker wins: attacker rolls 6, defender rolls 1
     const sequence = [0.99, 0.99, 0.99, 0.1];
     let i = 0;
     const riggedRandom = () => sequence[i++];
 
-    const res = attackTerritory(state, "p1", "A1", "A2", 3, riggedRandom);
+    const res = attackTerritory(state, "p1", "na_alaska_range", "na_northwest_canada", 3, riggedRandom);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
 
@@ -218,7 +218,7 @@ describe("game-core: turn cycle & skip", () => {
   ];
 
   it("skips from attack to fortify, and ends turn to pass to Bob", () => {
-    let state = createInitialGameState("g1", "TEST", players, MAP_SECTOR_07, 3);
+    let state = createInitialGameState("g1", "TEST", players, earth, 3);
     state.phase = "attack";
     state.pendingReinforcements = 0;
 

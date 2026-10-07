@@ -10,7 +10,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameRoom } from "../apps/server/src/room.js";
 import type { TimerScheduler } from "../apps/server/src/room.js";
-import { MAP_GRID_IRONREACH } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
 import { sanitizeDisplayText } from "../packages/shared/src/index.js";
 import { forfeitTurn, createInitialGameState, projectStateFor, SERVER_ONLY_KEYS } from "../packages/game-core/src/index.js";
 import { GameClient } from "../apps/client/src/network/client.js";
@@ -127,10 +127,16 @@ function makeRoomSocket() {
   return socket;
 }
 
+function readyAndStart(room: GameRoom): void {
+  expect(room.setReady("p1", true)).toBe(true);
+  expect(room.setReady("p2", true)).toBe(true);
+  expect(room.state.phase).not.toBe("lobby");
+}
+
 function createTwoPlayerRoom(scheduler: FakeScheduler, disconnectGraceMs = 100, turnTimeoutMs = 0, abandonTimeoutMs = 200) {
   const room = new GameRoom({
     roomCode: "TEST",
-    map: MAP_GRID_IRONREACH,
+    map: EARTH_42_BUNDLE.definition,
     scheduler,
     disconnectGraceMs,
     turnTimeoutMs,
@@ -142,7 +148,7 @@ function createTwoPlayerRoom(scheduler: FakeScheduler, disconnectGraceMs = 100, 
   const socketB = makeRoomSocket();
   room.addPlayer("p1", "Alice", socketA);
   room.addPlayer("p2", "Bob", socketB);
-  room.startGame();
+  readyAndStart(room);
   return { room, socketA, socketB };
 }
 
@@ -199,7 +205,7 @@ describe("forfeitTurn (pure game-core)", () => {
       { id: "p1", name: "Alice", colorIndex: 0, colorHex: "#fff", connected: true, isAlive: true, ready: true, rematchReady: false },
       { id: "p2", name: "Bob", colorIndex: 1, colorHex: "#f00", connected: true, isAlive: true, ready: true, rematchReady: false },
     ];
-    return createInitialGameState("g1", "ROOM", players, MAP_GRID_IRONREACH, 3);
+    return createInitialGameState("g1", "ROOM", players, EARTH_42_BUNDLE.definition, 3);
   }
 
   it("forfeits the active player's deployment turn", () => {
@@ -320,7 +326,7 @@ describe("Turn timeout timer", () => {
     const sched = new FakeScheduler();
     const room = new GameRoom({
       roomCode: "TOUT",
-      map: MAP_GRID_IRONREACH,
+      map: EARTH_42_BUNDLE.definition,
       scheduler: sched,
       turnTimeoutMs: 50,
       disconnectGraceMs: 0,
@@ -330,7 +336,7 @@ describe("Turn timeout timer", () => {
     const socketB = makeRoomSocket();
     room.addPlayer("p1", "Alice", socketA);
     room.addPlayer("p2", "Bob", socketB);
-    room.startGame();
+    readyAndStart(room);
 
     const prevActiveIndex = room.state.activePlayerIndex;
     expect(sched.hasPending()).toBe(true);
@@ -348,7 +354,7 @@ describe("Turn timeout timer", () => {
     const sched = new FakeScheduler();
     const room = new GameRoom({
       roomCode: "TDLN",
-      map: MAP_GRID_IRONREACH,
+      map: EARTH_42_BUNDLE.definition,
       scheduler: sched,
       turnTimeoutMs: 5000,
       disconnectGraceMs: 0,
@@ -358,7 +364,7 @@ describe("Turn timeout timer", () => {
     const socketB = makeRoomSocket();
     room.addPlayer("p1", "Alice", socketA);
     room.addPlayer("p2", "Bob", socketB);
-    room.startGame();
+    readyAndStart(room);
 
     expect(room.state.turnDeadlineAt).not.toBeNull();
     expect(typeof room.state.turnDeadlineAt).toBe("number");
@@ -370,7 +376,7 @@ describe("Turn timeout timer", () => {
     const sched = new FakeScheduler();
     const room = new GameRoom({
       roomCode: "TDBR",
-      map: MAP_GRID_IRONREACH,
+      map: EARTH_42_BUNDLE.definition,
       scheduler: sched,
       turnTimeoutMs: 5000,
       disconnectGraceMs: 0,
@@ -384,7 +390,7 @@ describe("Turn timeout timer", () => {
     // Clear messages accumulated during addPlayer, then start game.
     socketA.messages.length = 0;
     socketB.messages.length = 0;
-    room.startGame();
+    readyAndStart(room);
 
     // Every message broadcast during startGame that carries a deadline should be non-null.
     // server:snapshot messages carry deadline in `state.turnDeadlineAt`.
@@ -421,7 +427,7 @@ describe("Abandoned room cleanup", () => {
     let removed = false;
     const room = new GameRoom({
       roomCode: "ABND",
-      map: MAP_GRID_IRONREACH,
+      map: EARTH_42_BUNDLE.definition,
       scheduler: sched,
       disconnectGraceMs: 0,
       turnTimeoutMs: 0,
@@ -432,7 +438,7 @@ describe("Abandoned room cleanup", () => {
     const socketB = makeRoomSocket();
     room.addPlayer("p1", "Alice", socketA);
     room.addPlayer("p2", "Bob", socketB);
-    room.startGame();
+    readyAndStart(room);
 
     room.disconnectPlayer("p1", "gone");
     room.disconnectPlayer("p2", "gone");
@@ -447,7 +453,7 @@ describe("Abandoned room cleanup", () => {
     let removed = false;
     const room = new GameRoom({
       roomCode: "ABND",
-      map: MAP_GRID_IRONREACH,
+      map: EARTH_42_BUNDLE.definition,
       scheduler: sched,
       disconnectGraceMs: 0,
       turnTimeoutMs: 0,
@@ -458,7 +464,7 @@ describe("Abandoned room cleanup", () => {
     const socketB = makeRoomSocket();
     room.addPlayer("p1", "Alice", socketA);
     room.addPlayer("p2", "Bob", socketB);
-    room.startGame();
+    readyAndStart(room);
 
     room.disconnectPlayer("p1", "gone");
     room.disconnectPlayer("p2", "gone");
@@ -480,7 +486,7 @@ describe("Chat rate limiting", () => {
     const sched = new FakeScheduler();
     const room = new GameRoom({
       roomCode: "CHAT",
-      map: MAP_GRID_IRONREACH,
+      map: EARTH_42_BUNDLE.definition,
       scheduler: sched,
       chatBucketCapacity: 3,
       chatRefillMs: 10000,
@@ -499,7 +505,7 @@ describe("Chat rate limiting", () => {
     const sched = new FakeScheduler();
     const room = new GameRoom({
       roomCode: "CRAT",
-      map: MAP_GRID_IRONREACH,
+      map: EARTH_42_BUNDLE.definition,
       scheduler: sched,
       chatBucketCapacity: 2,
       chatRefillMs: 10000,
@@ -680,7 +686,7 @@ describe("Per-viewer state projection", () => {
     const socketB = makeRoomSocket();
     const room = new GameRoom({
       roomCode: "PROJ",
-      map: MAP_GRID_IRONREACH,
+      map: EARTH_42_BUNDLE.definition,
       scheduler: sched,
       disconnectGraceMs: 0,
       turnTimeoutMs: 0,
@@ -689,7 +695,7 @@ describe("Per-viewer state projection", () => {
 
     room.addPlayer("p1", "Alice", socketA);
     room.addPlayer("p2", "Bob", socketB);
-    room.startGame();
+    readyAndStart(room);
 
     // Each socket should have received at least one server:snapshot.
     const snapshotsA = socketA.messages
@@ -723,7 +729,7 @@ describe("Per-viewer state projection", () => {
       const socketB = makeRoomSocket();
       const room = new GameRoom({
         roomCode: "SOKP",
-        map: MAP_GRID_IRONREACH,
+        map: EARTH_42_BUNDLE.definition,
         scheduler: sched,
         disconnectGraceMs: 0,
         turnTimeoutMs: 0,
@@ -734,7 +740,7 @@ describe("Per-viewer state projection", () => {
       room.addPlayer("p2", "Bob", socketB);
       // Inject the server-only field into the authoritative state.
       (room.state as unknown as Record<string, unknown>)["__testServerKey"] = "super-secret";
-      room.startGame();
+      readyAndStart(room);
 
       // All snapshot payloads must NOT contain the server-only key.
       for (const raw of [...socketA.messages, ...socketB.messages]) {
@@ -764,7 +770,7 @@ describe("Resync correctness (awaitingResync flag)", () => {
     resyncServer = new ConquestServer({
       port: 0,
       serverName: "resync-test-server",
-      defaultMap: MAP_GRID_IRONREACH,
+      defaultMap: EARTH_42_BUNDLE.definition,
       maxPlayersPerRoom: 2,
     } as any);
     resyncServer.start();

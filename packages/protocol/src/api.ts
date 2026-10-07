@@ -22,6 +22,8 @@ export const RoomSummarySchema = z.object({
   kind: RoomKindSchema,
   phase: GamePhaseSchema,
   playersCount: z.number().int().min(0),
+  humanPlayersCount: z.number().int().min(0).optional(),
+  botPlayersCount: z.number().int().min(0).optional(),
   maxPlayers: z.number().int().min(2).max(6),
   mapId: z.string(),
   mapName: z.string(),

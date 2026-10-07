@@ -17,7 +17,7 @@ import { act } from "../apps/client/node_modules/react/index.js";
 import { testRender } from "../apps/client/node_modules/@opentui/react/test-utils.js";
 
 import { createInitialGameState } from "../packages/game-core/src/index.js";
-import { MAP_GRID_IRONREACH } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
 import type { GameState, Player } from "../packages/protocol/src/index.js";
 import { CardsPanel } from "../apps/client/src/ui/CardsPanel.js";
 import { App } from "../apps/client/src/ui/App.js";
@@ -34,7 +34,7 @@ function stateWithCards(opts: {
 }): GameState {
   const { phase = "deployment", hand = [], forcedTrade = false, pendingReinforcements = 3 } = opts;
   const base = createInitialGameState(
-    "cards-panel-test", "TEST", [p1, p2], MAP_GRID_IRONREACH,
+    "cards-panel-test", "TEST", [p1, p2], EARTH_42_BUNDLE.definition,
     3, undefined, 1, "escalating"
   );
   return {
@@ -49,7 +49,7 @@ function stateWithCards(opts: {
     },
     publicCards: {
       mode: "escalating",
-      deckCount: 18,
+      deckCount: 44,
       discardCount: 0,
       setsTradedCount: 0,
       nextTradeValue: 4,
@@ -67,8 +67,8 @@ function stateWithCards(opts: {
 describe("CardsPanel: direct render", () => {
   it("renders hand cards with symbol labels", async () => {
     const hand = [
-      { id: "card-A1", symbol: "infantry" as const, territoryId: "A1" },
-      { id: "card-B1", symbol: "cavalry" as const, territoryId: "B1" },
+      { id: "card-eu_iceland", symbol: "infantry" as const, territoryId: "eu_iceland" },
+      { id: "card-na_alaska_range", symbol: "cavalry" as const, territoryId: "na_alaska_range" },
       { id: "card-wild-1", symbol: "wild" as const },
     ];
     const state = stateWithCards({ hand });
@@ -88,8 +88,8 @@ describe("CardsPanel: direct render", () => {
     expect(frame).toContain("INF"); // infantry symbol
     expect(frame).toContain("CAV"); // cavalry symbol
     expect(frame).toContain("WLD"); // wild symbol
-    expect(frame).toContain("A1"); // territory id for infantry card
-    expect(frame).toContain("B1"); // territory id for cavalry card
+    expect(frame).toContain("eu_iceland"); // territory id for infantry card
+    expect(frame).toContain("na_alaska_range"); // territory id for cavalry card
     expect(frame).toContain("Wild"); // wild card label
     expect(frame).toContain("Next trade:"); // escalation indicator
     expect(frame).toContain("4 armies"); // first escalation value
@@ -99,11 +99,11 @@ describe("CardsPanel: direct render", () => {
 
   it("shows forced-trade banner when pendingForcedTrade is set", async () => {
     const hand = [
-      { id: "card-A1", symbol: "infantry" as const, territoryId: "A1" },
-      { id: "card-B1", symbol: "cavalry" as const, territoryId: "B1" },
-      { id: "card-C1", symbol: "artillery" as const, territoryId: "C1" },
-      { id: "card-A2", symbol: "infantry" as const, territoryId: "A2" },
-      { id: "card-B2", symbol: "cavalry" as const, territoryId: "B2" },
+      { id: "card-eu_iceland", symbol: "infantry" as const, territoryId: "eu_iceland" },
+      { id: "card-na_alaska_range", symbol: "cavalry" as const, territoryId: "na_alaska_range" },
+      { id: "card-na_northwest_canada", symbol: "artillery" as const, territoryId: "na_northwest_canada" },
+      { id: "card-na_greenland", symbol: "infantry" as const, territoryId: "na_greenland" },
+      { id: "card-as_yakutia", symbol: "cavalry" as const, territoryId: "as_yakutia" },
     ];
     const state = stateWithCards({ hand, forcedTrade: true });
 
@@ -125,7 +125,7 @@ describe("CardsPanel: direct render", () => {
   });
 
   it("shows disabled state when cardMode is off", async () => {
-    const base = createInitialGameState("no-cards", "NONE", [p1, p2], MAP_GRID_IRONREACH, 3, undefined, 1, "off");
+    const base = createInitialGameState("no-cards", "NONE", [p1, p2], EARTH_42_BUNDLE.definition, 3, undefined, 1, "off");
     const state: GameState = { ...base, myHand: null };
 
     const setup = await testRender(
@@ -177,7 +177,7 @@ function makeClient(state: GameState, snapshotRef: { cb?: (s: GameState, pid: st
 describe("App: Cards panel key handling", () => {
   it("key [2] opens Cards panel; pressing [2] again closes it", async () => {
     const state = stateWithCards({ hand: [
-      { id: "card-A1", symbol: "infantry" as const, territoryId: "A1" },
+      { id: "card-eu_iceland", symbol: "infantry" as const, territoryId: "eu_iceland" },
     ]});
     const snapshotRef: { cb?: (s: GameState, pid: string) => void } = {};
     const client = makeClient(state, snapshotRef);
@@ -255,11 +255,11 @@ describe("App: Cards panel key handling", () => {
     // Set up a state with forced trade pending and no pending reinforcements
     // (hand > 4, attack phase)
     const hand = [
-      { id: "card-A1", symbol: "infantry" as const, territoryId: "A1" },
-      { id: "card-B1", symbol: "cavalry" as const, territoryId: "B1" },
-      { id: "card-C1", symbol: "artillery" as const, territoryId: "C1" },
-      { id: "card-A2", symbol: "infantry" as const, territoryId: "A2" },
-      { id: "card-B2", symbol: "cavalry" as const, territoryId: "B2" },
+      { id: "card-eu_iceland", symbol: "infantry" as const, territoryId: "eu_iceland" },
+      { id: "card-na_alaska_range", symbol: "cavalry" as const, territoryId: "na_alaska_range" },
+      { id: "card-na_northwest_canada", symbol: "artillery" as const, territoryId: "na_northwest_canada" },
+      { id: "card-na_greenland", symbol: "infantry" as const, territoryId: "na_greenland" },
+      { id: "card-as_yakutia", symbol: "cavalry" as const, territoryId: "as_yakutia" },
     ];
     const state = stateWithCards({
       phase: "attack",

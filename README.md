@@ -31,7 +31,7 @@
 | Risk cards | ✅ |
 | Diplomacy | 🚧 |
 | Dedicated chat view / DMs | 🚧 |
-| AI bots | 🚧 |
+| Standard AI bots and Solo Practice | ✅ |
 | Spectators | 🚧 |
 | Persistent rooms / replays | 🚧 |
 
@@ -100,6 +100,10 @@ Arrives at the multiplayer home screen. To skip the front door:
 ./conquest.sh --server wss://conquest.example.com --room ABCD
 ```
 
+### Play with Bots
+
+Choose **Create Game**, set **Maximum Players** to the total number of seats, then adjust **Bot Seats**. Bot seats count toward the room total, with at least one human seat reserved for the host. Choose **Solo Practice** with `Ctrl+P` to set an unlisted two-seat room with one bot. Create the room and mark yourself **Ready** to start.
+
 ### 4. Verify the Test Suite
 
 ```bash
@@ -136,7 +140,7 @@ CLI flags take precedence over environment variables.
 | :--- | :--- | :--- | :--- |
 | `-p, --port` | `CONQUEST_PORT` | `4000` | Port to bind HTTP & WebSocket server |
 | `-n, --name` | `CONQUEST_SERVER_NAME` | `conquest.sh-server` | Server name shown in lobby and browser |
-| `-m, --map` | `CONQUEST_MAP` | `earth-42` | Default map: `earth-42`, `ironreach`, `sector-07` |
+| `-m, --map` | `CONQUEST_MAP` | `earth-42` | Default map. Earth-42 is the only supported map before version 1.0. |
 | `-d, --db` | `CONQUEST_DB_PATH` | `:memory:` | SQLite session database path |
 | `--max-players` | `CONQUEST_MAX_PLAYERS` | `4` | Default max players per room |
 | `--max-rooms` | `CONQUEST_MAX_ROOMS` | `500` | Max concurrent rooms; `create_room` returns `SERVER_FULL` beyond this |
@@ -206,10 +210,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical specific
 
 ## Adding a Map
 
-1. Define the logical map: territory IDs, names, regions, bonuses, and bidirectional adjacency.
-2. Provide one or more render variants at different terminal sizes (raster geometry, labels, army-marker anchors, sea routes).
-3. Register the bundle in `packages/map-engine`.
-4. Add topology and geometry tests, including route validation for non-land adjacencies.
+Earth-42 is the only supported map before version 1.0. Additional playable maps are deferred until after that release. When map development resumes, define stable semantic territory IDs, names, regions, bonuses, and bidirectional adjacency; add authored render variants for useful terminal sizes; register the bundle in `packages/map-engine`; and test topology, geometry, and non-land routes.
 
 See [docs/ARCHITECTURE.md § 5](docs/ARCHITECTURE.md#5-map-platform-and-built-in-maps) for the full API boundary.
 
@@ -233,7 +234,6 @@ When a room is created with **Cards: Escalating** mode, a standard territory dec
 
 - **Diplomacy** — in-game messaging, non-aggression pacts
 - **Dedicated chat view / DMs**
-- **AI bots**
 - **Spectator mode**
 - **Persistent rooms & replays**
 

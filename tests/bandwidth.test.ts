@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
 import { projectStateFor } from "../packages/game-core/src/index.js";
-import { MAP_IRONREACH } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
 import type { GameState } from "../packages/protocol/src/index.js";
 import { makeSfc32 } from "../packages/shared/src/index.js";
 
@@ -123,7 +123,7 @@ describe("Bandwidth and state projection", () => {
     server = new ConquestServer({
       port: 0,
       serverName: "bandwidth-test-server",
-      defaultMap: MAP_IRONREACH,
+      defaultMap: EARTH_42_BUNDLE.definition,
       maxPlayersPerRoom: 2,
     } as any);
     server.start();

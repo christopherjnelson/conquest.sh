@@ -8,7 +8,7 @@ import {
   type ServerError,
   type ServerSnapshot,
 } from "@conquest/protocol";
-import { MAP_GRID_IRONREACH } from "@conquest/map-engine";
+import { EARTH_42_BUNDLE } from "@conquest/map-engine";
 
 describe("Lobby, Discovery API & Custom Rooms", () => {
   let server: ConquestServer;
@@ -35,8 +35,8 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
     cleanupSessionFiles();
     server = new ConquestServer({
       port: 0,
-      serverName: "Apex-Ironreach-Prime",
-      defaultMap: MAP_GRID_IRONREACH,
+      serverName: "Earth-42-Server",
+      defaultMap: EARTH_42_BUNDLE.definition,
       maxPlayersPerRoom: 4,
     });
     server.start();
@@ -54,7 +54,7 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       expect(res.status).toBe(200);
       const data = (await res.json()) as any;
       expect(data.status).toBe("ok");
-      expect(data.serverName).toBe("Apex-Ironreach-Prime");
+      expect(data.serverName).toBe("Earth-42-Server");
       expect(typeof data.roomsCount).toBe("number");
       expect(typeof data.playersCount).toBe("number");
     });
@@ -66,10 +66,9 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       const parsed = ServerInfoSchema.safeParse(data);
       expect(parsed.success).toBe(true);
       if (parsed.success) {
-        expect(parsed.data.serverName).toBe("Apex-Ironreach-Prime");
-        expect(parsed.data.defaultMap).toBe("The Ironreach");
-        expect(parsed.data.availableMaps.map(map => map.id)).toContain("earth-42");
-        expect(parsed.data.availableMaps.map(map => map.id)).toContain("ironreach");
+        expect(parsed.data.serverName).toBe("Earth-42-Server");
+        expect(parsed.data.defaultMap).toBe("Earth — Global Front");
+        expect(parsed.data.availableMaps.map(map => map.id)).toEqual(["earth-42"]);
         expect(parsed.data.roomsCount).toBeGreaterThanOrEqual(0);
       }
     });
@@ -485,7 +484,7 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
 
       // Verify disconnected CommanderC received NO territory
       const allTerritories = Object.values(gameStarted.territories);
-      expect(allTerritories.length).toBe(20);
+      expect(allTerritories.length).toBe(42);
       for (const t of allTerritories) {
         expect(t.ownerId).not.toBe(p3.myPlayerId);
         expect([p1.myPlayerId, p2.myPlayerId]).toContain(t.ownerId);
@@ -521,10 +520,11 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       expect(client.roomCode).toBeNull();
       expect(client.state).toBeNull();
       expect(client.getCachedSession()).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       // 3. Create another room on the same socket.
       client.createRoom({ playerName: "SwitchUser", roomName: "Second Realm", visibility: "public", maxPlayers: 2 });
-      await client.waitForSnapshot((s) => s.phase === "lobby");
+      await client.waitForSnapshot((s) => s.phase === "lobby" && s.roomCode !== firstRoomCode);
       expect(client.roomCode).not.toBeNull();
       expect(client.roomCode).not.toBe(firstRoomCode);
 
@@ -828,8 +828,8 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       });
 
       const serverInfo = await client.fetchServerInfo();
-      expect(serverInfo.serverName).toBe("Apex-Ironreach-Prime");
-      expect(serverInfo.defaultMap).toBe("The Ironreach");
+      expect(serverInfo.serverName).toBe("Earth-42-Server");
+      expect(serverInfo.defaultMap).toBe("Earth — Global Front");
 
       const rooms = await client.fetchRooms();
       expect(Array.isArray(rooms)).toBe(true);
@@ -890,7 +890,7 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
 
       const setup = await testRender(
         React.createElement(HomeScreen, {
-          serverName: "Apex-Ironreach-Prime",
+          serverName: "Earth-42-Server",
           serverHost: `localhost:${port}`,
           connectionStatus: "connected",
           playerName: "CommanderVanguard",
@@ -924,10 +924,9 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       expect(frame).toContain("CREATE GAME");
       expect(frame).toContain("JOIN BY CODE");
       expect(frame).toContain("JOIN DISCORD");
-      expect(frame).toContain("Apex-Ironreach-Prime");
+      expect(frame).toContain(`localhost:${port}`);
       await act(async () => { setup.mockInput.pressKey("d"); });
-      expect(actionTriggered).toBe(true);
-      await act(async () => {
+      expect(actionTriggered).toBe(true);      await act(async () => {
         setup.renderer.destroy();
       });
     });
@@ -980,8 +979,8 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
             phase: "lobby",
             visibility: "public",
             kind: "custom",
-            mapId: "ironreach",
-            mapName: "Ironreach Grid",
+            mapId: "earth-42",
+            mapName: "Earth — Global Front",
             turnNumber: 0,
             createdAt: Date.now() - 30000,
           },
@@ -1030,8 +1029,8 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
           phase: "game_over",
           visibility: "public",
           kind: "custom",
-          mapId: "ironreach",
-          mapName: "Ironreach Grid",
+          mapId: "earth-42",
+          mapName: "Earth — Global Front",
           turnNumber: 12,
           createdAt: Date.now() - 30000,
         }],
@@ -1077,9 +1076,10 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
 
       const frame = setup.captureCharFrame();
       expect(frame).toContain("HOST CUSTOM BATTLE");
-      expect(frame).toContain("GAME NAME");
-      expect(frame).toContain("MAXIMUM PLAYERS");
-      expect(frame).toContain("LOBBY VISIBILITY");
+      expect(frame).toContain("Conquest Campaign");
+      expect(frame).toContain("4 Players");
+      expect(frame).toContain("BOT SEATS");
+      expect(frame).toContain("VISIBILITY");
       expect(frame).toContain("Create Game");
       await act(async () => {
         setup.renderer.destroy();
@@ -1120,11 +1120,11 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
         wsUrl: "ws://localhost:4000",
         httpUrl: "http://localhost:4000",
         fetchServerInfo: async () => ({
-          serverName: "Apex-Ironreach-Prime",
+          serverName: "Earth-42-Server",
           protocolVersion: "0.2.0",
           roomsCount: 3,
           playersCount: 7,
-          defaultMap: "The Ironreach",
+          defaultMap: "Earth — Global Front",
           maxPlayersPerRoom: 4,
         }),
       };
@@ -1149,8 +1149,8 @@ describe("Lobby, Discovery API & Custom Rooms", () => {
       });
 
       const frame = setup.captureCharFrame();
-      expect(frame).toContain("Apex-Ironreach-Prime");
-      expect(frame).toContain("The Ironreach");
+      expect(frame).toContain("Earth-42-Server");
+      expect(frame).toContain("Earth — Global Front");
       expect(frame).toContain("Active Rooms");
       expect(frame).toContain("0.2.0");
       await act(async () => {

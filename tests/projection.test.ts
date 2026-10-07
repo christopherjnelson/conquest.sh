@@ -7,8 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { projectStateFor, CLIENT_HISTORY_TAIL, SERVER_ONLY_KEYS, createInitialGameState } from "../packages/game-core/src/index.js";
 import { makeSfc32, makeShuffleFn } from "../packages/shared/src/index.js";
 import type { GameState, GameEvent } from "../packages/protocol/src/index.js";
-import { MAP_IRONREACH } from "../packages/map-engine/src/index.js";
-// MAP_IRONREACH is a MapDefinition; no need to unwrap it.
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
 
 function makeMinimalState(overrides: Partial<GameState> = {}): GameState {
   const rng = makeSfc32(new Uint8Array(16));
@@ -16,7 +15,7 @@ function makeMinimalState(overrides: Partial<GameState> = {}): GameState {
     { id: "p1", name: "Alice", colorIndex: 0, colorHex: "#fff", connected: true, isAlive: true, ready: true, rematchReady: false },
     { id: "p2", name: "Bob",   colorIndex: 1, colorHex: "#000", connected: true, isAlive: true, ready: true, rematchReady: false },
   ];
-  const base = createInitialGameState("game-1", "TEST", players, MAP_IRONREACH, 3, makeShuffleFn(rng));
+  const base = createInitialGameState("game-1", "TEST", players, EARTH_42_BUNDLE.definition, 3, makeShuffleFn(rng));
   return { ...base, ...overrides };
 }
 

@@ -157,8 +157,9 @@ export function Sidebar({
           </box>
         ) : isLobby ? (
           players.map((p, idx) => {
-            const statusText = p.ready ? "Ready" : p.connected ? "Connected" : "Offline";
-            const statusColor = p.ready ? "#00ff66" : p.connected ? "#00d2ff" : "#64748b";
+            const isBot = p.controller === "bot";
+            const statusText = isBot ? "Ready" : p.ready ? "Ready" : p.connected ? "Connected" : "Offline";
+            const statusColor = isBot ? "#c084fc" : p.ready ? "#00ff66" : p.connected ? "#00d2ff" : "#64748b";
             const isMe = p.id === myPlayerId;
             const rawName = p.name;
             const displayName = (rawName.length > 7 ? rawName.slice(0, 6) + "…" : rawName).padEnd(7, " ");
@@ -167,7 +168,7 @@ export function Sidebar({
                 <text>
                   <span fg="#94a3b8">{idx + 1} </span>
                   <span fg={p.colorHex}>● </span>
-                  <span fg="#e2e8f0">{displayName}</span>
+                  <span fg="#e2e8f0">{displayName}</span>{isBot && <span fg="#c084fc"> [BOT]</span>}
                   {isMe && <span fg="#00ff66"> YOU</span>}
                 </text>
                 <text fg={statusColor}>

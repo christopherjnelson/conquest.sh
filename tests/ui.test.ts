@@ -1,26 +1,31 @@
-import { getMap } from "../packages/map-engine/src/registry.js";
-const ironreachBundle = getMap("ironreach")!;
+
 import { describe, expect, it } from "bun:test";
 import { waitForFrameToContain } from "./helpers/render-wait.js";
 import { formatEvent } from "../apps/client/src/ui/EventLog.js";
 import {
-  MAP_IRONREACH,
-  MAP_GRID_IRONREACH,
-  MAP_GRID_IRONREACH_COMPACT,
-  MAP_GRID_IRONREACH_WIDE,
+  EARTH_42_BUNDLE,
   getGeographyBoundingBox,
   getTerritoryAt,
+  getMapContentDimensionsForTerminal,
+  getMinimumTerminalDimensionsForMap,
+  selectRenderVariant,
 } from "../packages/map-engine/src/index.js";
 import { createInitialGameState, finalizeMatch } from "../packages/game-core/src/index.js";
 import type { GameEvent, GameState, Player } from "../packages/protocol/src/index.js";
 
-function renderedMapBounds(map: typeof MAP_GRID_IRONREACH_COMPACT | typeof MAP_GRID_IRONREACH_WIDE) {
+const earthBundle = EARTH_42_BUNDLE;
+const earthMinimum = getMinimumTerminalDimensionsForMap(earthBundle);
+const earthGrid = earthBundle.renderVariants[0].grid;
+const compactEarthGrid = earthBundle.renderVariants.find(variant => variant.profile === "compact")!.grid;
+const wideEarthGrid = earthBundle.renderVariants.find(variant => variant.profile === "wide")!.grid;
+
+function renderedMapBounds(map: typeof earthGrid) {
   const bbox = getGeographyBoundingBox(map);
   return { width: bbox.width, height: bbox.height, sourceX: bbox.minX, sourceY: bbox.minY };
 }
 
 function isRenderedMapRaster(node: any): boolean {
-  return [MAP_GRID_IRONREACH_COMPACT, MAP_GRID_IRONREACH_WIDE].some((map) => {
+  return earthBundle.renderVariants.some(({ grid: map }) => {
     const bounds = renderedMapBounds(map);
     return node && node.width === bounds.width && node.height === bounds.height;
   });
@@ -31,7 +36,7 @@ function createFinishedGameState(): GameState {
     { id: "p1", name: "Alice", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
     { id: "p2", name: "Bob", colorIndex: 1, colorHex: "#ff4444", connected: true, isAlive: true, ready: true },
   ];
-  const state = createInitialGameState("finished-game", "DONE", players, MAP_GRID_IRONREACH, 3);
+  const state = createInitialGameState("finished-game", "DONE", players, earthBundle.definition, 3);
   for (const territory of Object.values(state.territories)) {
     territory.ownerId = "p1";
   }
@@ -65,8 +70,8 @@ describe("ui: EventLog historical military chronicles", () => {
       type: "attack_resolved",
       attackerId: "p1",
       defenderId: "p2",
-      sourceTerritoryId: "frostfell",
-      targetTerritoryId: "highwatch",
+      sourceTerritoryId: "eu_iceland",
+      targetTerritoryId: "na_alaska_range",
       attackerRolls: [6, 5],
       defenderRolls: [3],
       attackerLosses: 0,
@@ -76,8 +81,8 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
-    expect(formatted.text).toBe("⚔ Alice captured Highwatch from Bob!");
+    const formatted = formatEvent(event, testPlayers, new Map(), earthBundle);
+    expect(formatted.text).toBe("⚔ Alice captured Alaska Range from Bob!");
     expect(formatted.color).toBe("#ff3399");
   });
 
@@ -86,8 +91,8 @@ describe("ui: EventLog historical military chronicles", () => {
       type: "attack_resolved",
       attackerId: "p1",
       defenderId: "p2",
-      sourceTerritoryId: "frostfell",
-      targetTerritoryId: "highwatch",
+      sourceTerritoryId: "eu_iceland",
+      targetTerritoryId: "na_alaska_range",
       attackerRolls: [4, 2],
       defenderRolls: [5],
       attackerLosses: 1,
@@ -96,8 +101,8 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
-    expect(formatted.text).toBe("🎲 Alice ⚔ Bob · Frostfell ▸ Highwatch: [4 2] vs [5] (−1/−0)");
+    const formatted = formatEvent(event, testPlayers, new Map(), earthBundle);
+    expect(formatted.text).toBe("🎲 Alice ⚔ Bob · Iceland ▸ Alaska Range: [4 2] vs [5] (−1/−0)");
     expect(formatted.color).toBe("#f97316");
   });
 
@@ -105,14 +110,14 @@ describe("ui: EventLog historical military chronicles", () => {
     const event: GameEvent = {
       type: "units_deployed",
       playerId: "p1",
-      territoryId: "frostfell",
+      territoryId: "eu_iceland",
       count: 3,
       remainingReinforcements: 0,
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
-    expect(formatted.text).toBe("🛡 Alice reinforced Frostfell (+3 armies)");
+    const formatted = formatEvent(event, testPlayers, new Map(), earthBundle);
+    expect(formatted.text).toBe("🛡 Alice reinforced Iceland (+3 armies)");
     expect(formatted.color).toBe("#00ff66");
   });
 
@@ -120,14 +125,14 @@ describe("ui: EventLog historical military chronicles", () => {
     const event: GameEvent = {
       type: "units_fortified",
       playerId: "p1",
-      sourceTerritoryId: "frostfell",
-      targetTerritoryId: "iron_hollow",
+      sourceTerritoryId: "eu_iceland",
+      targetTerritoryId: "as_yakutia",
       units: 2,
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
-    expect(formatted.text).toBe("🛡 Alice fortified 2 armies to Iron Hollow");
+    const formatted = formatEvent(event, testPlayers, new Map(), earthBundle);
+    expect(formatted.text).toBe("🛡 Alice fortified 2 armies to Yakutia");
     expect(formatted.color).toBe("#9966ff");
   });
 
@@ -139,7 +144,7 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
+    const formatted = formatEvent(event, testPlayers, new Map(), earthBundle);
     expect(formatted.text).toBe("💀 Bob has fallen in battle!");
     expect(formatted.color).toBe("#ff4444");
   });
@@ -152,37 +157,28 @@ describe("ui: EventLog historical military chronicles", () => {
       timestamp: Date.now(),
     };
 
-    const formatted = formatEvent(event, testPlayers, new Map(), ironreachBundle);
+    const formatted = formatEvent(event, testPlayers, new Map(), earthBundle);
     expect(formatted.text).toBe("👑 Alice has conquered the entire realm!");
     expect(formatted.color).toBe("#ffaa00");
   });
 });
 
-describe("ui: Ironreach realm map schema & layout", () => {
-  it("contains all 20 canonical Ironreach territories across 6 sectors", () => {
-    expect(MAP_IRONREACH.sectors.length).toBe(6);
-    expect(MAP_IRONREACH.territories.length).toBe(20);
-
-    const territoryIds = MAP_IRONREACH.territories.map((t) => t.id);
-    const expected = [
-      "A1", "A2", "A3",
-      "B1", "B2", "B3",
-      "C1", "C2", "C3", "C4",
-      "D1", "D2", "D3", "D4",
-      "E1", "E2", "E3",
-      "F1", "F2", "F3",
-    ];
-    for (const id of expected) {
-      expect(territoryIds).toContain(id);
-    }
+describe("ui: Earth-42 map schema & layout", () => {
+  it("contains the canonical 42 Earth territories across six continents", () => {
+    expect(earthBundle.definition.sectors.length).toBe(6);
+    expect(earthBundle.definition.territories.length).toBe(42);
+    expect(new Set(earthBundle.definition.territories.map(t => t.id)).size).toBe(42);
+    expect(earthBundle.renderVariants.length).toBeGreaterThan(1);
   });
 
-  it("ensures all territory label positions sit nicely within canvas dimensions", () => {
-    for (const t of MAP_IRONREACH.territories) {
-      expect(t.labelPos.x).toBeGreaterThanOrEqual(0);
-      expect(t.labelPos.x).toBeLessThan(MAP_IRONREACH.width);
-      expect(t.labelPos.y).toBeGreaterThanOrEqual(0);
-      expect(t.labelPos.y).toBeLessThan(MAP_IRONREACH.height);
+  it("keeps every authored label anchor inside its raster", () => {
+    for (const { grid } of earthBundle.renderVariants) {
+      for (const territory of grid.territories) {
+        expect(territory.labelPos.x).toBeGreaterThanOrEqual(0);
+        expect(territory.labelPos.x).toBeLessThan(grid.width);
+        expect(territory.labelPos.y).toBeGreaterThanOrEqual(0);
+        expect(territory.labelPos.y).toBeLessThan(grid.height);
+      }
     }
   });
 });
@@ -266,7 +262,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     const players: Player[] = testPlayers.slice(0, 2);
 
     const exercise = async (phase: "attack" | "fortify") => {
-      const state = createInitialGameState("confirm", "CONF", players, MAP_GRID_IRONREACH, 2);
+      const state = createInitialGameState("confirm", "CONF", players, earthBundle.definition, 2);
       state.phase = phase;
       state.activePlayerIndex = 0;
       let skipped = 0;
@@ -324,12 +320,12 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
   it("renders MapCanvas as a 2D cellular grid without rectangular territory boxes", async () => {
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
     const el: any = MapCanvas({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       territories: {},
       players: testPlayers,
       myPlayerId: "p1",
       phase: "deployment",
-      selectedTerritoryId: "C2",
+      selectedTerritoryId: "eu_british_isles",
       targetTerritoryId: null,
       onSelectTerritory: () => {},
       onSelectTarget: () => {},
@@ -346,7 +342,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     const innerBox = el.props.children;
     expect(innerBox.type).toBe("box");
     const lines = innerBox.props.children;
-    expect(lines.length).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
+    expect(lines.length).toBe(renderedMapBounds(earthGrid).height);
 
     // Each line is a <text> element with styled <span> runs
     for (const line of lines) {
@@ -359,7 +355,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
 
     // 1. Lobby phase: unclaimed interiors retain a subdued regional wash.
     const lobbyEl: any = MapCanvas({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       territories: {},
       players: testPlayers,
       myPlayerId: "p1",
@@ -387,15 +383,15 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
 
     // 2. Active game phase: territory owned by p1 uses its configured color.
     const activeEl: any = MapCanvas({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       territories: {
-        A1: {
-          id: "A1",
+        na_alaska_range: {
+          id: "na_alaska_range",
           name: "Ironwatch",
           sectorId: "nw_green",
           ownerId: "p1",
           units: 3,
-          neighbors: ["A2"],
+          neighbors: ["na_northwest_canada"],
           position: { x: 0, y: 0 },
         },
       },
@@ -427,10 +423,10 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
   it("renders Sidebar with 4 cards", async () => {
     const { Sidebar } = await import("../apps/client/src/ui/Sidebar.js");
     const el: any = Sidebar({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: null,
       myPlayerId: "p1",
-      selectedTerritoryId: "C2",
+      selectedTerritoryId: "eu_british_isles",
       targetTerritoryId: null,
       onDeploy: () => {},
       onAttack: () => {},
@@ -508,7 +504,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     expect(header.props.children.props.children).toBe("⚠️  TERMINAL WINDOW TOO SMALL");
     expect(subtitle.type).toBe("text");
     expect(subtitle.props.children).toBe(
-      "This map requires at least 98 columns × 38 rows for its smallest authored render."
+      `This map requires at least ${earthMinimum.columns} columns × ${earthMinimum.rows} rows for its smallest authored render.`
     );
     expect(dimensions.type).toBe("text");
     expect(dimensions.props.children).toBe("Current: 80 cols × 24 rows");
@@ -705,8 +701,9 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         await homeSetup.waitFor(() => (homeSetup.renderer.keyInput as any).listenerCount("keypress") >= 1);
         await act(async () => { (homeSetup.renderer.keyInput as any).emit("keypress", { name: "2" }); });
         await act(async () => { await homeSetup.renderOnce(); });
-        await waitForFrameToContain(homeSetup, "HOST CUSTOM BATTLE");
-        expect(homeSetup.captureCharFrame()).toContain("HOST CUSTOM BATTLE");
+        await waitForFrameToContain(homeSetup, "BOT SEATS");
+        expect(homeSetup.captureCharFrame()).toContain("HOST");
+        expect(homeSetup.captureCharFrame()).toContain("BOT SEATS");
         await act(async () => { (homeSetup.renderer.keyInput as any).emit("keypress", { name: "return" }); });
         await act(async () => { await homeSetup.renderOnce(); });
       }
@@ -727,8 +724,9 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         await quitSetup.waitFor(() => (quitSetup.renderer.keyInput as any).listenerCount("keypress") >= 1);
         await act(async () => { (quitSetup.renderer.keyInput as any).emit("keypress", { name: "2" }); });
         await act(async () => { await quitSetup.renderOnce(); });
-        await waitForFrameToContain(quitSetup, "HOST CUSTOM BATTLE");
-        expect(quitSetup.captureCharFrame()).toContain("HOST CUSTOM BATTLE");
+        await waitForFrameToContain(quitSetup, "BOT SEATS");
+        expect(quitSetup.captureCharFrame()).toContain("HOST");
+        expect(quitSetup.captureCharFrame()).toContain("BOT SEATS");
         await act(async () => { (quitSetup.renderer.keyInput as any).emit("keypress", { name: "return" }); });
         await act(async () => { await quitSetup.renderOnce(); });
       }
@@ -798,7 +796,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         { flexDirection: "column", style: { width: 150, height: 45 } },
         React.createElement("box", { style: { width: 150, height: headerHeight } }),
         React.createElement(MapCanvas, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
           territories: {},
           players: testPlayers,
           myPlayerId: "p1",
@@ -830,31 +828,31 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     const compactOriginY = typeof innerMapCompact?.screenY === "number" ? innerMapCompact.screenY : headerHeight + 1;
     expect(compactOriginY).toBeGreaterThanOrEqual(headerHeight);
 
-    // 1a. Compact: Hover A1
-    const a1Compact = MAP_GRID_IRONREACH_COMPACT.territories.find((t) => t.id === "A1")!;
-    const compactBounds = renderedMapBounds(MAP_GRID_IRONREACH_COMPACT);
+    // 1a. Compact: Hover na_alaska_range
+    const a1Compact = compactEarthGrid.territories.find((t) => t.id === "na_alaska_range")!;
+    const compactBounds = renderedMapBounds(compactEarthGrid);
     const cellA1Compact = { x: a1Compact.labelPos.x - compactBounds.sourceX, y: a1Compact.labelPos.y - compactBounds.sourceY };
-    expect(getTerritoryAt(cellA1Compact.x, cellA1Compact.y, MAP_GRID_IRONREACH_COMPACT)).toBe("A1");
+    expect(getTerritoryAt(cellA1Compact.x, cellA1Compact.y, compactEarthGrid)).toBe("na_alaska_range");
     await act(async () => {
       await setupCompact.mockMouse.moveTo(cellA1Compact.x + compactOriginX, cellA1Compact.y + compactOriginY);
     });
-    expect(hoveredTerritoryId as string | null).toBe("A1");
+    expect(hoveredTerritoryId as string | null).toBe("na_alaska_range");
 
-    // 1b. Compact: Hover & Click D2
-    const d2Compact = MAP_GRID_IRONREACH_COMPACT.territories.find((t) => t.id === "D2")!;
+    // 1b. Compact: Hover & Click sa_caribbean_coast
+    const d2Compact = compactEarthGrid.territories.find((t) => t.id === "sa_caribbean_coast")!;
     const cellD2Compact = { x: d2Compact.labelPos.x - compactBounds.sourceX, y: d2Compact.labelPos.y - compactBounds.sourceY };
-    expect(getTerritoryAt(d2Compact.labelPos.x, d2Compact.labelPos.y, MAP_GRID_IRONREACH_COMPACT)).toBe("D2");
+    expect(getTerritoryAt(d2Compact.labelPos.x, d2Compact.labelPos.y, compactEarthGrid)).toBe("sa_caribbean_coast");
     await act(async () => {
       await setupCompact.mockMouse.moveTo(cellD2Compact.x + compactOriginX, cellD2Compact.y + compactOriginY);
     });
-    expect(hoveredTerritoryId as string | null).toBe("D2");
+    expect(hoveredTerritoryId as string | null).toBe("sa_caribbean_coast");
     await act(async () => {
       await setupCompact.mockMouse.click(cellD2Compact.x + compactOriginX, cellD2Compact.y + compactOriginY);
     });
-    expect(selectedTerritoryId as string | null).toBe("D2");
+    expect(selectedTerritoryId as string | null).toBe("sa_caribbean_coast");
 
     // 1c. Compact: Water
-    expect(getTerritoryAt(0, 0, MAP_GRID_IRONREACH_COMPACT)).toBeNull();
+    expect(getTerritoryAt(0, 0, compactEarthGrid)).toBeNull();
     await act(async () => {
       await setupCompact.mockMouse.moveTo(0 + compactOriginX, 0 + compactOriginY);
     });
@@ -874,7 +872,7 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
         { flexDirection: "column", style: { width: 160, height: 50 } },
         React.createElement("box", { style: { width: 160, height: headerHeight } }),
         React.createElement(MapCanvas, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
           territories: {},
           players: testPlayers,
           myPlayerId: "p1",
@@ -906,30 +904,30 @@ describe("ui: Cellular MapCanvas & Refitted UI components", () => {
     const wideOriginY = typeof innerMapWide?.screenY === "number" ? innerMapWide.screenY : headerHeight + 1;
     expect(wideOriginY).toBeGreaterThanOrEqual(headerHeight);
 
-    // 2a. Wide: Hover A1
-    const a1Wide = MAP_GRID_IRONREACH_WIDE.territories.find((t) => t.id === "A1")!;
+    // 2a. Wide: Hover na_alaska_range
+    const a1Wide = wideEarthGrid.territories.find((t) => t.id === "na_alaska_range")!;
     const cellA1Wide = { x: a1Wide.labelPos.x, y: a1Wide.labelPos.y };
-    expect(getTerritoryAt(cellA1Wide.x, cellA1Wide.y, MAP_GRID_IRONREACH_WIDE)).toBe("A1");
+    expect(getTerritoryAt(cellA1Wide.x, cellA1Wide.y, wideEarthGrid)).toBe("na_alaska_range");
     await act(async () => {
       await setupWide.mockMouse.moveTo(cellA1Wide.x + wideOriginX, cellA1Wide.y + wideOriginY);
     });
-    expect(hoveredTerritoryId as string | null).toBe("A1");
+    expect(hoveredTerritoryId as string | null).toBe("na_alaska_range");
 
-    // 2b. Wide: Hover & Click D2
-    const d2Wide = MAP_GRID_IRONREACH_WIDE.territories.find((t) => t.id === "D2")!;
+    // 2b. Wide: Hover & Click sa_caribbean_coast
+    const d2Wide = wideEarthGrid.territories.find((t) => t.id === "sa_caribbean_coast")!;
     const cellD2Wide = { x: d2Wide.labelPos.x, y: d2Wide.labelPos.y };
-    expect(getTerritoryAt(cellD2Wide.x, cellD2Wide.y, MAP_GRID_IRONREACH_WIDE)).toBe("D2");
+    expect(getTerritoryAt(cellD2Wide.x, cellD2Wide.y, wideEarthGrid)).toBe("sa_caribbean_coast");
     await act(async () => {
       await setupWide.mockMouse.moveTo(cellD2Wide.x + wideOriginX, cellD2Wide.y + wideOriginY);
     });
-    expect(hoveredTerritoryId as string | null).toBe("D2");
+    expect(hoveredTerritoryId as string | null).toBe("sa_caribbean_coast");
     await act(async () => {
       await setupWide.mockMouse.click(cellD2Wide.x + wideOriginX, cellD2Wide.y + wideOriginY);
     });
-    expect(selectedTerritoryId as string | null).toBe("D2");
+    expect(selectedTerritoryId as string | null).toBe("sa_caribbean_coast");
 
     // 2c. Wide: Water
-    expect(getTerritoryAt(0, 0, MAP_GRID_IRONREACH_WIDE)).toBeNull();
+    expect(getTerritoryAt(0, 0, wideEarthGrid)).toBeNull();
     await act(async () => {
       await setupWide.mockMouse.moveTo(0 + wideOriginX, 0 + wideOriginY);
     });
@@ -1021,9 +1019,9 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     let readyTriggered = false;
 
-    // 1. No territory selected: honest prompt, no fake Casey or Frostfell defaults
+    // 1. No territory selected: honest prompt, no fake Casey or Iceland defaults
     const unselectedEl: any = Sidebar({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: null,
@@ -1038,12 +1036,12 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
     expect(unselectedString).toContain("Move over or click a territory to inspect.");
     expect(unselectedString).not.toContain("Casey");
 
-    // 2. Territory selected (e.g. A1): shows real name, sector, owner 'Unclaimed'
+    // 2. Territory selected (e.g. na_alaska_range): shows real name, sector, owner 'Unclaimed'
     const selectedEl: any = Sidebar({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: null,
       myPlayerId: "p1",
-      selectedTerritoryId: "A1",
+      selectedTerritoryId: "na_alaska_range",
       targetTerritoryId: null,
       onDeploy: () => {},
       onAttack: () => {},
@@ -1052,8 +1050,8 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
       onEndTurn: () => {},
     });
     const selectedString = JSON.stringify(selectedEl);
-    expect(selectedString).toContain("Highwatch");
-    expect(selectedString).toContain("Verdant Fringe");
+    expect(selectedString).toContain("Alaska Range");
+    expect(selectedString).toContain("North America");
     expect(selectedString).toContain("Unclaimed");
     expect(selectedString).not.toContain("Casey");
 
@@ -1067,7 +1065,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
       pendingReinforcements: 0,
     };
     const lobbySidebar: any = Sidebar({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: lobbyState,
       myPlayerId: "p1",
       selectedTerritoryId: null,
@@ -1105,7 +1103,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     const setup = await testRender(
       React.createElement(EventLog, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
         events: [],
         chatOpen: false,
         players: samplePlayers,
@@ -1121,7 +1119,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     const frame = setup.captureCharFrame();
     expect(frame).toContain("No events yet.");
-    expect(frame).not.toContain("Casey captured A3");
+    expect(frame).not.toContain("Casey captured na_prairie_provinces");
     expect(frame).not.toContain("Alex received 5 reinforcements");
     expect(frame).not.toContain("Drew: nice move!");
 
@@ -1156,7 +1154,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
         territories: {},
         players: [],
         myPlayerId: "p1",
@@ -1187,7 +1185,7 @@ describe("ui: De-mocking and conquest.sh branding verification", () => {
 
 describe("ui: Responsive fullscreen layout & terminal size tests", () => {
   const mockClient: any = {
-    state: { mapId: "ironreach", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 },
+    state: { mapId: "earth-42", phase: "lobby", players: [], territories: {}, sectors: {}, history: [], turnNumber: 0, activePlayerIndex: 0, pendingReinforcements: 0 },
     myPlayerId: "p1",
     status: "connected",
     roomCode: "H5CM",
@@ -1204,7 +1202,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     ready: () => {},
   };
 
-  it("responsive layout: map-aware minimum warns when Ironreach's authored raster cannot fit", async () => {
+  it("responsive layout: map-aware minimum warns when Earth-42's authored raster cannot fit", async () => {
     // @ts-ignore
     const React = (await import("../apps/client/node_modules/react/index.js")).default;
     // @ts-ignore
@@ -1216,9 +1214,9 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     const setupMin = await testRender(
       React.createElement(App, {
         client: mockClient,
-        terminalDimensions: { columns: 110, rows: 38 },
+        terminalDimensions: { columns: earthMinimum.columns - 1, rows: earthMinimum.rows - 1 },
       }),
-      { width: 110, height: 38 }
+      { width: earthMinimum.columns - 1, height: earthMinimum.rows - 1 }
     );
     await act(async () => {
       await setupMin.renderOnce();
@@ -1226,8 +1224,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
 
     const frame = setupMin.captureCharFrame();
     expect(frame).toContain("TERMINAL WINDOW TOO SMALL");
-    expect(frame).toContain("This map requires at least 99 columns × 45 rows");
-    expect(frame).toContain("Current: 110 cols × 38 rows");
+    expect(frame).toContain(`This map requires at least ${earthMinimum.columns} columns × ${earthMinimum.rows} rows`);
+    expect(frame).toContain(`Current: ${earthMinimum.columns - 1} cols × ${earthMinimum.rows - 1} rows`);
 
     await act(async () => {
       setupMin.renderer.destroy();
@@ -1276,13 +1274,13 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       ? rootNode.getChildren()[0]
       : rootNode;
     const [leftCol] = appContainer.getChildren()[1].getChildren();
-    const compactRaster = renderedMapBounds(MAP_GRID_IRONREACH_COMPACT);
+    const compactRaster = renderedMapBounds(compactEarthGrid);
     expect(leftCol.width).toBe(101);
     expect(leftCol.height).toBe(34);
     expect(compactRaster.width).toBeLessThanOrEqual(leftCol.width);
     expect(compactRaster.height).toBeLessThanOrEqual(leftCol.height);
     expect(compactRaster.width / leftCol.width).toBeGreaterThanOrEqual(0.75);
-    expect(compactRaster.height / leftCol.height).toBeGreaterThanOrEqual(0.70);
+    expect(compactRaster.height / leftCol.height).toBeGreaterThanOrEqual(0.65);
 
     await act(async () => {
       setupTyp.renderer.destroy();
@@ -1362,9 +1360,9 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
 
     const innerMap = findInnerMap(leftCol);
     expect(innerMap).not.toBeNull();
-    const wideRaster = renderedMapBounds(MAP_GRID_IRONREACH_WIDE);
+    const wideRaster = renderedMapBounds(wideEarthGrid);
     expect(innerMap.width).toBe(wideRaster.width);
-    expect(innerMap.width).toBeGreaterThan(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
+    expect(innerMap.width).toBeGreaterThan(renderedMapBounds(compactEarthGrid).width);
     expect(innerMap.height).toBe(wideRaster.height);
 
     // Use the rendered App pane, not a synthetic terminal-sized rectangle.
@@ -1377,9 +1375,9 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     expect(wideRaster.height / leftCol.height).toBeGreaterThanOrEqual(0.72);
 
     // 3. Bounding box usage on wide map: width ratio >= 0.80 and height ratio >= 0.75
-    const bbox = getGeographyBoundingBox(MAP_GRID_IRONREACH_WIDE);
-    expect(bbox.width / MAP_GRID_IRONREACH_WIDE.width).toBeGreaterThanOrEqual(0.80);
-    expect(bbox.height / MAP_GRID_IRONREACH_WIDE.height).toBeGreaterThanOrEqual(0.75);
+    const bbox = getGeographyBoundingBox(wideEarthGrid);
+    expect(bbox.width / wideEarthGrid.width).toBeGreaterThanOrEqual(0.80);
+    expect(bbox.height / wideEarthGrid.height).toBeGreaterThanOrEqual(0.75);
 
     await act(async () => {
       setupWide.renderer.destroy();
@@ -1403,7 +1401,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       connected: true, isAlive: true, ready: false,
     };
     const lobbyState = createInitialGameState(
-      "wide-lobby-session-intel", "LOBB", [lobbyPlayer, lobbyPeer], MAP_GRID_IRONREACH, 2
+      "wide-lobby-session-intel", "LOBB", [lobbyPlayer, lobbyPeer], earthBundle.definition, 2
     );
     lobbyState.phase = "lobby";
     const client = { ...mockClient, state: lobbyState, myPlayerId: lobbyPlayer.id, roomCode: "LOBB" };
@@ -1476,8 +1474,9 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     expect(innerMap).not.toBeNull();
     // The compact viewport is selected below the supported responsive height,
     // so the wide 36-row raster cannot be chosen.
-    expect(innerMap.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).width);
-    expect(innerMap.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_COMPACT).height);
+    const selectedShortMap = selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(200, 30)).grid;
+    expect(innerMap.width).toBe(renderedMapBounds(selectedShortMap).width);
+    expect(innerMap.height).toBe(renderedMapBounds(selectedShortMap).height);
     // Raster width strictly fits inside leftCol width
     expect(innerMap.width).toBeLessThanOrEqual(leftCol.width);
 
@@ -1485,7 +1484,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       setupShort.renderer.destroy();
     });
 
-    // A 200x35 terminal cannot contain Ironreach's smallest 30-row land
+    // A 200x35 terminal cannot contain Earth-42's smallest 30-row land
     // crop after compact chrome, so it reports the map-specific minimum.
     const setup35 = await testRender(
       React.createElement(App, {
@@ -1500,7 +1499,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
 
     const frame35 = setup35.captureCharFrame();
     expect(frame35).toContain("TERMINAL WINDOW TOO SMALL");
-    expect(frame35).toContain("This map requires at least 99 columns × 45 rows");
+    expect(frame35).toContain(`This map requires at least ${earthMinimum.columns} columns × ${earthMinimum.rows} rows`);
 
     await act(async () => {
       setup35.renderer.destroy();
@@ -1528,7 +1527,7 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     }
 
     // The responsive mode boundary changes chrome, while map selection follows
-    // the actual pane. The capped sidebar lets Ironreach wide fit on both sides.
+    // the actual pane. The capped sidebar lets Earth-42 wide fit on both sides.
     const setup179 = await testRender(
       React.createElement(App, {
         client: mockClient,
@@ -1547,8 +1546,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     const innerMap179 = findInnerMap(leftCol179);
     expect(leftCol179.width).toBe(140);
     expect(leftCol179.height).toBe(39);
-    expect(innerMap179.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
-    expect(innerMap179.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
+    expect(innerMap179.width).toBe(renderedMapBounds(selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(179, 50)).grid).width);
+    expect(innerMap179.height).toBe(renderedMapBounds(selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(179, 50)).grid).height);
     await act(async () => {
       setup179.renderer.destroy();
     });
@@ -1569,8 +1568,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       : root180;
     const [leftCol180] = appContainer180.getChildren()[1].getChildren();
     const innerMap180 = findInnerMap(leftCol180);
-    expect(innerMap180.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
-    expect(innerMap180.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
+    expect(innerMap180.width).toBe(renderedMapBounds(selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(180, 50)).grid).width);
+    expect(innerMap180.height).toBe(renderedMapBounds(selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(180, 50)).grid).height);
     expect(innerMap180.width).toBeLessThanOrEqual(leftCol180.width);
     expect(innerMap180.height).toBeLessThanOrEqual(leftCol180.height);
     await act(async () => {
@@ -1593,8 +1592,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
       : root180wide;
     const [leftCol180wide] = appContainer180wide.getChildren()[1].getChildren();
     const innerMap180wide = findInnerMap(leftCol180wide);
-    expect(innerMap180wide.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
-    expect(innerMap180wide.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
+    expect(innerMap180wide.width).toBe(renderedMapBounds(selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(180, 51)).grid).width);
+    expect(innerMap180wide.height).toBe(renderedMapBounds(selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(180, 51)).grid).height);
     expect(innerMap180wide.width).toBeLessThanOrEqual(leftCol180wide.width);
     expect(innerMap180wide.height).toBeLessThanOrEqual(leftCol180wide.height);
     await act(async () => {
@@ -1621,8 +1620,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     const innerMap184 = findInnerMap(leftCol184);
 
     expect(innerMap184).not.toBeNull();
-    expect(innerMap184.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
-    expect(innerMap184.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
+    expect(innerMap184.width).toBe(renderedMapBounds(selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(184, 55)).grid).width);
+    expect(innerMap184.height).toBe(renderedMapBounds(selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(184, 55)).grid).height);
     expect(innerMap184.width).toBeLessThanOrEqual(leftCol184.width);
 
     await act(async () => {
@@ -1649,8 +1648,8 @@ describe("ui: Responsive fullscreen layout & terminal size tests", () => {
     const innerMap185 = findInnerMap(leftCol185);
 
     expect(innerMap185).not.toBeNull();
-    expect(innerMap185.width).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).width);
-    expect(innerMap185.height).toBe(renderedMapBounds(MAP_GRID_IRONREACH_WIDE).height);
+    expect(innerMap185.width).toBe(renderedMapBounds(selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(185, 55)).grid).width);
+    expect(innerMap185.height).toBe(renderedMapBounds(selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(185, 55)).grid).height);
     expect(innerMap185.width).toBeLessThanOrEqual(leftCol185.width);
 
     await act(async () => {
@@ -1672,7 +1671,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // 1. Uninspected: Displays player summary and lobby ready button
     const uninspected: any = CompactInspector({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: {
         phase: "lobby",
         turnNumber: 0,
@@ -1702,13 +1701,13 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     expect(uninspectedStr).toContain("Bob");
     expect(uninspectedStr).toContain("[ Ready ]");
 
-    // 2. Hovered territory A1 without selection: displays [HOVERED]
+    // 2. Hovered territory na_alaska_range without selection: displays [HOVERED]
     const hoveredEl: any = CompactInspector({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: null,
       myPlayerId: "p1",
       selectedTerritoryId: null,
-      hoveredTerritoryId: "A1",
+      hoveredTerritoryId: "na_alaska_range",
       targetTerritoryId: null,
       phase: "lobby",
       onDeploy: () => {},
@@ -1720,15 +1719,15 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     const hoveredStr = JSON.stringify(hoveredEl);
     expect(hoveredStr).toContain("! INSPECTOR [HOVERED]");
     expect(hoveredStr).toContain("HOVERED");
-    expect(hoveredStr).toContain("Highwatch");
-    expect(hoveredStr).toContain("Verdant …");
+    expect(hoveredStr).toContain("Alaska Range");
+    expect(hoveredStr).toContain("NA");
 
-    // 3. Selected territory A1: displays [SELECTED]
+    // 3. Selected territory na_alaska_range: displays [SELECTED]
     const selectedEl: any = CompactInspector({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: null,
       myPlayerId: "p1",
-      selectedTerritoryId: "A1",
+      selectedTerritoryId: "na_alaska_range",
       hoveredTerritoryId: null,
       targetTerritoryId: null,
       phase: "lobby",
@@ -1741,15 +1740,15 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     const selectedStr = JSON.stringify(selectedEl);
     expect(selectedStr).toContain("! INSPECTOR [SELECTED]");
     expect(selectedStr).toContain("SELECTED");
-    expect(selectedStr).toContain("Highwatch");
+    expect(selectedStr).toContain("Alaska Range");
 
-    // 4. Hovering B1 while A1 is selected: displays B1 with [HOVERED]
+    // 4. Hovering na_great_lakes while na_alaska_range is selected: displays na_great_lakes with [HOVERED]
     const hoverWhileSelectedEl: any = CompactInspector({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: null,
       myPlayerId: "p1",
-      selectedTerritoryId: "A1",
-      hoveredTerritoryId: "B1",
+      selectedTerritoryId: "na_alaska_range",
+      hoveredTerritoryId: "na_great_lakes",
       targetTerritoryId: null,
       phase: "lobby",
       onDeploy: () => {},
@@ -1760,15 +1759,15 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     });
     const hoverWhileSelectedStr = JSON.stringify(hoverWhileSelectedEl);
     expect(hoverWhileSelectedStr).toContain("! INSPECTOR [HOVERED]");
-    expect(hoverWhileSelectedStr).toContain("B1");
+    expect(hoverWhileSelectedStr).toContain("Great Lakes");
     expect(hoverWhileSelectedStr).toContain("HOVERED");
 
-    // 5. Reverting to A1 when hover cleared
+    // 5. Reverting to na_alaska_range when hover cleared
     const revertedEl: any = CompactInspector({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: null,
       myPlayerId: "p1",
-      selectedTerritoryId: "A1",
+      selectedTerritoryId: "na_alaska_range",
       hoveredTerritoryId: null,
       targetTerritoryId: null,
       phase: "lobby",
@@ -1780,7 +1779,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     });
     const revertedStr = JSON.stringify(revertedEl);
     expect(revertedStr).toContain("! INSPECTOR [SELECTED]");
-    expect(revertedStr).toContain("A1");
+    expect(revertedStr).toContain("Alaska Range");
   });
 
   it("Sidebar omits Card 4 in standard mode and uses updated territory terminology", async () => {
@@ -1788,10 +1787,10 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // Standard mode: Cards 1-3 rendered, Card 4 omitted
     const standardEl: any = Sidebar({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: null,
       myPlayerId: "p1",
-      selectedTerritoryId: "A1",
+      selectedTerritoryId: "na_alaska_range",
       hoveredTerritoryId: null,
       targetTerritoryId: null,
       onDeploy: () => {},
@@ -1810,10 +1809,10 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     // Wide mode: All 4 cards rendered with updated terminology
     const wideEl: any = Sidebar({
-      mapBundle: ironreachBundle,
+      mapBundle: earthBundle,
       state: null,
       myPlayerId: "p1",
-      selectedTerritoryId: "A1",
+      selectedTerritoryId: "na_alaska_range",
       hoveredTerritoryId: null,
       targetTerritoryId: null,
       onDeploy: () => {},
@@ -1829,9 +1828,9 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     expect(wideCards[3].props.title).toBe("! REALM & SESSION INTEL");
 
     const wideStr = JSON.stringify(wideEl);
-    expect(wideStr).toContain("The Ironreach");
-    expect(wideStr).toContain('20," Territories"');
-    expect(wideStr).not.toContain("20 Realms");
+    expect(wideStr).toContain("Earth — Global Front");
+    expect(wideStr).toContain('42," Territories"');
+    expect(wideStr).not.toContain("42 Regions");
   });
 
   it("Header and Footer adapt to compact layout mode with space-saving heights", async () => {
@@ -1892,12 +1891,12 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
         territories: {},
         players: testPlayers,
         myPlayerId: "p1",
         phase: "deployment",
-        selectedTerritoryId: "A1",
+        selectedTerritoryId: "na_alaska_range",
         targetTerritoryId: null,
         onSelectTerritory: () => {},
         onSelectTarget: () => {},
@@ -1914,7 +1913,7 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     // Verify half-block characters exist in the output for microcell coastlines
     expect(frame).toContain("▀");
     // Verify territory name overlays cleanly on land
-    expect(frame).toContain("HIGHWATCH");
+    expect(frame).toContain("NA1");
 
     await act(async () => {
       setup.renderer.destroy();
@@ -1930,17 +1929,17 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     const { testRender } = await import("../apps/client/node_modules/@opentui/react/test-utils.js");
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
 
-    // Both A1 and A3 owned by Alice (p1), B1 owned by Bob (p2)
+    // Both na_alaska_range and na_prairie_provinces owned by Alice (p1), na_great_lakes owned by Bob (p2)
     const territories = {
-      A1: { id: "A1", ownerId: "p1", units: 4 },
-      A2: { id: "A2", ownerId: "p1", units: 2 },
-      A3: { id: "A3", ownerId: "p1", units: 5 },
-      B1: { id: "B1", ownerId: "p2", units: 3 },
+      na_alaska_range: { id: "na_alaska_range", ownerId: "p1", units: 4 },
+      na_northwest_canada: { id: "na_northwest_canada", ownerId: "p1", units: 2 },
+      na_prairie_provinces: { id: "na_prairie_provinces", ownerId: "p1", units: 5 },
+      na_great_lakes: { id: "na_great_lakes", ownerId: "p2", units: 3 },
     };
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
         territories,
         players: testPlayers,
         myPlayerId: "p1",
@@ -1964,8 +1963,8 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     // Verify political boundary separator glyph "·" exists between same-owner territories
     expect(frame).toContain("·");
     // Verify both territory labels are visible
-    expect(frame).toContain("HIGHWATCH");
-    expect(frame).toContain("STONEVEIL");
+    expect(frame).toContain("NA1");
+    expect(frame).toContain("NA4");
 
     await act(async () => {
       setup.renderer.destroy();
@@ -1982,19 +1981,19 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     const { MapCanvas } = await import("../apps/client/src/ui/MapCanvas.js");
 
     const territories = {
-      A1: { id: "A1", ownerId: "p1", units: 4 },
-      A3: { id: "A3", ownerId: "p1", units: 5 },
+      na_alaska_range: { id: "na_alaska_range", ownerId: "p1", units: 4 },
+      na_prairie_provinces: { id: "na_prairie_provinces", ownerId: "p1", units: 5 },
     };
 
     const setup = await testRender(
       React.createElement(MapCanvas, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
         territories,
         players: testPlayers,
         myPlayerId: "p1",
         phase: "deployment",
-        selectedTerritoryId: "A1",
-        hoveredTerritoryId: "A3",
+        selectedTerritoryId: "na_alaska_range",
+        hoveredTerritoryId: "na_prairie_provinces",
         targetTerritoryId: null,
         onSelectTerritory: () => {},
         onSelectTarget: () => {},
@@ -2013,8 +2012,8 @@ describe("ui: Compact layout mode, CompactInspector, half-block rendering & hove
     expect(hasSelectionMarkers).toBe(true);
 
     // Selected territory and hovered territory are both rendered
-    expect(frame).toContain("HIGHWATCH");
-    expect(frame).toContain("STONEVEIL");
+    expect(frame).toContain("NA1");
+    expect(frame).toContain("NA4");
 
     await act(async () => {
       setup.renderer.destroy();

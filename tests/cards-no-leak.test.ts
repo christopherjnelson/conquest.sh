@@ -36,7 +36,7 @@
 import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { ConquestServer } from "../apps/server/src/server.js";
 import { GameClient } from "../apps/client/src/network/client.js";
-import { MAP_SECTOR_07 } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
 import { projectStateFor, SERVER_ONLY_KEYS, buildDeck } from "@conquest/game-core";
 import type { GameState, Card, ServerCardState } from "@conquest/protocol";
 import type { GameRoom } from "../apps/server/src/room.js";
@@ -122,7 +122,7 @@ describe("cards: no-leak projection e2e", () => {
       port: 0,
       serverName: "no-leak-test",
       maxPlayersPerRoom: 3,
-      defaultMap: MAP_SECTOR_07,
+      defaultMap: EARTH_42_BUNDLE.definition,
       rngSeed: FIXED_SEED,
     });
     server.start();
@@ -137,11 +137,11 @@ describe("cards: no-leak projection e2e", () => {
   // Tests the spectator contract (viewerId=null → myHand=null) without
   // needing a real WebSocket connection.
   it("projectStateFor with null viewerId yields myHand: null (spectator contract)", () => {
-    const deck = buildDeck(MAP_SECTOR_07);
+    const deck = buildDeck(EARTH_42_BUNDLE.definition);
     // Minimal synthetic state that has cards populated
     const minimalState = {
       gameId: "test",
-      mapId: "sector-07",
+      mapId: "earth-42",
       roomCode: "XXXX",
       turnNumber: 1,
       activePlayerIndex: 0,
@@ -181,7 +181,7 @@ describe("cards: no-leak projection e2e", () => {
     // ── Connect and tap raw messages from the very first frame ────────────────
     await clients[0]!.connect();
     tapMessages(clients[0]!, rawMessages[0]!);
-    clients[0]!.createRoom({ playerName: "Alpha", visibility: "unlisted", maxPlayers: 3, mapId: "sector-07" });
+    clients[0]!.createRoom({ playerName: "Alpha", visibility: "unlisted", maxPlayers: 3, mapId: "earth-42" });
     await clients[0]!.waitForSnapshot((s) => s.phase === "lobby", 5000);
     const roomCode = clients[0]!.roomCode!;
 
@@ -205,15 +205,14 @@ describe("cards: no-leak projection e2e", () => {
     const playerIds = room.state.players.map((p) => p.id);
     expect(playerIds).toHaveLength(3);
 
-    // Use the unshuffled deck from buildDeck so symbol order is deterministic:
-    //   territories 0-7: inf, cav, art, inf, cav, art, inf, cav  (SYMBOL_ORDER cycles)
-    //   then wild-1, wild-2
+    // Use the unshuffled Earth-42 deck so symbol order is deterministic. The
+    // 42 territory cards cycle through infantry/cavalry/artillery, followed by 2 wilds.
     // Player 0 → [inf, cav, art] = one-of-each → valid trade set ✓
     // Player 1 → [inf, cav, art] = one-of-each → valid trade set ✓
     // Player 2 → [inf, cav, wild-1] → valid (wild completes) ✓
-    // Remaining deck → [wild-2]
-    const fullDeck = buildDeck(MAP_SECTOR_07);
-    expect(fullDeck.length).toBeGreaterThanOrEqual(10); // 8 territories + 2 wilds
+    // Remaining 35 cards return to the deck after assigning 3 cards per player.
+    const fullDeck = buildDeck(EARTH_42_BUNDLE.definition);
+    expect(fullDeck).toHaveLength(44); // 42 territories + 2 wilds
 
     const CARDS_PER_PLAYER = 3; // 3 per player, 9 total, 1 remains in deck
     const cardsNeeded = playerIds.length * CARDS_PER_PLAYER; // 9

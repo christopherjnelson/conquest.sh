@@ -251,15 +251,16 @@ export function CompactInspector({
             for (let idx = 0; idx < players.length; idx++) {
               const p = players[idx]!;
               const isPActive = !isLobby && state?.activePlayerIndex === idx;
+              const isBot = p.controller === "bot";
               const statusBadge = isLobby
-                ? p.ready ? "Ready" : p.connected ? "Conn" : "Off"
+                ? isBot ? "Ready" : p.ready ? "Ready" : p.connected ? "Conn" : "Off"
                 : isPActive ? "Active" : p.isAlive ? "Wait" : "Dead";
               const badgeColor = isLobby
-                ? (p.ready ? "#00ff66" : "#00d2ff")
+                ? (isBot ? "#c084fc" : p.ready ? "#00ff66" : "#00d2ff")
                 : isPActive ? "#00ff66" : "#64748b";
               if (idx > 0) tokens.push({ text: " │ ", fg: "#64748b" });
               tokens.push({ text: "● ", fg: p.colorHex });
-              const nameText = fitCompactText(p.name, compactNameLimit) + (p.id === myPlayerId ? " (You)" : "");
+              const nameText = fitCompactText(p.name + (isBot ? " [BOT]" : ""), compactNameLimit) + (p.id === myPlayerId ? " (You)" : "");
               tokens.push({ text: nameText, fg: "#e2e8f0" });
               tokens.push({ text: ` [${statusBadge}]`, fg: badgeColor });
             }

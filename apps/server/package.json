@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@conquest/game-core": "workspace:*",
+    "@conquest/bot-core": "workspace:*",
     "@conquest/map-engine": "workspace:*",
     "@conquest/protocol": "workspace:*",
     "@conquest/shared": "workspace:*",

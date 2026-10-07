@@ -220,7 +220,9 @@ export function RoomBrowser({ client, onJoinRoom, onBack }: RoomBrowserProps) {
                     {room.displayName}
                   </text>
                   <text fg={isFull ? "#f59e0b" : "#94a3b8"} style={{ width: 14 }}>
-                    {room.playersCount} / {room.maxPlayers}
+                    {room.botPlayersCount
+                      ? `${room.humanPlayersCount ?? room.playersCount - room.botPlayersCount}h + ${room.botPlayersCount}b / ${room.maxPlayers}`
+                      : `${room.playersCount} / ${room.maxPlayers}`}
                   </text>
                   <text fg="#94a3b8" style={{ width: 16 }}>
                     {room.mapName}

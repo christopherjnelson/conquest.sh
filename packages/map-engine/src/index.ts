@@ -1,26 +1,13 @@
-import { MAP_GRID_IRONREACH } from "./maps/grid-ironreach.js";
-import { getDefaultMap } from "./registry.js";
+import { EARTH_42_BUNDLE } from "./maps/earth-42.js";
 
-export * from "./maps/sector-07.js";
-export * from "./maps/grid-ironreach.js";
+export * from "./maps/earth-42.js";
 export * from "./grid-engine.js";
 export * from "./layout.js";
 export * from "./navigation.js";
+export * from "./raster.js";
 export * from "./registry.js";
+export * from "./types.js";
 
-export {
-  MAP_GRID_IRONREACH_COMPACT,
-  MAP_GRID_IRONREACH_WIDE,
-  getMapForDimensions,
-  getMapForTerminalDimensions,
-} from "./maps/grid-ironreach.js";
-export {
-  getTerritoryFillRatio,
-  getGeographyBoundingBox,
-} from "./grid-engine.js";
-
-// Unified Ironreach map model: MAP_IRONREACH is consolidated onto MAP_GRID_IRONREACH
-export const MAP_IRONREACH = MAP_GRID_IRONREACH;
-export const DEFAULT_MAP = getDefaultMap().definition;
-export const DEFAULT_GRID_MAP = getDefaultMap().renderVariants[0].grid;
+export const DEFAULT_MAP = EARTH_42_BUNDLE.definition;
+export const DEFAULT_GRID_MAP = EARTH_42_BUNDLE.renderVariants[0].grid;
 export default DEFAULT_MAP;

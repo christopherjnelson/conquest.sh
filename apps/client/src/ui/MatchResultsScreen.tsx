@@ -41,14 +41,17 @@ export function MatchResultsScreen({
   const winnerId = state.winnerId;
   const isWinner = Boolean(winnerId && winnerId === myPlayerId);
   const winnerPlayer = state.players.find((p) => p.id === winnerId);
-  const winnerName = winnerPlayer?.name ?? state.result?.winnerName ?? "Unknown Commander";
+  const winnerName = winnerPlayer
+    ? `${winnerPlayer.name}${winnerPlayer.controller === "bot" ? " [BOT]" : ""}`
+    : state.result?.winnerName ?? "Unknown Commander";
 
   const myPlayer = state.players.find((p) => p.id === myPlayerId);
   const isMyRematchReady = myPlayer?.rematchReady ?? false;
 
-  const connectedPlayers = state.players.filter((p) => p.connected);
-  const readyCount = connectedPlayers.filter((p) => p.rematchReady).length;
-  const totalConnected = connectedPlayers.length;
+  const rematchPlayers = state.players.filter((p) => p.controller === "bot" || p.connected);
+  const readyCount = rematchPlayers.filter((p) => p.controller === "bot" || p.rematchReady).length;
+  const totalConnected = rematchPlayers.length;
+  const humanCount = rematchPlayers.filter((p) => p.controller !== "bot").length;
 
   // Duration
   const durationMs =
@@ -81,7 +84,7 @@ export function MatchResultsScreen({
   // two rows, so its height grows directly with the number of results instead
   // of clipping the lower placements in larger matches.
   const compactStandingsHeight = standings.length + 2;
-  const compactRematchHeight = connectedPlayers.length + 2;
+  const compactRematchHeight = rematchPlayers.length + 2;
 
   // Chat messages
   const chatMessages = useMemo(() => {
@@ -269,7 +272,7 @@ export function MatchResultsScreen({
                     </span>
                     <span fg={colorHex}>● </span>
                     <span fg={isChamp ? "#00ff66" : "#e2e8f0"}>
-                      <b>{p.playerName.padEnd(12, " ")}</b>
+                      <b>{`${p.playerName}${state.players.find((player) => player.id === p.playerId)?.controller === "bot" ? " [BOT]" : ""}`.padEnd(12, " ")}</b>
                     </span>
                     {isLocal && <span fg="#00ff66"> (You)</span>}
                   </text>
@@ -355,18 +358,20 @@ export function MatchResultsScreen({
           >
             {!isCompact && (
               <text fg="#94a3b8">
-                Rematch Readiness: <span fg={readyCount === totalConnected && totalConnected >= 2 ? "#00ff66" : "#f59e0b"}><b>{readyCount}/{totalConnected} Commanders Agreed</b></span>
+                Rematch Readiness: <span fg={readyCount === totalConnected && totalConnected >= 2 && humanCount >= 1 ? "#00ff66" : "#f59e0b"}><b>{readyCount}/{totalConnected} Commanders Agreed</b></span>
               </text>
             )}
 
             <box flexDirection="column" marginTop={isCompact ? 0 : 1} gap={0}>
-              {connectedPlayers.map((p) => {
-                const isReady = p.rematchReady;
+              {rematchPlayers.map((p) => {
+                const isBot = p.controller === "bot";
+                const isReady = isBot || p.rematchReady;
                 return (
                   <box key={p.id} flexDirection="row" justifyContent="space-between">
                     <text>
                       <span fg={p.colorHex}>● </span>
                       <span fg="#e2e8f0">{p.name}</span>
+                      {isBot && <span fg="#c084fc"> [BOT]</span>}
                       {p.id === myPlayerId && <span fg="#38bdf8"> (You)</span>}
                     </text>
                     <text fg={isReady ? "#00ff66" : "#64748b"}>
@@ -380,7 +385,7 @@ export function MatchResultsScreen({
             {!isCompact && (
               <box marginTop={1}>
                 <text fg="#64748b">
-                  <i>{readyCount === totalConnected && totalConnected >= 2 ? "Launching rematch with rotated turn order..." : "Waiting for all connected commanders to agree..."}</i>
+                    <i>{readyCount === totalConnected && totalConnected >= 2 && humanCount >= 1 ? "Launching rematch with rotated turn order..." : "Waiting for all human commanders to agree..."}</i>
                 </text>
               </box>
             )}

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { ConquestServer } from "../apps/server/src/server.js";
-import { MAP_IRONREACH } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE } from "../packages/map-engine/src/index.js";
 import type {
   ClientAttack,
   ClientCreateRoom,
@@ -150,7 +150,7 @@ describe("ConquestServer: Full Integration Flow", () => {
       port: 0,
       serverName: "test-conquest-ws",
       maxPlayersPerRoom: 2,
-      defaultMap: MAP_IRONREACH,
+      defaultMap: EARTH_42_BUNDLE.definition,
     });
     server.start();
     port = server.port;
@@ -268,8 +268,7 @@ describe("ConquestServer: Full Integration Flow", () => {
     // 3. Player 1 deploys units -> verify both clients receive units_deployed event
     const deployMsg: ClientDeploy = {
       type: "client:deploy",
-      territoryId: aliceDeployTarget.id,
-      count: snapshotA.state.pendingReinforcements,
+      territoryId: aliceDeployTarget.id,      count: snapshotA.state.pendingReinforcements,
     };
     clientA.send(deployMsg);
 
@@ -283,15 +282,13 @@ describe("ConquestServer: Full Integration Flow", () => {
     expect(deployEventA.event.type).toBe("units_deployed");
     if (deployEventA.event.type === "units_deployed") {
       expect(deployEventA.event.playerId).toBe(aliceId);
-      expect(deployEventA.event.territoryId).toBe(aliceDeployTarget.id);
-      expect(deployEventA.event.count).toBe(snapshotA.state.pendingReinforcements);
+      expect(deployEventA.event.territoryId).toBe(aliceDeployTarget.id);      expect(deployEventA.event.count).toBe(snapshotA.state.pendingReinforcements);
     }
 
     expect(deployEventB.event.type).toBe("units_deployed");
     if (deployEventB.event.type === "units_deployed") {
       expect(deployEventB.event.playerId).toBe(aliceId);
-      expect(deployEventB.event.territoryId).toBe(aliceDeployTarget.id);
-    }
+      expect(deployEventB.event.territoryId).toBe(aliceDeployTarget.id);    }
 
     // Both should also receive phase_changed to "attack"
     const attackPhaseEventA = await clientA.waitForMessage<ServerEvent>(
@@ -305,8 +302,7 @@ describe("ConquestServer: Full Integration Flow", () => {
     const attackMsg: ClientAttack = {
       type: "client:attack",
       sourceTerritoryId: attackSourceId,
-      targetTerritoryId: bobAdjacentId,
-      units: 3,
+      targetTerritoryId: bobAdjacentId,      units: 3,
     };
     clientA.send(attackMsg);
 
@@ -322,8 +318,7 @@ describe("ConquestServer: Full Integration Flow", () => {
       expect(attackEventA.event.attackerId).toBe(aliceId);
       expect(attackEventA.event.defenderId).toBe(bobId);
       expect(attackEventA.event.sourceTerritoryId).toBe(attackSourceId);
-      expect(attackEventA.event.targetTerritoryId).toBe(bobAdjacentId);
-      expect(attackEventA.event.attackerRolls.length).toBeGreaterThan(0);
+      expect(attackEventA.event.targetTerritoryId).toBe(bobAdjacentId);      expect(attackEventA.event.attackerRolls.length).toBeGreaterThan(0);
       expect(attackEventA.event.defenderRolls.length).toBeGreaterThan(0);
     }
 
@@ -483,7 +478,7 @@ describe("ConquestServer: cardMode create_room end-to-end", () => {
     server = new ConquestServer({
       port: 0,
       serverName: "test-cardmode",
-      defaultMap: MAP_IRONREACH,
+      defaultMap: EARTH_42_BUNDLE.definition,
     });
     server.start();
     port = server.port;

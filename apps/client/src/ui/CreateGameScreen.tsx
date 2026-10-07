@@ -1,25 +1,41 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { RoomVisibility } from "@conquest/protocol";
 
 export interface CreateGameScreenProps {
   defaultName?: string;
-  onCreate: (options: { displayName: string; maxPlayers: number; visibility: RoomVisibility; cardMode: "escalating" | "off" }) => void;
+  onCreate: (options: { displayName: string; maxPlayers: number; visibility: RoomVisibility; cardMode: "escalating" | "off"; botCount: number }) => void;
   onBack: () => void;
   terminalDimensions?: { columns: number; rows: number };
 }
 
-type FieldIndex = 0 | 1 | 2 | 3;
-const FIELD_COUNT = 4;
+type FieldIndex = 0 | 1 | 2 | 3 | 4;
+const FIELD_COUNT = 5;
 
-export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameScreenProps) {
+export function CreateGameScreen({ defaultName, onCreate, onBack, terminalDimensions }: CreateGameScreenProps) {
   const [activeField, setActiveField] = useState<FieldIndex>(0);
   const [displayName, setDisplayName] = useState(defaultName || "Conquest Campaign");
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [visibility, setVisibility] = useState<RoomVisibility>("public");
   const [cardMode, setCardMode] = useState<"escalating" | "off">("escalating");
+  const [botCount, setBotCount] = useState(0);
+  useEffect(() => setBotCount((current) => Math.min(current, maxPlayers - 1)), [maxPlayers]);
+  const compact = (terminalDimensions?.rows ?? 40) <= 36;
+
+  const create = () => onCreate({ displayName: displayName.trim() || "Conquest Campaign", maxPlayers, visibility, cardMode, botCount });
+  const changeCapacity = (next: number) => {
+    setMaxPlayers(next);
+    setBotCount((current) => Math.min(current, next - 1));
+  };
 
   useKeyboard((key) => {
+    if (key.ctrl && key.name === "p") {
+      setMaxPlayers(2);
+      setBotCount(1);
+      setVisibility("unlisted");
+      setActiveField(4);
+      return;
+    }
     if (key.name === "escape") {
       onBack();
       return;
@@ -42,8 +58,7 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
 
     // Enter submits
     if (key.name === "return" || key.name === "enter") {
-      const trimmed = displayName.trim() || "Conquest Campaign";
-      onCreate({ displayName: trimmed, maxPlayers, visibility, cardMode });
+      create();
       return;
     }
 
@@ -64,16 +79,16 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
     // Field 1: Max Players
     if (activeField === 1) {
       if (key.name === "left" || key.name === "-") {
-        setMaxPlayers((prev) => Math.max(2, prev - 1));
+        changeCapacity(Math.max(2, maxPlayers - 1));
         return;
       }
       if (key.name === "right" || key.name === "+") {
-        setMaxPlayers((prev) => Math.min(6, prev + 1));
+        changeCapacity(Math.min(6, maxPlayers + 1));
         return;
       }
       const num = parseInt(key.name, 10);
       if (num >= 2 && num <= 6) {
-        setMaxPlayers(num);
+        changeCapacity(num);
         return;
       }
     }
@@ -93,6 +108,10 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
         return;
       }
     }
+    if (activeField === 4 && (key.name === "left" || key.name === "right" || key.name === "space")) {
+      setBotCount((prev) => Math.max(0, Math.min(maxPlayers - 1, prev + (key.name === "left" ? -1 : 1))));
+      return;
+    }
   });
 
   return (
@@ -100,7 +119,7 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
       flexDirection="column"
       backgroundColor="#080f1a"
       style={{ width: "100%", height: "100%" }}
-      padding={1}
+      padding={compact ? 0 : 1}
       justifyContent="space-between"
     >
       {/* Title Bar */}
@@ -119,7 +138,7 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
           <b>! HOST CUSTOM BATTLE</b>
         </text>
         <text fg="#64748b">
-          configure realm rules & visibility
+          {compact ? "Ctrl+P Solo Practice" : "configure realm rules & visibility"}
         </text>
       </box>
 
@@ -131,12 +150,12 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
         borderColor="#1e293b"
         backgroundColor="#091220"
         flexGrow={1}
-        marginTop={1}
-        marginBottom={1}
-        padding={2}
+        marginTop={compact ? 0 : 1}
+        marginBottom={compact ? 0 : 1}
+        padding={compact ? 0 : 1}
         alignItems="center"
         justifyContent="center"
-        gap={1}
+        gap={compact ? 0 : 1}
       >
         {/* Field 0: Game Name */}
         <box
@@ -161,9 +180,9 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
             </text>
             {activeField === 0 && <text fg="#00ff66">_</text>}
           </box>
-          <text fg="#64748b" marginTop={0}>
+          {!compact && <text fg="#64748b" marginTop={0}>
             <i>Type directly to change room name</i>
-          </text>
+          </text>}
         </box>
 
         {/* Field 1: Max Players */}
@@ -188,7 +207,7 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
           >
             <text
               fg="#38bdf8"
-              onMouseDown={() => setMaxPlayers((prev) => Math.max(2, prev - 1))}
+              onMouseDown={() => changeCapacity(Math.max(2, maxPlayers - 1))}
             >
               <b>[ ◄ Decrement ]</b>
             </text>
@@ -197,14 +216,14 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
             </text>
             <text
               fg="#38bdf8"
-              onMouseDown={() => setMaxPlayers((prev) => Math.min(6, prev + 1))}
+              onMouseDown={() => changeCapacity(Math.min(6, maxPlayers + 1))}
             >
               <b>[ Increment ► ]</b>
             </text>
           </box>
-          <text fg="#64748b" marginTop={0}>
+          {!compact && <text fg="#64748b" marginTop={0}>
             <i>Use Left/Right arrows or click buttons to adjust</i>
-          </text>
+          </text>}
         </box>
 
         {/* Field 2: Visibility */}
@@ -253,9 +272,9 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
               </text>
             </box>
           </box>
-          <text fg="#64748b" marginTop={0}>
+          {!compact && <text fg="#64748b" marginTop={0}>
             <i>Unlisted rooms do not appear in public browser</i>
-          </text>
+          </text>}
         </box>
 
         {/* Field 3: Card Mode */}
@@ -304,9 +323,18 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
               </text>
             </box>
           </box>
-          <text fg="#64748b" marginTop={0}>
+          {!compact && <text fg="#64748b" marginTop={0}>
             <i>Escalating: territory cards with bonus armies per traded set</i>
-          </text>
+          </text>}
+        </box>
+
+        <box flexDirection="column" style={{ width: 60 }} onMouseDown={() => setActiveField(4)}>
+          <text fg={activeField === 4 ? "#00d2ff" : "#94a3b8"}><b>5. BOT SEATS (0–{maxPlayers - 1}):</b></text>
+          <box flexDirection="row" gap={2} alignItems="center" border borderStyle="single" borderColor={activeField === 4 ? "#00d2ff" : "#334155"} paddingLeft={1} paddingRight={1}>
+            <text fg="#38bdf8" onMouseDown={() => setBotCount((n) => Math.max(0, n - 1))}><b>[ − ]</b></text>
+            <text fg="#00ff66"><b>{botCount} {botCount === 1 ? "bot" : "bots"} · {maxPlayers - botCount} human seats · {maxPlayers} total</b></text>
+            <text fg="#38bdf8" onMouseDown={() => setBotCount((n) => Math.min(maxPlayers - 1, n + 1))}><b>[ + ]</b></text>
+          </box>
         </box>
       </box>
 
@@ -331,8 +359,7 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
             paddingLeft={2}
             paddingRight={2}
             onMouseDown={() => {
-              const trimmed = displayName.trim() || "Conquest Campaign";
-              onCreate({ displayName: trimmed, maxPlayers, visibility, cardMode });
+              create();
             }}
           >
             <text fg="#00ff66">
@@ -340,7 +367,7 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
             </text>
           </box>
 
-          <box
+          {!compact && <box
             border
             borderStyle="single"
             borderColor="#64748b"
@@ -352,12 +379,10 @@ export function CreateGameScreen({ defaultName, onCreate, onBack }: CreateGameSc
             <text fg="#cbd5e1">
               <b>[ Esc: Cancel / Back ]</b>
             </text>
-          </box>
+          </box>}
         </box>
 
-        <text fg="#64748b">
-          [Tab / ↑ / ↓] Switch Field  │  [Enter] Create Game
-        </text>
+        {!compact && <text fg="#64748b">[Ctrl+P] Solo Practice · [Tab/↑/↓] Fields · [Enter] Create</text>}
       </box>
     </box>
   );

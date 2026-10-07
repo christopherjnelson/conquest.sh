@@ -23,7 +23,7 @@ import {
   tradeCards,
   suggestSets,
 } from "../packages/game-core/src/index.js";
-import { MAP_IRONREACH, listMaps } from "../packages/map-engine/src/index.js";
+import { EARTH_42_BUNDLE, listMaps } from "../packages/map-engine/src/index.js";
 import { makeSfc32, makeShuffleFn } from "../packages/shared/src/index.js";
 import type { GameState, Player } from "../packages/protocol/src/index.js";
 
@@ -35,7 +35,7 @@ function make2pState(): GameState {
     { id: "p1", name: "Alice", colorIndex: 0, colorHex: "#ff0000", connected: true, isAlive: true, ready: true, rematchReady: false },
     { id: "p2", name: "Bob", colorIndex: 1, colorHex: "#0000ff", connected: true, isAlive: true, ready: true, rematchReady: false },
   ];
-  return createInitialGameState("frozen-test", "FROZ", players, MAP_IRONREACH, 3, makeShuffleFn(rng));
+  return createInitialGameState("frozen-test", "FROZ", players, EARTH_42_BUNDLE.definition, 3, makeShuffleFn(rng));
 }
 
 /** Return state with a frozen history so any mutation throws immediately. */

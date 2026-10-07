@@ -157,6 +157,7 @@ export class ConquestServer {
   }
 
   stop(closeActiveConnections: boolean = true) {
+    this.roomManager.dispose();
     if (this.server) {
       this.server.stop(closeActiveConnections);
       this.server = null;
@@ -421,6 +422,16 @@ export class ConquestServer {
   }
 
   private handleCreateRoom(ws: ServerWebSocket<WSData>, msg: ClientCreateRoom) {
+    const botCount = msg.botCount ?? 0;
+    if (!Number.isInteger(botCount) || botCount < 0 || botCount > 5 || botCount > msg.maxPlayers - 1) {
+      this.sendError(ws, "INVALID_BOT_COUNT", "Bot count must leave at least one human seat");
+      return;
+    }
+    const requestedMap = msg.mapId ? getMap(msg.mapId) : undefined;
+    if (msg.mapId && !requestedMap) {
+      this.sendError(ws, "UNKNOWN_MAP", `Unknown map: ${msg.mapId}`);
+      return;
+    }
     if (ws.data.roomCode && ws.data.playerId) {
       const currentRoom = this.roomManager.getRoom(ws.data.roomCode);
       if (currentRoom && isActiveMatchPhase(currentRoom.state.phase)) {
@@ -462,15 +473,11 @@ export class ConquestServer {
       }
     }
 
-    const requestedMap = msg.mapId ? getMap(msg.mapId) : undefined;
-    if (msg.mapId && !requestedMap) {
-      this.sendError(ws, "UNKNOWN_MAP", `Unknown map: ${msg.mapId}`);
-      return;
-    }
     const room = this.roomManager.createCustomRoom({
       displayName: roomDisplayName,
       visibility: msg.visibility,
       maxPlayers: msg.maxPlayers,
+      botCount,
       map: requestedMap?.definition,
       cardMode: msg.cardMode,
     });
@@ -496,6 +503,7 @@ export class ConquestServer {
 
     // Add player to room
     room.addPlayer(newSession.playerId, creatorName, ws, newSession.token);
+    if (botCount > 0) room.addBots(botCount);
   }
 
   private handleGameAction(ws: ServerWebSocket<WSData>, msg: ClientMessage) {

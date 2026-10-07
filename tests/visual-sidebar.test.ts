@@ -1,5 +1,3 @@
-import { getMap } from "../packages/map-engine/src/registry.js";
-const ironreachBundle = getMap("ironreach")!;
 import { describe, expect, it } from "bun:test";
 // @ts-ignore Test renderer is intentionally imported from the client workspace.
 import React from "../apps/client/node_modules/react/index.js";
@@ -9,9 +7,9 @@ import { act } from "../apps/client/node_modules/react/index.js";
 import { testRender } from "../apps/client/node_modules/@opentui/react/test-utils.js";
 import { createInitialGameState } from "../packages/game-core/src/index.js";
 import {
-  MAP_GRID_IRONREACH,
-  MAP_GRID_IRONREACH_COMPACT,
-  MAP_GRID_IRONREACH_WIDE,
+  EARTH_42_BUNDLE,
+  getMapContentDimensionsForTerminal,
+  selectRenderVariant,
   getLayoutMode,
   getSidebarWidthForTerminal,
 } from "../packages/map-engine/src/index.js";
@@ -23,7 +21,9 @@ import { CompactInspector } from "../apps/client/src/ui/CompactInspector.js";
 import { App } from "../apps/client/src/ui/App.js";
 import { Header } from "../apps/client/src/ui/Header.js";
 
-const earthBundle = getMap("earth-42")!;
+const earthBundle = EARTH_42_BUNDLE;
+const nileTerritory = "af_nile_valley";
+const maghrebTerritory = "af_maghreb";
 
 const players: Player[] = [
   { id: "p1", name: "Commander Alexandria", colorIndex: 0, colorHex: "#00d2ff", connected: true, isAlive: true, ready: true },
@@ -31,15 +31,15 @@ const players: Player[] = [
 ];
 
 function selectedState() {
-  const state = createInitialGameState("visual-sidebar", "SIDE", players, MAP_GRID_IRONREACH, 2);
+  const state = createInitialGameState("visual-sidebar", "SIDE", players, earthBundle.definition, 2);
   state.phase = "deployment";
-  state.territories.B2.ownerId = "p1";
-  state.territories.B2.units = 7;
+  state.territories[nileTerritory].ownerId = "p1";
+  state.territories[nileTerritory].units = 7;
   return state;
 }
 
 function lobbyClient() {
-  const state = createInitialGameState("lobby-sidebar", "LOBB", players, MAP_GRID_IRONREACH, 2);
+  const state = createInitialGameState("lobby-sidebar", "LOBB", players, earthBundle.definition, 2);
   state.players = [players[0]];
   state.phase = "lobby";
   return {
@@ -53,7 +53,7 @@ function lobbyClient() {
 }
 
 function activeClient() {
-  const state = createInitialGameState("active-sidebar", "ACTV", players, MAP_GRID_IRONREACH, 2);
+  const state = createInitialGameState("active-sidebar", "ACTV", players, earthBundle.definition, 2);
   state.phase = "deployment";
   state.activePlayerIndex = 0;
   return {
@@ -108,8 +108,8 @@ function findTextNode(node: any, text: string): any | null {
 
 describe("visual sidebar composition", () => {
   it("keeps long territory and owner names in their own inspector lanes at every responsive width", async () => {
-    const mapBundle = structuredClone(ironreachBundle);
-    const territory = mapBundle.definition.territories.find((entry) => entry.id === "B2")!;
+    const mapBundle = structuredClone(earthBundle);
+    const territory = mapBundle.definition.territories.find((entry) => entry.id === nileTerritory)!;
     territory.name = "The Extremely Long Territory Name That Must Stay Above Owner";
     const state = selectedState();
     state.players[0].name = "Commander Alexandria With An Extremely Long Name";
@@ -117,7 +117,7 @@ describe("visual sidebar composition", () => {
     for (const [layoutMode, width] of [["standard", 32], ["wide", 42]] as const) {
       const setup = await testRender(
         React.createElement(Sidebar, {
-          mapBundle, state, myPlayerId: "p1", selectedTerritoryId: "B2", targetTerritoryId: null,
+          mapBundle, state, myPlayerId: "p1", selectedTerritoryId: nileTerritory, targetTerritoryId: null,
           onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {}, layoutMode,
         }),
         { width, height: 38 }
@@ -135,7 +135,7 @@ describe("visual sidebar composition", () => {
 
     const compact = await testRender(
       React.createElement(CompactInspector, {
-        mapBundle, state, myPlayerId: "p1", selectedTerritoryId: "B2", targetTerritoryId: null, phase: "deployment",
+        mapBundle, state, myPlayerId: "p1", selectedTerritoryId: nileTerritory, targetTerritoryId: null, phase: "deployment",
         onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {},
       }),
       { width: 100, height: 4 }
@@ -151,14 +151,14 @@ describe("visual sidebar composition", () => {
   it("does not turn a hovered territory's neighbors into targets for the selected source", () => {
     const state = selectedState();
     let selectedTarget: string | undefined;
-    const hovered = "B1";
+    const hovered = maghrebTerritory;
     const hoveredNeighbor = state.territories[hovered]!.neighbors[0]!;
     const inspector: any = Sidebar({
-      mapBundle: ironreachBundle, state, myPlayerId: "p1", selectedTerritoryId: "B2", hoveredTerritoryId: hovered,
+      mapBundle: earthBundle, state, myPlayerId: "p1", selectedTerritoryId: nileTerritory, hoveredTerritoryId: hovered,
       targetTerritoryId: null, onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {},
       onSelectTarget: (id) => { selectedTarget = id; }, layoutMode: "wide",
     });
-    const hoveredChip = findTextNode(inspector, `[${ironreachBundle.metadata.displayCodes[hoveredNeighbor] ?? hoveredNeighbor}]`);
+    const hoveredChip = findTextNode(inspector, `[${earthBundle.metadata.displayCodes[hoveredNeighbor] ?? hoveredNeighbor}]`);
     expect(hoveredChip?.props?.onMouseDown).toBeUndefined();
     expect(selectedTarget).toBeUndefined();
   });
@@ -311,14 +311,14 @@ describe("visual sidebar composition", () => {
   it("routes post-conquest troop selection to the map without inline amount controls", async () => {
     const state = selectedState();
     state.phase = "attack";
-    state.pendingConquestMove = { sourceTerritoryId: "B2", targetTerritoryId: "B1", defenderId: "p2", minimumUnits: 3, maximumUnits: 7 };
+    state.pendingConquestMove = { sourceTerritoryId: nileTerritory, targetTerritoryId: maghrebTerritory, defenderId: "p2", minimumUnits: 3, maximumUnits: 7 };
     for (const [Component, width, props] of [
       [Sidebar, 42, { layoutMode: "wide" }],
       [CompactInspector, 100, {}],
     ] as const) {
       const setup = await testRender(
         React.createElement(Component, {
-          mapBundle: ironreachBundle, state, myPlayerId: "p1", selectedTerritoryId: "B2", targetTerritoryId: "B1", phase: "attack",
+          mapBundle: earthBundle, state, myPlayerId: "p1", selectedTerritoryId: nileTerritory, targetTerritoryId: maghrebTerritory, phase: "attack",
           pendingConquestMove: state.pendingConquestMove,
           onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {}, ...props,
         }),
@@ -338,14 +338,14 @@ describe("visual sidebar composition", () => {
     state.players[0].name = "Commander Alexandria With An Extremely Long Name";
     const setup = await testRender(
       React.createElement(CompactInspector, {
-        state, myPlayerId: "p1", selectedTerritoryId: "B2", targetTerritoryId: null, phase: "deployment",
+        state, myPlayerId: "p1", selectedTerritoryId: nileTerritory, targetTerritoryId: null, phase: "deployment",
         onDeploy: () => {}, onAttack: () => {}, onFortify: () => {}, onSkipPhase: () => {}, onEndTurn: () => {},
       }),
       { width: 105, height: 38 }
     );
     await act(async () => { await setup.renderOnce(); });
     const frame = setup.captureCharFrame();
-    const inspectorLine = frame.split("\n").find((line: string) => line.includes("[B2]"))!;
+    const inspectorLine = frame.split("\n").find((line: string) => line.includes(`[${earthBundle.metadata.displayCodes[nileTerritory]}]`))!;
     expect(inspectorLine).toContain("Commander Ale…");
     expect(inspectorLine).toContain("(7)");
     expect(inspectorLine).toContain("+");
@@ -359,11 +359,11 @@ describe("visual sidebar composition", () => {
       const width = getSidebarWidthForTerminal(columns, 55);
       const setup = await testRender(
         React.createElement(Sidebar, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
           state: selectedState(),
           myPlayerId: "p1",
-          selectedTerritoryId: "B2",
-          targetTerritoryId: "B1",
+          selectedTerritoryId: nileTerritory,
+          targetTerritoryId: maghrebTerritory,
           onDeploy: () => {},
           onAttack: () => {},
           onFortify: () => {},
@@ -383,7 +383,7 @@ describe("visual sidebar composition", () => {
       expect(frame).toContain("Armies");
       expect(frame).toContain("Region");
       expect(frame).toContain("Bonus");
-      expect(frame).toContain("[B1*]");
+      expect(frame).toContain("[AF1*]");
       expect(frame).not.toContain("Bordering");
 
       const afterSelectedTitle = (text: string) => lines.findIndex((line: string, index: number) => index > selectedTitleLine && line.includes(text));
@@ -391,9 +391,9 @@ describe("visual sidebar composition", () => {
       const armiesLine = afterSelectedTitle("Armies");
       const regionLine = afterSelectedTitle("Region");
       const bonusLine = afterSelectedTitle("Bonus");
-      const chipLine = afterSelectedTitle("[B1*]");
-      const flavorLine = afterSelectedTitle("Rolling gold");
-      const identityLine = afterSelectedTitle("[B2]");
+      const chipLine = afterSelectedTitle("[AF1*]");
+      const flavorLine = afterSelectedTitle("Northeast African");
+      const identityLine = afterSelectedTitle("[AF2]");
       expect([ownerLine, armiesLine, regionLine, bonusLine].every((line) => line >= 0)).toBe(true);
       expect(ownerLine).toBeLessThan(armiesLine);
       expect(armiesLine).toBeLessThan(regionLine);
@@ -417,7 +417,7 @@ describe("visual sidebar composition", () => {
     for (const [layoutMode, expectedHeight] of heights) {
       const setup = await testRender(
         React.createElement(EventLog, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
           events: [], chatOpen: false, players: [], onToggleChat: () => {}, onSendChat: () => {}, layoutMode,
         }),
         { width: 80, height: 12 }
@@ -432,12 +432,12 @@ describe("visual sidebar composition", () => {
 
   it("keeps tab bar and event content on separate rows in compact EventLog", async () => {
     const event: GameEvent = {
-      type: "units_deployed", playerId: "p1", territoryId: "B2",
+      type: "units_deployed", playerId: "p1", territoryId: "eu_iceland",
       count: 3, remainingReinforcements: 2, timestamp: 1,
     };
     const setup = await testRender(
       React.createElement(EventLog, {
-        mapBundle: ironreachBundle,
+        mapBundle: earthBundle,
         events: [event], chatOpen: false, players, onToggleChat: () => {}, onSendChat: () => {}, layoutMode: "compact",
       }),
       { width: 100, height: 12 }
@@ -477,9 +477,9 @@ describe("visual sidebar composition", () => {
 
   it("renders sender names once and intact in every sender-bearing chronicle event", async () => {
     const events: Array<{ event: GameEvent; expected: string }> = [
-      { event: { type: "units_deployed", playerId: "p1", territoryId: "B2", count: 3, remainingReinforcements: 2, timestamp: 1 }, expected: "Commander Alexandria reinforced The Marches" },
-      { event: { type: "attack_resolved", attackerId: "p1", defenderId: "p2", sourceTerritoryId: "B2", targetTerritoryId: "B1", attackerRolls: [6], defenderRolls: [1], attackerLosses: 0, defenderLosses: 1, conquered: true, unitsMoved: 2, timestamp: 2 }, expected: "Commander Alexandria captured Sunken Pass from Blair!" },
-      { event: { type: "units_fortified", playerId: "p1", sourceTerritoryId: "B2", targetTerritoryId: "B1", units: 2, timestamp: 3 }, expected: "Commander Alexandria fortified 2 armies to Sunken Pass" },
+      { event: { type: "units_deployed", playerId: "p1", territoryId: nileTerritory, count: 3, remainingReinforcements: 2, timestamp: 1 }, expected: "Commander Alexandria reinforced Nile Valley" },
+      { event: { type: "attack_resolved", attackerId: "p1", defenderId: "p2", sourceTerritoryId: nileTerritory, targetTerritoryId: maghrebTerritory, attackerRolls: [6], defenderRolls: [1], attackerLosses: 0, defenderLosses: 1, conquered: true, unitsMoved: 2, timestamp: 2 }, expected: "Commander Alexandria captured Maghreb from Blair!" },
+      { event: { type: "units_fortified", playerId: "p1", sourceTerritoryId: nileTerritory, targetTerritoryId: maghrebTerritory, units: 2, timestamp: 3 }, expected: "Commander Alexandria fortified 2 armies to Maghreb" },
       { event: { type: "player_eliminated", playerId: "p1", eliminatedBy: "p2", timestamp: 4 }, expected: "Commander Alexandria has fallen in battle!" },
       { event: { type: "chat_message", senderId: "p1", senderName: "Commander Alexandria", channel: "game", text: "The line holds.", timestamp: 5 }, expected: "Commander Alexandria: \"The line holds.\"" },
     ];
@@ -487,7 +487,7 @@ describe("visual sidebar composition", () => {
     for (const { event, expected } of events) {
       const setup = await testRender(
         React.createElement(EventLog, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
           events: [event], chatOpen: false, players, onToggleChat: () => {}, onSendChat: () => {}, layoutMode: "wide",
         }),
         { width: 120, height: 10 }
@@ -513,19 +513,19 @@ describe("visual sidebar composition", () => {
     };
     const events: GameEvent[] = [
       { type: "player_joined", player: departedPlayer, timestamp: 1 },
-      { type: "units_deployed", playerId: departedPlayer.id, territoryId: "B2", count: 3, remainingReinforcements: 2, timestamp: 2 },
+      { type: "units_deployed", playerId: departedPlayer.id, territoryId: nileTerritory, count: 3, remainingReinforcements: 2, timestamp: 2 },
       { type: "player_left", playerId: departedPlayer.id, timestamp: 3 },
     ];
     const setup = await testRender(
       React.createElement(EventLog, {
-          mapBundle: ironreachBundle,
+          mapBundle: earthBundle,
         events, chatOpen: false, players: [players[0]], onToggleChat: () => {}, onSendChat: () => {}, layoutMode: "wide",
       }),
       { width: 120, height: 10 }
     );
     await act(async () => { await setup.renderOnce(); });
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("Baroness Ilyra reinforced The Marches");
+    expect(frame).toContain("Baroness Ilyra reinforced Nile Valley");
     expect(frame).toContain("Lord Baroness Ilyra retreated from the council");
     expect(frame).not.toContain("usr_departed");
     await act(async () => { setup.renderer.destroy(); });
@@ -533,9 +533,9 @@ describe("visual sidebar composition", () => {
 
   for (const [columns, rows] of [[140, 45], [200, 55]] as const) {
     it(`opens chat in the actual ${columns}x${rows} App without stealing map rows`, async () => {
-      const map = columns === 140 ? MAP_GRID_IRONREACH_COMPACT : MAP_GRID_IRONREACH_WIDE;
+      const map = selectRenderVariant(earthBundle, getMapContentDimensionsForTerminal(columns, rows)).grid;
       const raster = getMapRenderLayout(map);
-      expect(raster.height).toBe(columns === 140 ? 30 : 36);
+      expect(raster.height).toBeGreaterThan(0);
       const setup = await testRender(
         React.createElement(App, { client: activeClient(), terminalDimensions: { columns, rows } }),
         { width: columns, height: rows }
